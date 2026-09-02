@@ -25,8 +25,8 @@ def log_step(
 ):
 
     print(
-        "\n"
-        + "=" * 60
+        "\n" +
+        "=" * 60
     )
 
     print(
@@ -74,15 +74,11 @@ def build_advanced_features():
     matches = conn.execute(
         """
         SELECT
-
             match_id,
-
             home_team,
             away_team,
-
             final_home,
             final_away
-
         FROM historical_matches
         """
     ).fetchall()
@@ -100,19 +96,12 @@ def build_advanced_features():
     events = conn.execute(
         """
         SELECT
-
             match_id,
-
             minute,
-
             side,
-
             is_goal
-
         FROM historical_events
-
         WHERE is_goal = 1
-
         ORDER BY match_id, minute
         """
     ).fetchall()
@@ -159,8 +148,6 @@ def build_advanced_features():
 
         team = row[0]
 
-        matches_played = 0
-
         early_goals = 0
         early_concedes = 0
 
@@ -180,11 +167,8 @@ def build_advanced_features():
         second_half_against = 0
 
         relevant_matches = [
-
             m
-
             for m in matches
-
             if (
                 m[1] == team
                 or
@@ -227,15 +211,12 @@ def build_advanced_features():
                 side = goal[2]
 
                 if side == 1:
-
                     running_home += 1
 
                 elif side == 2:
-
                     running_away += 1
 
                 if first_goal_side is None:
-
                     first_goal_side = side
 
                 is_team_goal = (
@@ -253,46 +234,38 @@ def build_advanced_features():
                 if minute <= 30:
 
                     if is_team_goal:
-
                         early_goals += 1
 
                     else:
-
                         early_concedes += 1
 
                 if minute <= 45:
 
                     if is_team_goal:
-
                         first_half_for += 1
 
                     else:
-
                         first_half_against += 1
 
                 else:
 
                     if is_team_goal:
-
                         second_half_for += 1
 
                     else:
-
                         second_half_against += 1
 
                 if team == home_team:
 
                     if running_home > running_away:
-
                         team_led = True
 
                 elif team == away_team:
 
                     if running_away > running_home:
-
                         team_led = True
 
-            if first_goal_side:
+            if first_goal_side is not None:
 
                 if (
                     team == home_team
@@ -316,20 +289,12 @@ def build_advanced_features():
 
                     if team == home_team:
 
-                        if (
-                            final_home
-                            >=
-                            final_away
-                        ):
+                        if final_home >= final_away:
                             successful_comebacks += 1
 
-                    elif team == away_team:
+                    else:
 
-                        if (
-                            final_away
-                            >=
-                            final_home
-                        ):
+                        if final_away >= final_home:
                             successful_comebacks += 1
 
             if team_led:
@@ -338,20 +303,12 @@ def build_advanced_features():
 
                 if team == home_team:
 
-                    if (
-                        final_home
-                        >
-                        final_away
-                    ):
+                    if final_home > final_away:
                         retained_leads += 1
 
-                elif team == away_team:
+                else:
 
-                    if (
-                        final_away
-                        >
-                        final_home
-                    ):
+                    if final_away > final_home:
                         retained_leads += 1
 
         early_goal_rate = 0
@@ -374,8 +331,7 @@ def build_advanced_features():
             early_goal_rate = round(
                 (
                     early_goals
-                    /
-                    matches_played
+                    / matches_played
                 )
                 * 100,
                 2
@@ -384,8 +340,7 @@ def build_advanced_features():
             early_concede_rate = round(
                 (
                     early_concedes
-                    /
-                    matches_played
+                    / matches_played
                 )
                 * 100,
                 2
@@ -394,8 +349,7 @@ def build_advanced_features():
             first_lead_rate = round(
                 (
                     first_leads
-                    /
-                    matches_played
+                    / matches_played
                 )
                 * 100,
                 2
@@ -404,8 +358,7 @@ def build_advanced_features():
             first_concede_rate = round(
                 (
                     first_concedes
-                    /
-                    matches_played
+                    / matches_played
                 )
                 * 100,
                 2
@@ -417,8 +370,7 @@ def build_advanced_features():
                     -
                     first_half_against
                 )
-                /
-                matches_played,
+                / matches_played,
                 3
             )
 
@@ -428,8 +380,7 @@ def build_advanced_features():
                     -
                     second_half_against
                 )
-                /
-                matches_played,
+                / matches_played,
                 3
             )
 
@@ -438,8 +389,7 @@ def build_advanced_features():
             comeback_rate = round(
                 (
                     successful_comebacks
-                    /
-                    comeback_attempts
+                    / comeback_attempts
                 )
                 * 100,
                 2
@@ -450,32 +400,31 @@ def build_advanced_features():
             lead_retention_rate = round(
                 (
                     retained_leads
-                    /
-                    lead_games
+                    / lead_games
                 )
                 * 100,
                 2
             )
 
         existing = conn.execute(
-    """
-    SELECT
-    two_up_trigger_rate
-    FROM team_stats
-    WHERE team = ?
-    """,
-    (
-        team,
-    )
-).fetchone()
+            """
+            SELECT
+                two_up_trigger_rate
+            FROM team_stats
+            WHERE team = ?
+            """,
+            (
+                team,
+            )
+        ).fetchone()
 
-trigger_rate = 0
+        trigger_rate = 0
 
-if (
-    existing
-    and existing[0] is not None
-):
-    trigger_rate = existing[0]
+        if (
+            existing
+            and existing[0] is not None
+        ):
+            trigger_rate = existing[0]
 
         burnout_index = round(
             (
@@ -497,7 +446,6 @@ if (
             """
             UPDATE team_stats
             SET
-
                 early_goal_rate = ?,
                 early_concede_rate = ?,
 
@@ -563,8 +511,7 @@ if (
 
     elapsed = round(
         time.time()
-        -
-        start_time,
+        - start_time,
         1
     )
 
@@ -584,5 +531,4 @@ if (
 
 
 if __name__ == "__main__":
-
     build_advanced_features()

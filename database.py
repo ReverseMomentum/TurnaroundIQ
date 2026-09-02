@@ -235,6 +235,7 @@ CREATE TABLE IF NOT EXISTS team_stats (
     historical_matches INTEGER,
     historical_two_up INTEGER,
     historical_comebacks INTEGER,
+
     historical_turnaround_rate REAL,
 
     league_turnaround_rate REAL,
@@ -248,6 +249,10 @@ CREATE TABLE IF NOT EXISTS team_stats (
     model_weight REAL,
 
     updated_at TEXT
+
+)
+""")
+
 
 )
 """)

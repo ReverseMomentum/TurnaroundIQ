@@ -180,6 +180,8 @@ def create_tables():
 
         matches_played INTEGER,
 
+        lead_retention_rate REAL,
+
         updated_at TEXT
     )
     """)

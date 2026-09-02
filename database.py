@@ -237,6 +237,7 @@ CREATE TABLE IF NOT EXISTS team_stats (
     historical_comebacks INTEGER,
 
     historical_turnaround_rate REAL,
+    historical_trigger_rate REAL,
 
     league_turnaround_rate REAL,
     opponent_turnaround_rate REAL,

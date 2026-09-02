@@ -458,20 +458,24 @@ def build_advanced_features():
             )
 
         existing = conn.execute(
-            """
-            SELECT
-            two_up_trigger_rate
-            FROM team_stats
-            WHERE team = ?
-            """,
-            (
-                team,
-            )
-        ).fetchone()
+    """
+    SELECT
+    two_up_trigger_rate
+    FROM team_stats
+    WHERE team = ?
+    """,
+    (
+        team,
+    )
+).fetchone()
 
-        trigger_rate = 0
+trigger_rate = 0
 
-        if existing and existingtrigger_rate = existing[0]
+if (
+    existing
+    and existing[0] is not None
+):
+    trigger_rate = existing[0]
 
         burnout_index = round(
             (

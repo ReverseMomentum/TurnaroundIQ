@@ -218,7 +218,8 @@ def build_team_intelligence():
                     ):
                         comeback_count += 1
 
-                        turnaround_rate = 0
+        turnaround_rate = 0
+
 
         if two_up_count > 0:
 
@@ -281,6 +282,8 @@ def build_team_intelligence():
                 comeback_count,
 
                 turnaround_rate
+
+                historical_trigger_rate
             )
         )
 

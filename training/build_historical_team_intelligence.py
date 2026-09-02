@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 
 PROJECT_ROOT = (
@@ -16,9 +17,54 @@ if str(PROJECT_ROOT) not in sys.path:
 from database import get_db
 
 
+def log_step(message):
+
+    print(
+        "\n"
+        + "=" * 60
+    )
+
+    print(message)
+
+    print(
+        "=" * 60
+    )
+
+
+def log_progress(
+    current,
+    total
+):
+
+    pct = round(
+        (
+            current
+            / total
+        )
+        * 100,
+        1
+    )
+
+    print(
+        f"Teams: "
+        f"{current:,}/{total:,} "
+        f"({pct}%)"
+    )
+
+
 def build_team_intelligence():
 
+    start_time = time.time()
+
+    log_step(
+        "Building Historical Team Intelligence"
+    )
+
     conn = get_db()
+
+    print(
+        "Loading teams..."
+    )
 
     teams = conn.execute(
         """
@@ -32,9 +78,20 @@ def build_team_intelligence():
         """
     ).fetchall()
 
+    total_teams = len(
+        teams
+    )
+
+    print(
+        f"{total_teams:,} teams found"
+    )
+
     updated = 0
 
-    for row in teams:
+    for idx, row in enumerate(
+        teams,
+        start=1
+    ):
 
         team = row[0]
 
@@ -211,12 +268,41 @@ def build_team_intelligence():
 
         updated += 1
 
+        if (
+            idx % 25 == 0
+            or idx == total_teams
+        ):
+
+            log_progress(
+                idx,
+                total_teams
+            )
+
     conn.commit()
 
     conn.close()
 
+    elapsed = round(
+        time.time()
+        -
+        start_time,
+        1
+    )
+
+    log_step(
+        "Historical Team Intelligence Complete"
+    )
+
     print(
-        f"{updated} historical team profiles built"
+        f"Teams Updated: {updated:,}"
+    )
+
+    print(
+        f"Runtime: {elapsed}s"
+    )
+
+    print(
+        "\n✅ Complete"
     )
 
 

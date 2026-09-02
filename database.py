@@ -147,7 +147,7 @@ def create_tables():
     )
     """)
 
-    conn.execute(""
+    conn.execute("""
     CREATE TABLE IF NOT EXISTS historical_matches (
 
         match_id TEXT PRIMARY KEY,
@@ -169,9 +169,9 @@ def create_tables():
         odd_d REAL,
         odd_a REAL
     )
-    "")
+    """)
 
-    conn.execute(""
+    conn.execute("""
     CREATE TABLE IF NOT EXISTS historical_events (
 
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,8 +192,8 @@ def create_tables():
         is_goal INTEGER,
 
         situation INTEGER
-)
-"")
+    )
+    """)
     
     conn.execute("""
     CREATE TABLE IF NOT EXISTS team_stats (

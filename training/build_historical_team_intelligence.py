@@ -281,7 +281,7 @@ def build_team_intelligence():
 
                 comeback_count,
 
-                turnaround_rate
+                turnaround_rate,
 
                 historical_trigger_rate
             )

@@ -182,6 +182,17 @@ def create_tables():
 
         lead_retention_rate REAL,
 
+        recent_turnaround_rate REAL,
+
+        early_goal_rate REAL,
+
+        first_half_goal_diff REAL,
+
+        second_half_goal_diff REAL,
+
+        burnout_index REAL,
+
+
         updated_at TEXT
     )
     """)

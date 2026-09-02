@@ -254,10 +254,6 @@ CREATE TABLE IF NOT EXISTS team_stats (
 """)
 
 
-)
-""")
-
-
     conn.execute("""
     CREATE TABLE IF NOT EXISTS training_data (
 

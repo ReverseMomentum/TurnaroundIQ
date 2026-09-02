@@ -147,6 +147,54 @@ def create_tables():
     )
     """)
 
+    conn.execute(""
+    CREATE TABLE IF NOT EXISTS historical_matches (
+
+        match_id TEXT PRIMARY KEY,
+
+        date TEXT,
+
+        league TEXT,
+        season TEXT,
+
+        country TEXT,
+
+        home_team TEXT,
+        away_team TEXT,
+
+        final_home INTEGER,
+        final_away INTEGER,
+
+        odd_h REAL,
+        odd_d REAL,
+        odd_a REAL
+    )
+    "")
+
+    conn.execute(""
+    CREATE TABLE IF NOT EXISTS historical_events (
+
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        match_id TEXT,
+
+        minute INTEGER,
+
+        event_type INTEGER,
+        event_type2 INTEGER,
+
+        side INTEGER,
+
+        team TEXT,
+
+        player TEXT,
+
+        is_goal INTEGER,
+
+        situation INTEGER
+)
+"")
+    
     conn.execute("""
     CREATE TABLE IF NOT EXISTS team_stats (
 

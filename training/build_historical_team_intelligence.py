@@ -218,7 +218,7 @@ def build_team_intelligence():
                     ):
                         comeback_count += 1
 
-        turnaround_rate = 0
+                        turnaround_rate = 0
 
         if two_up_count > 0:
 
@@ -232,25 +232,43 @@ def build_team_intelligence():
                 2
             )
 
+        historical_trigger_rate = 0
+
+        if match_count > 0:
+
+            historical_trigger_rate = round(
+                (
+                    two_up_count
+                    /
+                    match_count
+                )
+                * 100,
+                2
+            )
+
         conn.execute(
+
             """
             INSERT OR REPLACE
             INTO team_stats
             (
-                team,
+            team,
 
-                historical_matches,
+            historical_matches,
 
-                historical_two_up,
+            historical_two_up,
 
-                historical_comebacks,
+            historical_comebacks,
 
-                historical_turnaround_rate
+            historical_turnaround_rate,
+
+            historical_trigger_rate
             )
+
 
             VALUES
             (
-                ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?
             )
             """,
             (

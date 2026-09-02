@@ -196,54 +196,62 @@ def create_tables():
     """)
     
     conn.execute("""
-    CREATE TABLE IF NOT EXISTS team_stats (
+CREATE TABLE IF NOT EXISTS team_stats (
 
-        team TEXT PRIMARY KEY,
+    team TEXT PRIMARY KEY,
 
-        avg_xg REAL,
-        avg_xga REAL,
+    avg_xg REAL,
+    avg_xga REAL,
+    xg_edge REAL,
 
-        xg_edge REAL,
+    goals_last5 INTEGER,
+    conceded_last5 INTEGER,
 
-        goals_last5 INTEGER,
-        conceded_last5 INTEGER,
+    matches_played INTEGER,
 
-        turnaround_pct REAL,
+    two_up_leads INTEGER,
+    failed_leads INTEGER,
 
-        two_up_leads INTEGER,
-        failed_leads INTEGER,
+    turnaround_pct REAL,
+    two_up_trigger_rate REAL,
+    lead_retention_rate REAL,
 
-        home_turnaround_pct REAL,
-        away_turnaround_pct REAL,
+    home_turnaround_pct REAL,
+    away_turnaround_pct REAL,
 
-        historical_matches INTEGER,
-        historical_two_up INTEGER,
-        historical_comebacks INTEGER,
+    early_goal_rate REAL,
+    early_concede_rate REAL,
 
-        two_up_trigger_rate REAL,
-        historical_turnaround_rate REAL,
+    first_lead_rate REAL,
+    first_concede_rate REAL,
 
-        league_turnaround_rate REAL,
-        opponent_turnaround_rate REAL,
+    comeback_rate REAL,
 
-        matches_played INTEGER,
+    first_half_goal_diff REAL,
+    second_half_goal_diff REAL,
 
-        lead_retention_rate REAL,
+    burnout_index REAL,
 
-        recent_turnaround_rate REAL,
+    historical_matches INTEGER,
+    historical_two_up INTEGER,
+    historical_comebacks INTEGER,
+    historical_turnaround_rate REAL,
 
-        early_goal_rate REAL,
+    league_turnaround_rate REAL,
+    opponent_turnaround_rate REAL,
 
-        first_half_goal_diff REAL,
+    momentum_score REAL,
 
-        second_half_goal_diff REAL,
+    attack_rating REAL,
+    defence_rating REAL,
 
-        burnout_index REAL,
+    model_weight REAL,
 
+    updated_at TEXT
 
-        updated_at TEXT
-    )
-    """)
+)
+""")
+
 
     conn.execute("""
     CREATE TABLE IF NOT EXISTS training_data (

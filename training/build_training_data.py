@@ -356,117 +356,120 @@ def build_training_data():
         for row in rows_to_insert:
 
             conn.execute(
-                """
-                INSERT INTO training_data
-                (
+            """
+            INSERT INTO training_data
+            (
+                match_id,
+                league,
+                team,
 
-                    match_id,
-                    league,
-                    team,
+                is_home,
 
-                    is_home,
+                back_odds,
+                lay_odds,
 
-                    back_odds,
-                    lay_odds,
+                avg_xg,
+                avg_xga,
 
-                    avg_xg,
-                    avg_xga,
+                xg_edge,
 
-                    xg_edge,
+                goals_last5,
+                conceded_last5,
 
-                    goals_last5,
-                    conceded_last5,
+                turnaround_pct,
 
-                    turnaround_pct,
+                two_up_trigger_rate,
 
-                    two_up_trigger_rate,
+                historical_turnaround_rate,
+                historical_trigger_rate,
 
-                    historical_turnaround_rate,
+                early_goal_rate,
+                early_concede_rate,
 
-                    league_turnaround_rate,
+                first_lead_rate,
+                first_concede_rate,
 
-                    opponent_turnaround_rate,
+                comeback_rate,
 
-                    lead_minute,
-                    max_lead,
+                lead_retention_rate,
 
-                    opening_back_odds,
-                    odds_movement,
+                first_half_goal_diff,
+                second_half_goal_diff,
 
-                    red_cards_for,
-                    red_cards_against,
+                burnout_index,
 
-                    shots_for,
-                    shots_against,
+                league_turnaround_rate,
+                opponent_turnaround_rate,
 
-                    sample_weight,
+                lead_minute,
+                max_lead,
 
-                    full_turnaround,
+                opening_back_odds,
+                odds_movement,
 
-                    historical_turnaround_rate,
-                    historical_trigger_rate,
+                red_cards_for,
+                red_cards_against,
 
-                    early_goal_rate,
-                    early_concede_rate,
+                shots_for,
+                shots_against,
 
-                    first_lead_rate,
-                    first_concede_rate,
+                sample_weight,
 
-                    comeback_rate,
+                full_turnaround,
 
-                    lead_retention_rate,
-
-                    first_half_goal_diff,
-                    second_half_goal_diff,
-
-                    burnout_index,
-
-
-                    created_at
-
-                )
-
-                VALUES
-                (
-                    ?, ?, ?,
-
-                    ?,
-
-                    ?, ?,
-
-                    ?, ?,
-
-                    ?,
-
-                    ?, ?,
-
-                    ?,
-
-                    ?,
-
-                    ?,
-
-                    ?,
-
-                    ?,
-
-                    ?, ?,
-
-                    ?, ?,
-
-                    ?, ?,
-
-                    ?, ?,
-
-                    ?,
-
-                    ?,
-
-                    ?
-                )
-                """,
-                row
+                created_at
             )
+
+            VALUES
+            (
+                ?, ?, ?,
+
+                ?,
+
+                ?, ?,
+
+                ?, ?,
+
+                ?,
+
+                ?, ?,
+
+                ?,
+
+                ?,
+
+                ?, ?,
+
+                ?, ?,
+
+                ?, ?,
+
+                ?,
+
+                ?,
+
+                ?, ?,
+
+                ?,
+
+                ?, ?,
+
+                ?, ?,
+
+                ?, ?,
+
+                ?, ?,
+
+                ?,
+
+                ?,
+
+                ?
+            )
+            """,
+            row
+        )
+
 
         inserted += 2
 

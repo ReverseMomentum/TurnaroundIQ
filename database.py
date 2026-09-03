@@ -853,7 +853,7 @@ def save_odds_history(
     exchange_name=None
 ):
 
-    def get_odds_movement(home_team, away_team, team):
+def get_odds_movement(home_team, away_team, team):
     """
     Look up opening (first-seen) and latest back_odds for `team`
     in a home_team vs away_team fixture, matched by normalized

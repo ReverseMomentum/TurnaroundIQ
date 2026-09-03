@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
         str(PROJECT_ROOT)
     )
 
-from database import get_db
+from database import get_db, get_odds_movement
 
 from calculations import (
     calculate_lay_stake,
@@ -30,6 +30,64 @@ from models.model import (
     predict_with_confidence,
     build_feature_vector
 )
+
+
+TEAM_STATS_COLUMNS = [
+
+    "avg_xg",
+    "avg_xga",
+
+    "xg_edge",
+
+    "goals_last5",
+    "conceded_last5",
+
+    "turnaround_pct",
+    "two_up_trigger_rate",
+
+    "historical_turnaround_rate",
+    "historical_trigger_rate",
+
+    "early_goal_rate",
+    "early_concede_rate",
+
+    "first_lead_rate",
+    "first_concede_rate",
+
+    "comeback_rate",
+    "lead_retention_rate",
+
+    "first_half_goal_diff",
+    "second_half_goal_diff",
+
+    "burnout_index",
+
+    "league_turnaround_rate",
+    "opponent_turnaround_rate",
+
+    "live_trigger_rate",
+    "live_early_goal_rate",
+    "live_early_concede_rate",
+    "live_first_lead_rate",
+    "live_first_concede_rate",
+    "live_comeback_rate",
+    "live_lead_retention_rate",
+    "live_first_half_goal_diff",
+    "live_second_half_goal_diff",
+    "live_burnout_index",
+
+    "trigger_rate_delta",
+    "early_goal_delta",
+    "early_concede_delta",
+    "first_lead_delta",
+    "first_concede_delta",
+    "comeback_delta",
+    "lead_retention_delta",
+    "burnout_delta",
+
+    "abs_trigger_delta",
+    "abs_retention_delta"
+]
 
 
 def estimate_lay_odds(
@@ -57,27 +115,15 @@ def get_team_stats(
 
     conn = get_db()
 
+    columns_sql = ",\n            ".join(
+        TEAM_STATS_COLUMNS
+    )
+
     row = conn.execute(
-        """
+        f"""
         SELECT
 
-            avg_xg,
-            avg_xga,
-
-            xg_edge,
-
-            goals_last5,
-            conceded_last5,
-
-            turnaround_pct,
-
-            historical_turnaround_rate,
-
-            two_up_trigger_rate,
-
-            league_turnaround_rate,
-
-            opponent_turnaround_rate
+            {columns_sql}
 
         FROM team_stats
 
@@ -91,25 +137,12 @@ def get_team_stats(
     if not row:
         return None
 
-    return {
-        "avg_xg": row[0],
-        "avg_xga": row[1],
-
-        "xg_edge": row[2],
-
-        "goals_last5": row[3],
-        "conceded_last5": row[4],
-
-        "turnaround_pct": row[5],
-
-        "historical_turnaround_rate": row[6],
-
-        "two_up_trigger_rate": row[7],
-
-        "league_turnaround_rate": row[8],
-
-        "opponent_turnaround_rate": row[9]
-    }
+    return dict(
+        zip(
+            TEAM_STATS_COLUMNS,
+            row
+        )
+    )
 
 
 def build_opportunity(
@@ -151,6 +184,34 @@ def build_opportunity(
             supplied_lay
         )
 
+    # opening_back_odds / odds_movement come from odds_history
+    # (pre-match polls already captured by odds_collector.py),
+    # not from the current back_odds being used to stake this
+    # bet - those are two different things. If the fixture
+    # doesn't carry both team names we can't look this up, and
+    # it's left as None -> NaN for the model, same as any other
+    # genuinely missing feature.
+    home_team = fixture.get(
+        "home_team"
+    )
+
+    away_team = fixture.get(
+        "away_team"
+    )
+
+    opening_back_odds = None
+    odds_movement = None
+
+    if home_team and away_team:
+
+        opening_back_odds, odds_movement = (
+            get_odds_movement(
+                home_team,
+                away_team,
+                team
+            )
+        )
+
     feature_vector = (
         build_feature_vector(
             team_stats=stats,
@@ -161,9 +222,13 @@ def build_opportunity(
             ),
 
             opening_back_odds=
-            back_odds,
+            opening_back_odds,
+
+            odds_movement=
+            odds_movement,
 
             lead_minute=0,
+            max_lead=2,
 
             shots_for=0,
             shots_against=0,

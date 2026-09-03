@@ -15,8 +15,70 @@ if str(PROJECT_ROOT) not in sys.path:
         str(PROJECT_ROOT)
     )
 
-from database import get_db
+from database import get_db, get_odds_movement
 from team_normalizer import normalize_team
+
+
+TEAM_STATS_SELECT = """
+    SELECT
+
+        avg_xg,
+        avg_xga,
+
+        goals_last5,
+        conceded_last5,
+
+        turnaround_pct,
+
+        two_up_trigger_rate,
+
+        historical_turnaround_rate,
+        historical_trigger_rate,
+
+        early_goal_rate,
+        early_concede_rate,
+
+        first_lead_rate,
+        first_concede_rate,
+
+        comeback_rate,
+
+        lead_retention_rate,
+
+        first_half_goal_diff,
+        second_half_goal_diff,
+
+        burnout_index,
+
+        opponent_turnaround_rate,
+
+        live_trigger_rate,
+        live_early_goal_rate,
+        live_early_concede_rate,
+        live_first_lead_rate,
+        live_first_concede_rate,
+        live_comeback_rate,
+        live_lead_retention_rate,
+        live_first_half_goal_diff,
+        live_second_half_goal_diff,
+        live_burnout_index,
+
+        trigger_rate_delta,
+        early_goal_delta,
+        early_concede_delta,
+        first_lead_delta,
+        first_concede_delta,
+        comeback_delta,
+        lead_retention_delta,
+        burnout_delta,
+
+        abs_trigger_delta,
+        abs_retention_delta
+
+     FROM team_stats
+
+     WHERE team = ?
+"""
 
 
 def get_league_turnaround_rate(
@@ -37,6 +99,20 @@ def get_league_turnaround_rate(
         return row[0]
 
     return 0
+
+
+def zero_if_none(
+    stats,
+    length
+):
+
+    if not stats:
+        return [0] * length
+
+    return [
+        v if v is not None else 0
+        for v in stats
+    ]
 
 
 def build_training_data():
@@ -66,6 +142,7 @@ def build_training_data():
             away_lead_minute
 
         FROM match_results
+
         """
     ).fetchall()
 
@@ -96,90 +173,13 @@ def build_training_data():
         )
 
         home_stats = conn.execute(
-            """
-            SELECT
-
-                avg_xg,
-                avg_xga,
-
-                goals_last5,
-                conceded_last5,
-
-                turnaround_pct,
-
-                two_up_trigger_rate,
-
-                historical_turnaround_rate,
-                historical_trigger_rate,
-
-                early_goal_rate,
-                early_concede_rate,
-
-                first_lead_rate,
-                first_concede_rate,
-
-                comeback_rate,
-
-                lead_retention_rate,
-
-                first_half_goal_diff,
-                second_half_goal_diff,
-
-                burnout_index,
-
-                opponent_turnaround_rate
-
-             FROM team_stats
-
-             WHERE team = ?
-
-            """,
-            (
-                home_team,
-            )
+            TEAM_STATS_SELECT,
+            (home_team,)
         ).fetchone()
 
         away_stats = conn.execute(
-            """
-            SELECT
-
-                avg_xg,
-                avg_xga,
-
-                goals_last5,
-                conceded_last5,
-
-                turnaround_pct,
-
-                two_up_trigger_rate,
-
-                historical_turnaround_rate,
-                historical_trigger_rate,
-
-                early_goal_rate,
-                early_concede_rate,
-
-                first_lead_rate,
-                first_concede_rate,
-
-                comeback_rate,
-
-                lead_retention_rate,
-
-                first_half_goal_diff,
-                second_half_goal_diff,
-
-                burnout_index,
-
-                opponent_turnaround_rate
-
-             FROM team_stats
-
-             WHERE team = ?
-            """,
-            (
-                away_team,
-            )
+            TEAM_STATS_SELECT,
+            (away_team,)
         ).fetchone()
 
         if not home_stats:
@@ -198,6 +198,16 @@ def build_training_data():
 
             continue
 
+        home_stats = zero_if_none(
+            home_stats,
+            38
+        )
+
+        away_stats = zero_if_none(
+            away_stats,
+            38
+        )
+
         league_turnaround_rate = (
             get_league_turnaround_rate(
                 conn,
@@ -206,270 +216,197 @@ def build_training_data():
         )
 
         home_xg_edge = (
-            (home_stats[0] or 0)
-            -
-            (home_stats[1] or 0)
+            home_stats[0] - home_stats[1]
         )
 
         away_xg_edge = (
-            (away_stats[0] or 0)
-            -
-            (away_stats[1] or 0)
+            away_stats[0] - away_stats[1]
+        )
+
+        home_opening_odds, home_odds_movement = (
+            get_odds_movement(
+                home_team,
+                away_team,
+                home_team
+            )
+        )
+
+        away_opening_odds, away_odds_movement = (
+            get_odds_movement(
+                home_team,
+                away_team,
+                away_team
+            )
         )
 
         rows_to_insert = [
 
-            (
+            _build_row(
                 match_id,
                 league,
                 home_team,
 
-                1,
+                is_home=1,
 
-                None,
-                None,
+                team_stats=home_stats,
+                xg_edge=home_xg_edge,
 
-                home_stats[0],
-                home_stats[1],
+                league_turnaround_rate=league_turnaround_rate,
+                opponent_turnaround_rate=away_stats[17],
 
-                home_xg_edge,
+                lead_minute=home_lead_minute or 0,
 
-                home_stats[2],
-                home_stats[3],
+                opening_back_odds=home_opening_odds,
+                odds_movement=home_odds_movement,
 
-                home_stats[4],
-
-                home_stats[5],
-
-                home_stats[6],
-                home_stats[7],
-
-                home_stats[8],
-                home_stats[9],
-
-                home_stats[10],
-                home_stats[11],
-
-                home_stats[12],
-
-                home_stats[13],
-
-                home_stats[14],
-                home_stats[15],
-
-                home_stats[16],
-
-                league_turnaround_rate,
-                away_stats[17],
-
-                home_lead_minute or 0,
-
-                2,
-
-                None,
-                None,
-
-                None,
-                None,
-
-                None,
-                None,
-
-                1.0,
-
-                home_turnaround,
-
-                datetime.now(
-                    timezone.utc
-                ).isoformat()
+                full_turnaround=home_turnaround
             ),
 
-            (
+            _build_row(
                 match_id,
                 league,
                 away_team,
 
-                0,
+                is_home=0,
 
-                None,
-                None,
+                team_stats=away_stats,
+                xg_edge=away_xg_edge,
 
-                away_stats[0],
-                away_stats[1],
+                league_turnaround_rate=league_turnaround_rate,
+                opponent_turnaround_rate=home_stats[17],
 
-                away_xg_edge,
+                lead_minute=away_lead_minute or 0,
 
-                away_stats[2],
-                away_stats[3],
+                opening_back_odds=away_opening_odds,
+                odds_movement=away_odds_movement,
 
-                away_stats[4],
-
-                away_stats[5],
-
-                away_stats[6],
-                away_stats[7],
-
-                away_stats[8],
-                away_stats[9],
-
-                away_stats[10],
-                away_stats[11],
-
-                away_stats[12],
-
-                away_stats[13],
-
-                away_stats[14],
-                away_stats[15],
-
-                away_stats[16],
-
-                league_turnaround_rate,
-                home_stats[17],
-
-                away_lead_minute or 0,
-
-                2,
-
-                None,
-                None,
-
-                None,
-                None,
-
-                None,
-                None,
-
-                1.0,
-
-                away_turnaround,
-
-                datetime.now(
-                    timezone.utc
-                ).isoformat()
+                full_turnaround=away_turnaround
             )
 
         ]
 
-
-
         for row in rows_to_insert:
 
             conn.execute(
-            """
-            INSERT INTO training_data
-            (
-                match_id,
-                league,
-                team,
+                """
+                INSERT INTO training_data
+                (
+                    match_id,
+                    league,
+                    team,
 
-                is_home,
+                    is_home,
 
-                back_odds,
-                lay_odds,
+                    back_odds,
+                    lay_odds,
 
-                avg_xg,
-                avg_xga,
+                    avg_xg,
+                    avg_xga,
 
-                xg_edge,
+                    xg_edge,
 
-                goals_last5,
-                conceded_last5,
+                    goals_last5,
+                    conceded_last5,
 
-                turnaround_pct,
+                    turnaround_pct,
 
-                two_up_trigger_rate,
+                    two_up_trigger_rate,
 
-                historical_turnaround_rate,
-                historical_trigger_rate,
+                    historical_turnaround_rate,
+                    historical_trigger_rate,
 
-                early_goal_rate,
-                early_concede_rate,
+                    early_goal_rate,
+                    early_concede_rate,
 
-                first_lead_rate,
-                first_concede_rate,
+                    first_lead_rate,
+                    first_concede_rate,
 
-                comeback_rate,
+                    comeback_rate,
 
-                lead_retention_rate,
+                    lead_retention_rate,
 
-                first_half_goal_diff,
-                second_half_goal_diff,
+                    first_half_goal_diff,
+                    second_half_goal_diff,
 
-                burnout_index,
+                    burnout_index,
 
-                league_turnaround_rate,
-                opponent_turnaround_rate,
+                    league_turnaround_rate,
+                    opponent_turnaround_rate,
 
-                lead_minute,
-                max_lead,
+                    live_trigger_rate,
+                    live_early_goal_rate,
+                    live_early_concede_rate,
+                    live_first_lead_rate,
+                    live_first_concede_rate,
+                    live_comeback_rate,
+                    live_lead_retention_rate,
+                    live_first_half_goal_diff,
+                    live_second_half_goal_diff,
+                    live_burnout_index,
 
-                opening_back_odds,
-                odds_movement,
+                    trigger_rate_delta,
+                    early_goal_delta,
+                    early_concede_delta,
+                    first_lead_delta,
+                    first_concede_delta,
+                    comeback_delta,
+                    lead_retention_delta,
+                    burnout_delta,
 
-                red_cards_for,
-                red_cards_against,
+                    abs_trigger_delta,
+                    abs_retention_delta,
 
-                shots_for,
-                shots_against,
+                    lead_minute,
+                    max_lead,
 
-                sample_weight,
+                    opening_back_odds,
+                    odds_movement,
 
-                full_turnaround,
+                    red_cards_for,
+                    red_cards_against,
 
-                created_at
+                    shots_for,
+                    shots_against,
+
+                    sample_weight,
+
+                    full_turnaround,
+
+                    created_at
+                )
+
+                VALUES
+                (
+                    ?,?,?,
+                    ?,
+                    ?,?,
+                    ?,?,
+                    ?,
+                    ?,?,
+                    ?,
+                    ?,
+                    ?,?,
+                    ?,?,
+                    ?,?,
+                    ?,
+                    ?,
+                    ?,?,
+                    ?,
+                    ?,?,
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?,
+                    ?,?,
+                    ?,?,
+                    ?,?,
+                    ?,?,
+                    ?,?,
+                    ?,
+                    ?,
+                    ?
+                )
+                """,
+                row
             )
-
-            VALUES
-            (
-                ?, ?, ?,
-
-                ?,
-
-                ?, ?,
-
-                ?, ?,
-
-                ?,
-
-                ?, ?,
-
-                ?,
-
-                ?,
-
-                ?, ?,
-
-                ?, ?,
-
-                ?, ?,
-
-                ?,
-
-                ?,
-
-                ?, ?,
-
-                ?,
-
-                ?, ?,
-
-                ?, ?,
-
-                ?, ?,
-
-                ?, ?,
-
-                ?,
-
-                ?,
-
-                ?
-            )
-            """,
-            row
-        )
-
 
         inserted += 2
 
@@ -478,6 +415,118 @@ def build_training_data():
 
     print(
         f"{inserted} training rows built"
+    )
+
+
+def _build_row(
+    match_id,
+    league,
+    team,
+
+    is_home,
+
+    team_stats,
+    xg_edge,
+
+    league_turnaround_rate,
+    opponent_turnaround_rate,
+
+    lead_minute,
+
+    opening_back_odds,
+    odds_movement,
+
+    full_turnaround
+):
+
+    ts = team_stats
+
+    return (
+
+        match_id,
+        league,
+        team,
+
+        is_home,
+
+        None,
+        None,
+
+        ts[0],
+        ts[1],
+
+        xg_edge,
+
+        ts[2],
+        ts[3],
+
+        ts[4],
+
+        ts[5],
+
+        ts[6],
+        ts[7],
+
+        ts[8],
+        ts[9],
+
+        ts[10],
+        ts[11],
+
+        ts[12],
+
+        ts[13],
+
+        ts[14],
+        ts[15],
+
+        ts[16],
+
+        league_turnaround_rate,
+        opponent_turnaround_rate,
+
+        ts[18],
+        ts[19],
+        ts[20],
+        ts[21],
+        ts[22],
+        ts[23],
+        ts[24],
+        ts[25],
+        ts[26],
+        ts[27],
+
+        ts[28],
+        ts[29],
+        ts[30],
+        ts[31],
+        ts[32],
+        ts[33],
+        ts[34],
+        ts[35],
+
+        ts[36],
+        ts[37],
+
+        lead_minute,
+        2,
+
+        opening_back_odds,
+        odds_movement,
+
+        None,
+        None,
+
+        None,
+        None,
+
+        1.0,
+
+        full_turnaround,
+
+        datetime.now(
+            timezone.utc
+        ).isoformat()
     )
 
 

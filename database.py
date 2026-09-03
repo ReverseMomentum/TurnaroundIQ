@@ -283,6 +283,22 @@ CREATE TABLE IF NOT EXISTS team_stats (
         two_up_trigger_rate REAL,
 
         historical_turnaround_rate REAL,
+        historical_trigger_rate REAL,
+
+        early_goal_rate REAL,
+        early_concede_rate REAL,
+
+        first_lead_rate REAL,
+        first_concede_rate REAL,
+
+        comeback_rate REAL,
+
+        lead_retention_rate REAL,
+
+        first_half_goal_diff REAL,
+        second_half_goal_diff REAL,
+
+        burnout_index REAL,
 
         league_turnaround_rate REAL,
         opponent_turnaround_rate REAL,

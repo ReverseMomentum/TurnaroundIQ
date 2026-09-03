@@ -172,6 +172,63 @@ TEAM_ALIASES = {
 }
 
 
+# In-process cache of the team_aliases table. Previously,
+# get_alias_from_db() opened a brand-new sqlite connection on
+# every single call - and normalize_team() is called twice per
+# fixture across results_collector.py, build_training_data.py,
+# odds_collector.py, etc. For a single script run that's still
+# one process, so we only need to load the table once and reuse
+# it, instead of one connection per team-name lookup.
+_alias_cache = None
+_alias_cache_loaded = False
+
+
+def _load_alias_cache():
+
+    global _alias_cache
+    global _alias_cache_loaded
+
+    cache = {}
+
+    try:
+
+        conn = get_db()
+
+        rows = conn.execute(
+            """
+            SELECT alias, canonical_name
+            FROM team_aliases
+            """
+        ).fetchall()
+
+        conn.close()
+
+        for alias, canonical_name in rows:
+
+            cache[alias.lower()] = canonical_name
+
+    except Exception:
+
+        # table may not exist yet on a fresh DB - that's fine,
+        # just means no DB-sourced aliases this run
+        pass
+
+    _alias_cache = cache
+    _alias_cache_loaded = True
+
+
+def reload_alias_cache():
+    """
+    Force a re-read of team_aliases from the DB. Call this if
+    aliases were added mid-process (e.g. a long-running app
+    server where an admin just added a new alias) - normal
+    short-lived scripts (cron jobs) don't need to call this,
+    the cache naturally refreshes on the next process start.
+    """
+
+    _load_alias_cache()
+
+
 def clean_team_name(
     team_name
 ):
@@ -203,33 +260,16 @@ def get_alias_from_db(
     team_name
 ):
     """
-    Check team_aliases table.
+    Check team_aliases table (in-process cached).
     """
 
-    try:
+    if not _alias_cache_loaded:
 
-        conn = get_db()
+        _load_alias_cache()
 
-        row = conn.execute(
-            """
-            SELECT canonical_name
-            FROM team_aliases
-            WHERE LOWER(alias) = ?
-            """,
-            (
-                team_name.lower(),
-            )
-        ).fetchone()
-
-        conn.close()
-
-        if row:
-            return row[0]
-
-    except Exception:
-        pass
-
-    return None
+    return _alias_cache.get(
+        team_name.lower()
+    )
 
 
 def normalize_team(

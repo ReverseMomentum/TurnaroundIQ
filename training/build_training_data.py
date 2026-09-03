@@ -110,12 +110,29 @@ def build_training_data():
                 two_up_trigger_rate,
 
                 historical_turnaround_rate,
+                historical_trigger_rate,
+
+                early_goal_rate,
+                early_concede_rate,
+
+                first_lead_rate,
+                first_concede_rate,
+
+                comeback_rate,
+
+                lead_retention_rate,
+
+                first_half_goal_diff,
+                second_half_goal_diff,
+
+                burnout_index,
 
                 opponent_turnaround_rate
 
-            FROM team_stats
+             FROM team_stats
 
-            WHERE team = ?
+             WHERE team = ?
+
             """,
             (
                 home_team,
@@ -137,12 +154,28 @@ def build_training_data():
                 two_up_trigger_rate,
 
                 historical_turnaround_rate,
+                historical_trigger_rate,
+
+                early_goal_rate,
+                early_concede_rate,
+
+                first_lead_rate,
+                first_concede_rate,
+
+                comeback_rate,
+
+                lead_retention_rate,
+
+                first_half_goal_diff,
+                second_half_goal_diff,
+
+                burnout_index,
 
                 opponent_turnaround_rate
 
-            FROM team_stats
+             FROM team_stats
 
-            WHERE team = ?
+             WHERE team = ?
             """,
             (
                 away_team,
@@ -336,6 +369,25 @@ def build_training_data():
                     sample_weight,
 
                     full_turnaround,
+
+                    historical_turnaround_rate,
+                    historical_trigger_rate,
+
+                    early_goal_rate,
+                    early_concede_rate,
+
+                    first_lead_rate,
+                    first_concede_rate,
+
+                    comeback_rate,
+
+                    lead_retention_rate,
+
+                    first_half_goal_diff,
+                    second_half_goal_diff,
+
+                    burnout_index,
+
 
                     created_at
 

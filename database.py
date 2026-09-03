@@ -853,6 +853,42 @@ def save_odds_history(
     exchange_name=None
 ):
 
+    def get_odds_movement(home_team, away_team, team):
+    """
+    Look up opening (first-seen) and latest back_odds for `team`
+    in a home_team vs away_team fixture, matched by normalized
+    team names since odds_history uses a different fixture_id
+    space than match_results. Returns (opening_back_odds, odds_movement)
+    or (None, None) if nothing was tracked.
+    """
+    conn = get_db()
+
+    rows = conn.execute(
+        """
+        SELECT back_odds
+        FROM odds_history
+        WHERE home_team = ?
+        AND away_team = ?
+        AND selection = ?
+        ORDER BY timestamp ASC
+        """,
+        (home_team, away_team, team)
+    ).fetchall()
+
+    conn.close()
+
+    if not rows:
+        return None, None
+
+    opening_back_odds = rows[0][0]
+    latest_back_odds = rows[-1][0]
+
+    if opening_back_odds is None or latest_back_odds is None:
+        return None, None
+
+    return opening_back_odds, round(latest_back_odds - opening_back_odds, 3)
+
+    
     conn = get_db()
 
     conn.execute(

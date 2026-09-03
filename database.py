@@ -143,6 +143,9 @@ def create_tables():
         home_lead_minute INTEGER,
         away_lead_minute INTEGER,
 
+        home_early_goal INTEGER,
+        away_early_goal INTEGER,
+
         processed_at TEXT
     )
     """)

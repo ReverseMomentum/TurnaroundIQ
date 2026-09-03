@@ -853,13 +853,56 @@ def save_odds_history(
     exchange_name=None
 ):
 
+    conn = get_db()
+
+    conn.execute(
+        """
+        INSERT INTO odds_history
+        (
+            timestamp,
+            match_id,
+            kickoff,
+            league,
+            home_team,
+            away_team,
+            selection,
+            bookmaker,
+            exchange_name,
+            back_odds,
+            lay_odds
+        )
+        VALUES
+        (
+            datetime('now'),
+            ?, ?, ?,
+            ?, ?,
+            ?,
+            ?, ?,
+            ?, ?
+        )
+        """,
+        (
+            match_id,
+            kickoff,
+            league,
+            home_team,
+            away_team,
+            selection,
+            bookmaker,
+            exchange_name,
+            back_odds,
+            lay_odds
+        )
+    )
+
+    conn.commit()
+    conn.close()
+
+
 def get_odds_movement(home_team, away_team, team):
     """
     Look up opening (first-seen) and latest back_odds for `team`
-    in a home_team vs away_team fixture, matched by normalized
-    team names since odds_history uses a different fixture_id
-    space than match_results. Returns (opening_back_odds, odds_movement)
-    or (None, None) if nothing was tracked.
+    in a home_team vs away_team fixture.
     """
     conn = get_db()
 
@@ -886,9 +929,11 @@ def get_odds_movement(home_team, away_team, team):
     if opening_back_odds is None or latest_back_odds is None:
         return None, None
 
-    return opening_back_odds, round(latest_back_odds - opening_back_odds, 3)
+    return (
+        opening_back_odds,
+        round(latest_back_odds - opening_back_odds, 3)
+    )
 
-    
     conn = get_db()
 
     conn.execute(

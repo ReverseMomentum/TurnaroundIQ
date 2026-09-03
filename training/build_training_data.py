@@ -242,10 +242,25 @@ def build_training_data():
                 home_stats[5],
 
                 home_stats[6],
+                home_stats[7],
+
+                home_stats[8],
+                home_stats[9],
+
+                home_stats[10],
+                home_stats[11],
+
+                home_stats[12],
+
+                home_stats[13],
+
+                home_stats[14],
+                home_stats[15],
+
+                home_stats[16],
 
                 league_turnaround_rate,
-
-                away_stats[4],
+                away_stats[17],
 
                 home_lead_minute or 0,
 
@@ -292,10 +307,25 @@ def build_training_data():
                 away_stats[5],
 
                 away_stats[6],
+                away_stats[7],
+
+                away_stats[8],
+                away_stats[9],
+
+                away_stats[10],
+                away_stats[11],
+
+                away_stats[12],
+
+                away_stats[13],
+
+                away_stats[14],
+                away_stats[15],
+
+                away_stats[16],
 
                 league_turnaround_rate,
-
-                home_stats[4],
+                home_stats[17],
 
                 away_lead_minute or 0,
 
@@ -318,7 +348,10 @@ def build_training_data():
                     timezone.utc
                 ).isoformat()
             )
+
         ]
+
+
 
         for row in rows_to_insert:
 

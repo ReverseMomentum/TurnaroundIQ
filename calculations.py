@@ -134,28 +134,56 @@ def calculate_expected_profit(
     )
 
 
-def calculate_ev_percent(
-    expected_profit,
-    qualifying_loss
+def calculate_ev_pct(
+    fta_pct,
+    qualifying_loss,
+    fta_profit
 ):
     """
-    EV expressed as a percentage.
+    EV Score
+
+    100 = break-even
+
+    >100 = positive edge
+
+    <100 = negative edge
     """
 
-    if qualifying_loss == 0:
+    total_risk = (
+        abs(
+            qualifying_loss
+        )
+        +
+        fta_profit
+    )
+
+    if total_risk <= 0:
+
         return 0
 
-    return round(
-        (
-            expected_profit
-            /
-            abs(
-                qualifying_loss
-            )
+    break_even_pct = (
+        abs(
+            qualifying_loss
         )
-        * 100,
-        2
+        /
+        total_risk
+    ) * 100
+
+    if break_even_pct <= 0:
+
+        return 0
+
+    ev_score = (
+        fta_pct
+        /
+        break_even_pct
+    ) * 100
+
+    return round(
+        ev_score,
+        1
     )
+
 
 
 def calculate_roi(

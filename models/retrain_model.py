@@ -1,7 +1,6 @@
 import joblib
 import pandas as pd
 
-from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     brier_score_loss,
@@ -20,17 +19,18 @@ sys.path.append(
     )
 )
 
-from database import get_db
-
-
 from database import (
     get_db,
     save_model_run
 )
 
+from feature_config import FEATURE_COLUMNS
+
 MODEL_FILE = "fta_model.pkl"
 
-MODEL_VERSION = "V3.0"
+MODEL_VERSION = "V4.0"
+
+MIN_TRAINING_ROWS = 100
 
 
 def train_model():
@@ -47,55 +47,19 @@ def train_model():
 
     conn.close()
 
-    if len(df) < 100:
+    if len(df) < MIN_TRAINING_ROWS:
 
         print(
             f"Only {len(df)} rows found."
         )
 
         print(
-            "Need at least 100 rows."
+            f"Need at least {MIN_TRAINING_ROWS} rows."
         )
 
         return
 
-    features = [
-
-        "avg_xg",
-        "avg_xga",
-
-        "xg_edge",
-
-        "goals_last5",
-        "conceded_last5",
-
-        "turnaround_pct",
-
-        "two_up_trigger_rate",
-
-        "historical_turnaround_rate",
-
-        "league_turnaround_rate",
-
-        "opponent_turnaround_rate",
-
-        "is_home",
-
-        "lead_minute",
-        "max_lead",
-
-        "opening_back_odds",
-
-        "odds_movement",
-
-        "red_cards_for",
-        "red_cards_against",
-
-        "shots_for",
-        "shots_against"
-    ]
-
-    for col in features:
+    for col in FEATURE_COLUMNS:
 
         if col in df.columns:
 
@@ -104,28 +68,31 @@ def train_model():
                 errors="coerce"
             )
 
+        else:
+
+            print(
+                f"[WARN] feature '{col}' not found in "
+                f"training_data - filling as missing. "
+                f"Run migrate_live_features.py + "
+                f"build_training_data.py if this is "
+                f"unexpected."
+            )
+
+            df[col] = float("nan")
+
     y = pd.to_numeric(
         df["full_turnaround"],
         errors="coerce"
-    ).fillna(0)
+    ).fillna(0).astype(int)
 
-    X = df[features]
-
-    imputer = SimpleImputer(
-        strategy="median"
-    )
-
-    X = imputer.fit_transform(
-        X
-    )
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.20,
-        random_state=42,
-        stratify=y
-    )
+    # Deliberately NOT imputing here. XGBoost natively
+    # handles NaN at both train and predict time (same
+    # split-direction learned for missing values), so an
+    # imputer fit only at training time - and never
+    # reapplied identically at live prediction time - was
+    # a source of train/serve skew. Leaving NaN as NaN
+    # keeps behaviour identical in both places.
+    X = df[FEATURE_COLUMNS]
 
     if "sample_weight" in df.columns:
 
@@ -134,13 +101,39 @@ def train_model():
             errors="coerce"
         ).fillna(1.0)
 
-        train_weights = (
-            weights.iloc[X_train.shape[0] * 0:]
-        )
-
     else:
 
-        train_weights = None
+        weights = pd.Series(
+            1.0,
+            index=df.index
+        )
+
+    stratify_arg = y
+
+    if y.nunique() < 2 or y.value_counts().min() < 2:
+
+        print(
+            "[WARN] Not enough examples in the minority "
+            "class to stratify the split - falling back "
+            "to a random split. Treat metrics from this "
+            "run with extra caution."
+        )
+
+        stratify_arg = None
+
+    (
+        X_train, X_test,
+        y_train, y_test,
+        w_train, w_test
+    ) = train_test_split(
+        X,
+        y,
+        weights,
+
+        test_size=0.20,
+        random_state=42,
+        stratify=stratify_arg
+    )
 
     model = XGBClassifier(
 
@@ -161,7 +154,8 @@ def train_model():
 
     model.fit(
         X_train,
-        y_train
+        y_train,
+        sample_weight=w_train
     )
 
     probabilities = model.predict_proba(
@@ -178,10 +172,22 @@ def train_model():
         probabilities
     )
 
-    auc = roc_auc_score(
-        y_test,
-        probabilities
-    )
+    try:
+
+        auc = roc_auc_score(
+            y_test,
+            probabilities
+        )
+
+    except ValueError:
+
+        # only one class present in y_test - AUC undefined
+        auc = float("nan")
+
+        print(
+            "[WARN] Only one class present in the test "
+            "split - ROC AUC is undefined for this run."
+        )
 
     joblib.dump(
         model,
@@ -209,7 +215,7 @@ def train_model():
         ),
 
         notes=
-        "Historical + API Model"
+        "Historical + Live + Divergence features"
     )
 
     print(
@@ -238,7 +244,7 @@ def train_model():
 
     importance = sorted(
         zip(
-            features,
+            FEATURE_COLUMNS,
             model.feature_importances_
         ),
         key=lambda x: x[1],

@@ -96,14 +96,74 @@ TEAM_ALIASES = {
 
     # Scotland
 
-    "celtic fc":
-        "Celtic",
+    "hibs":
+        "Hibernian",
 
-    "rangers fc":
+    "hibernian fc":
+        "Hibernian",
+
+    "rangers":
         "Rangers",
 
-    "hearts":
+    "glasgow rangers":
+        "Rangers",
+
+    "heart of midlothian":
         "Heart of Midlothian",
+
+    "hearts fc":
+        "Heart of Midlothian",
+
+    "aberdeen fc":
+        "Aberdeen",
+
+    "dundee utd":
+        "Dundee United",
+
+    "dundee united fc":
+        "Dundee United",
+
+    "st mirren fc":
+        "St Mirren",
+
+    "motherwell fc":
+        "Motherwell",
+
+    "killie":
+        "Kilmarnock",
+
+    "kilmarnock fc":
+        "Kilmarnock",
+
+    # Portugal
+
+    "sporting":
+        "Sporting CP",
+
+    "sporting lisbon":
+        "Sporting CP",
+
+    "sporting clube de portugal":
+        "Sporting CP",
+
+    "porto":
+        "FC Porto",
+
+    "fc porto":
+        "FC Porto",
+
+    "benfica":
+        "Benfica",
+
+    "sl benfica":
+        "Benfica",
+
+    "braga":
+        "SC Braga",
+
+    "sc braga":
+        "SC Braga",
+
 
     # Germany
 
@@ -169,6 +229,170 @@ TEAM_ALIASES = {
 
     "paris sg":
         "Paris Saint Germain"
+
+    # Belgium
+
+    "club brugge":
+        "Club Brugge",
+
+    "club brugge kv":
+        "Club Brugge",
+
+    "royal antwerp":
+        "Royal Antwerp",
+
+    "antwerp":
+        "Royal Antwerp",
+
+    "anderlecht":
+        "RSC Anderlecht",
+
+    "rsc anderlecht":
+        "RSC Anderlecht",
+
+    "genk":
+        "Genk",
+
+    "krc genk":
+        "Genk",
+
+    "gent":
+        "Gent",
+
+    "kaa gent":
+        "Gent",
+
+    # Netherlands
+
+    "psv":
+        "PSV Eindhoven",
+
+    "psv eindhoven":
+        "PSV Eindhoven",
+
+    "ajax amsterdam":
+        "Ajax",
+
+    "afc ajax":
+        "Ajax",
+
+    "feyenoord rotterdam":
+        "Feyenoord",
+
+    "az":
+        "AZ Alkmaar",
+
+    "az alkmaar":
+        "AZ Alkmaar",
+
+    "twente":
+        "FC Twente",
+
+    "fc twente":
+        "FC Twente",
+
+    # Denmark
+
+    "fc copenhagen":
+        "FC Copenhagen",
+
+    "copenhagen":
+        "FC Copenhagen",
+
+    "kobenhavn":
+        "FC Copenhagen",
+
+    "københavn":
+        "FC Copenhagen",
+
+    "brondby":
+        "Brondby",
+
+    "brøndby":
+        "Brondby",
+
+    "midtjylland":
+        "FC Midtjylland",
+
+    "fc midtjylland":
+        "FC Midtjylland",
+
+    # Norway
+
+    "bodo glimt":
+        "Bodo/Glimt",
+
+    "bodo/glimt":
+        "Bodo/Glimt",
+
+    "molde fk":
+        "Molde",
+
+    "rosenborg bk":
+        "Rosenborg",
+
+    "viking fk":
+        "Viking",
+
+    # Sweden
+
+    "malmo":
+        "Malmo FF",
+
+    "malmö":
+        "Malmo FF",
+
+    "malmo ff":
+        "Malmo FF",
+
+    "aik stockholm":
+        "AIK",
+
+    "ifk goteborg":
+        "IFK Goteborg",
+
+    "ifk göteborg":
+        "IFK Goteborg",
+
+    "djurgardens":
+        "Djurgardens IF",
+
+    "djurgårdens":
+        "Djurgardens IF",
+
+    # MLS
+
+    "lafc":
+        "Los Angeles FC",
+
+    "la fc":
+        "Los Angeles FC",
+
+    "inter miami":
+        "Inter Miami CF",
+
+    "atlanta":
+        "Atlanta United",
+
+    "atlanta utd":
+        "Atlanta United",
+
+    "nycfc":
+        "New York City FC",
+
+    "new york city":
+        "New York City FC",
+
+    "sporting kansas":
+        "Sporting Kansas City",
+
+    "sporting kc":
+        "Sporting Kansas City",
+
+    "st louis city":
+        "St Louis City SC",
+
+
 }
 
 

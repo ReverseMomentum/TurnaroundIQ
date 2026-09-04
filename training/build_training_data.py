@@ -18,11 +18,13 @@ if str(PROJECT_ROOT) not in sys.path:
 from database import get_db, get_odds_movement
 from team_normalizer import (
     load_team_stats_names,
+    normalize_team,
     resolve_team_stats_name,
-    save_alias,
 )
 from training.recency import sample_weight_from_date
 
+
+STATS_LENGTH = 38
 
 TEAM_STATS_SELECT = """
     SELECT
@@ -86,162 +88,124 @@ TEAM_STATS_SELECT = """
 """
 
 
-def get_league_turnaround_rate(
-    conn,
-    league
-):
-
+def get_league_turnaround_rate(conn, league):
     row = conn.execute(
-        """
-        SELECT turnaround_rate
-        FROM league_stats
-        WHERE league = ?
-        """,
-        (league,)
+        "SELECT turnaround_rate FROM league_stats WHERE league = ?",
+        (league,),
     ).fetchone()
-
     if row:
         return row[0]
+    return None
 
-    return 0
+
+def empty_stats():
+    return [None] * STATS_LENGTH
 
 
-def zero_if_none(
-    stats,
-    length
-):
+def as_stats(row):
+    if not row:
+        return empty_stats()
+    return [v for v in row]
 
-    if not stats:
-        return [0] * length
 
-    return [
-        v if v is not None else 0
-        for v in stats
-    ]
+def safe_sub(left, right):
+    if left is None or right is None:
+        return None
+    return left - right
 
 
 def resolve_match_date(conn, match_id, processed_at):
     row = conn.execute(
-        """
-        SELECT date
-        FROM historical_matches
-        WHERE match_id = ?
-        """,
-        (str(match_id),)
+        "SELECT date FROM historical_matches WHERE match_id = ?",
+        (str(match_id),),
     ).fetchone()
-
     if row and row[0]:
         return row[0]
-
     return processed_at
 
 
-def bind_team(raw_name, known_teams, side):
-    resolved, method = resolve_team_stats_name(
-        raw_name,
-        known_teams,
+def ensure_team_row(conn, team, known_teams):
+    if team in known_teams:
+        return
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO team_stats (team, updated_at)
+        VALUES (?, datetime('now'))
+        """,
+        (team,),
     )
+    known_teams.append(team)
+    print(f"No profile yet: {team} (features NULL)")
 
-    if resolved is None:
-        print(f"Missing {side} team: {raw_name}")
-        return None
 
-    if method in ("fuzzy", "fuzzy-key", "key") and resolved != raw_name:
-        print(f"{side}: {raw_name} -> {resolved} ({method})")
-        try:
-            save_alias(raw_name, resolved, source=method)
-        except Exception:
-            pass
+def bind_team(conn, raw_name, known_teams):
+    resolved, method = resolve_team_stats_name(raw_name, known_teams)
+    if resolved:
+        if method == "key" and resolved != raw_name:
+            print(f"{raw_name} -> {resolved} ({method})")
+        return resolved
 
-    return resolved
+    name = normalize_team(raw_name) or raw_name
+    ensure_team_row(conn, name, known_teams)
+    return name
 
 
 def build_training_data():
-
     conn = get_db()
-
-    conn.execute(
-        """
-        DELETE FROM training_data
-        """
-    )
+    conn.execute("DELETE FROM training_data")
 
     known_teams = load_team_stats_names()
 
     matches = conn.execute(
         """
         SELECT
-
             match_id,
             league,
-
             home_team,
             away_team,
-
             home_turnaround,
             away_turnaround,
-
             home_lead_minute,
             away_lead_minute,
-
             processed_at
-
         FROM match_results
-
         """
     ).fetchall()
 
     inserted = 0
+    unprofiled = 0
 
     for match in matches:
-
         (
             match_id,
             league,
-
             home_team,
             away_team,
-
             home_turnaround,
             away_turnaround,
-
             home_lead_minute,
             away_lead_minute,
-
-            processed_at
+            processed_at,
         ) = match
 
-        home_team = bind_team(home_team, known_teams, "home")
-        away_team = bind_team(away_team, known_teams, "away")
+        home_team = bind_team(conn, home_team, known_teams)
+        away_team = bind_team(conn, away_team, known_teams)
 
-        if not home_team or not away_team:
-            continue
+        home_stats = as_stats(
+            conn.execute(TEAM_STATS_SELECT, (home_team,)).fetchone()
+        )
+        away_stats = as_stats(
+            conn.execute(TEAM_STATS_SELECT, (away_team,)).fetchone()
+        )
 
-        home_stats = conn.execute(
-            TEAM_STATS_SELECT,
-            (home_team,)
-        ).fetchone()
-
-        away_stats = conn.execute(
-            TEAM_STATS_SELECT,
-            (away_team,)
-        ).fetchone()
-
-        if not home_stats:
-            print(f"Missing home team: {home_team}")
-            continue
-
-        if not away_stats:
-            print(f"Missing away team: {away_team}")
-            continue
-
-        home_stats = zero_if_none(home_stats, 38)
-        away_stats = zero_if_none(away_stats, 38)
+        if all(v is None for v in home_stats):
+            unprofiled += 1
+        if all(v is None for v in away_stats):
+            unprofiled += 1
 
         league_turnaround_rate = get_league_turnaround_rate(conn, league)
-
-        home_xg_edge = home_stats[0] - home_stats[1]
-        away_xg_edge = away_stats[0] - away_stats[1]
+        home_xg_edge = safe_sub(home_stats[0], home_stats[1])
+        away_xg_edge = safe_sub(away_stats[0], away_stats[1])
 
         home_opening_odds, home_odds_movement = get_odds_movement(
             home_team, away_team, home_team
@@ -352,6 +316,7 @@ def build_training_data():
     conn.commit()
     conn.close()
     print(f"{inserted} training rows built")
+    print(f"{unprofiled} sides had no team_stats profile (NULL features)")
 
 
 def _build_row(

@@ -1,438 +1,221 @@
-from datetime import (
-    datetime,
-    timezone
-)
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 
-import sqlite3
 import requests
+import sqlite3
 
-API_FOOTBALL_KEY = (
-    "aa7c72b2db786ed876c98fdafd5274b4"
-)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
+from constants import SUPPORTED_LEAGUE_IDS
+from team_normalizer import normalize_team
+
+API_FOOTBALL_KEY = "aa7c72b2db786ed876c98fdafd5274b4"
 DB_NAME = "two_up.db"
+HEADERS = {"x-apisports-key": API_FOOTBALL_KEY}
 
-HEADERS = {
-    "x-apisports-key":
-        API_FOOTBALL_KEY
-}
+# Last N finished games per league used for averages.
+FIXTURES_PER_LEAGUE = 10
+REQUEST_DELAY = 1.2
 
-SUPPORTED_LEAGUES = [
 
-    39,   # Premier League
-    40,   # Championship
-    41,   # League One
-    42,   # League Two
-
-    179,  # Scottish Premiership
-
-    78,   # Bundesliga
-    79,   # 2 Bundesliga
-
-    140,  # La Liga
-
-    135,  # Serie A
-
-    61,   # Ligue 1
-
-    88,   # Eredivisie
-
-    144,  # Belgian Pro League
-
-    94,   # Primeira Liga
-
-    253,  # MLS
-
-    119,  # Danish Superliga
-
-    103,  # Eliteserien
-
-    113,  # Allsvenskan
-
-    357   # Irish Premier Division
-]
+def season_candidates():
+    year = datetime.now(timezone.utc).year
+    return [year, year - 1, year - 2]
 
 
 def get_db():
-
-    return sqlite3.connect(
-        DB_NAME,
-        check_same_thread=False
-    )
+    return sqlite3.connect(DB_NAME, check_same_thread=False)
 
 
-def save_team_stats(
-    team,
-    avg_xg,
-    avg_xga,
-    goals_last5,
-    conceded_last5,
-    matches_played
-):
-
-    xg_edge = (
-        avg_xg -
-        avg_xga
-    )
-
+def save_team_stats(team, avg_xg, avg_xga, goals_last5, conceded_last5, matches_played):
+    xg_edge = avg_xg - avg_xga
     conn = get_db()
-
     conn.execute(
-        """
-        INSERT OR IGNORE INTO team_stats
-        (
-            team
-        )
-        VALUES
-        (?)
-        """,
-        (team,)
+        "INSERT OR IGNORE INTO team_stats (team) VALUES (?)",
+        (team,),
     )
-
     conn.execute(
         """
         UPDATE team_stats
         SET
-
             avg_xg = ?,
             avg_xga = ?,
-
             xg_edge = ?,
-
             goals_last5 = ?,
             conceded_last5 = ?,
-
             matches_played = ?,
-
             updated_at = ?
-
         WHERE team = ?
         """,
         (
             avg_xg,
             avg_xga,
-
             xg_edge,
-
             goals_last5,
             conceded_last5,
-
             matches_played,
-
-            datetime.now(
-                timezone.utc
-            ).isoformat(),
-
-            team
-        )
+            datetime.now(timezone.utc).isoformat(),
+            team,
+        ),
     )
-
     conn.commit()
     conn.close()
 
 
+def fetch_finished_fixtures(league_id, season):
+    url = (
+        "https://v3.football.api-sports.io/fixtures"
+        f"?league={league_id}&season={season}&status=FT"
+    )
+    response = requests.get(url, headers=HEADERS, timeout=60)
+    response.raise_for_status()
+    payload = response.json()
+
+    errors = payload.get("errors")
+    if errors:
+        print(f"  API error league {league_id} season {season}: {errors}")
+
+    rows = payload.get("response") or []
+    rows.sort(key=lambda row: row.get("fixture", {}).get("date") or "")
+    return rows
+
+
 def get_recent_fixtures():
-
     fixtures = []
+    seasons = season_candidates()
+    print(f"Trying seasons {seasons}")
 
-    current_seasons = [
-        2023,
-        2024
-    ]
-
-    for league in SUPPORTED_LEAGUES:
-
+    for league_id, league_name in SUPPORTED_LEAGUE_IDS.items():
         found = False
 
-        for season in current_seasons:
-
+        for season in seasons:
             try:
-
-                response = requests.get(
-                    (
-                        "https://v3.football.api-sports.io/"
-                        f"fixtures?league={league}"
-                        f"&season={season}"
-                        "&status=FT"
-                    ),
-                    headers=HEADERS,
-                    timeout=60
-                )
-
-                response.raise_for_status()
-
-                data = response.json()
-
-                rows = data.get(
-                    "response",
-                    []
-                )
-
-                if rows:
-
-                    fixtures.extend(
-                        rows[-50:]
-                    )
-
-                    found = True
-
-                    break
-
-            except Exception:
+                rows = fetch_finished_fixtures(league_id, season)
+            except Exception as exc:
+                print(f"  Request failed {league_name} ({league_id}) {season}: {exc}")
                 continue
 
-        if not found:
+            if not rows:
+                continue
 
+            latest = rows[-FIXTURES_PER_LEAGUE:]
+            fixtures.extend(latest)
             print(
-                f"No fixtures found for league {league}"
+                f"{league_name} ({league_id}) season {season}: "
+                f"{len(rows)} FT, using last {len(latest)}"
             )
+            found = True
+            break
 
-    print(
-        f"Fixtures found: {len(fixtures)}"
-    )
+        if not found:
+            print(f"No fixtures found for {league_name} ({league_id})")
 
+        time.sleep(REQUEST_DELAY)
+
+    print(f"Fixtures queued for stats: {len(fixtures)}")
     return fixtures
 
 
-def get_fixture_statistics(
-    fixture_id
-):
-
+def get_fixture_statistics(fixture_id):
     try:
-
         response = requests.get(
-            (
-                "https://v3.football.api-sports.io/"
-                f"fixtures/statistics?fixture={fixture_id}"
-            ),
+            "https://v3.football.api-sports.io/"
+            f"fixtures/statistics?fixture={fixture_id}",
             headers=HEADERS,
-            timeout=60
+            timeout=60,
         )
-
+        if response.status_code == 429:
+            print(f"Rate limited on fixture {fixture_id}, sleeping 20s")
+            time.sleep(20)
+            return []
         response.raise_for_status()
-
-        data = response.json()
-
-        return data.get(
-            "response",
-            []
-        )
-
-    except Exception:
-
+        return response.json().get("response") or []
+    except Exception as exc:
+        print(f"Stats failed fixture {fixture_id}: {exc}")
         return []
 
 
-def extract_stat(
-    stats,
-    stat_name
-):
-
+def extract_stat(stats, stat_name):
     for item in stats:
-
-        if item["type"] == stat_name:
-
-            return item["value"]
-
+        if item.get("type") == stat_name:
+            return item.get("value")
     return None
 
 
 def process_xg():
-
-    fixtures = (
-        get_recent_fixtures()
-    )
-
+    fixtures = get_recent_fixtures()
     team_data = {}
 
     for fixture in fixtures:
-
-        fixture_id = (
-            fixture["fixture"]["id"]
-        )
-
-        stats = (
-            get_fixture_statistics(
-                fixture_id
-            )
-        )
+        fixture_id = fixture["fixture"]["id"]
+        stats = get_fixture_statistics(fixture_id)
+        time.sleep(REQUEST_DELAY)
 
         if len(stats) < 2:
             continue
 
-        home_team = (
-            stats[0]["team"]["name"]
-        )
+        home_team = normalize_team(stats[0]["team"]["name"])
+        away_team = normalize_team(stats[1]["team"]["name"])
+        home_stats = stats[0]["statistics"]
+        away_stats = stats[1]["statistics"]
 
-        away_team = (
-            stats[1]["team"]["name"]
-        )
+        home_goals = fixture["goals"]["home"] or 0
+        away_goals = fixture["goals"]["away"] or 0
 
-        home_stats = (
-            stats[0]["statistics"]
-        )
-
-        away_stats = (
-            stats[1]["statistics"]
-        )
-
-        home_goals = (
-            fixture["goals"]["home"]
-            or 0
-        )
-
-        away_goals = (
-            fixture["goals"]["away"]
-            or 0
-        )
-
-        home_xg = extract_stat(
-            home_stats,
-            "Expected Goals"
-        )
-
-        away_xg = extract_stat(
-            away_stats,
-            "Expected Goals"
-        )
+        home_xg = extract_stat(home_stats, "Expected Goals")
+        away_xg = extract_stat(away_stats, "Expected Goals")
 
         try:
-            home_xg = float(
-                home_xg
-            )
-        except Exception:
-            home_xg = float(
-                home_goals
-            )
+            home_xg = float(home_xg)
+        except (TypeError, ValueError):
+            home_xg = float(home_goals)
 
         try:
-            away_xg = float(
-                away_xg
-            )
-        except Exception:
-            away_xg = float(
-                away_goals
-            )
+            away_xg = float(away_xg)
+        except (TypeError, ValueError):
+            away_xg = float(away_goals)
 
-        for team in [
-            home_team,
-            away_team
-        ]:
-
+        for team in (home_team, away_team):
             if team not in team_data:
-
-                team_data[
-                    team
-                ] = {
+                team_data[team] = {
                     "xg": [],
                     "xga": [],
                     "goals": [],
-                    "conceded": []
+                    "conceded": [],
                 }
 
-        team_data[
-            home_team
-        ]["xg"].append(
-            home_xg
-        )
+        team_data[home_team]["xg"].append(home_xg)
+        team_data[home_team]["xga"].append(away_xg)
+        team_data[home_team]["goals"].append(home_goals)
+        team_data[home_team]["conceded"].append(away_goals)
 
-        team_data[
-            home_team
-        ]["xga"].append(
-            away_xg
-        )
-
-        team_data[
-            home_team
-        ]["goals"].append(
-            home_goals
-        )
-
-        team_data[
-            home_team
-        ]["conceded"].append(
-            away_goals
-        )
-
-        team_data[
-            away_team
-        ]["xg"].append(
-            away_xg
-        )
-
-        team_data[
-            away_team
-        ]["xga"].append(
-            home_xg
-        )
-
-        team_data[
-            away_team
-        ]["goals"].append(
-            away_goals
-        )
-
-        team_data[
-            away_team
-        ]["conceded"].append(
-            home_goals
-        )
+        team_data[away_team]["xg"].append(away_xg)
+        team_data[away_team]["xga"].append(home_xg)
+        team_data[away_team]["goals"].append(away_goals)
+        team_data[away_team]["conceded"].append(home_goals)
 
     updated = 0
-
     for team, values in team_data.items():
-
-        matches_played = len(
-            values["xg"]
-        )
-
+        matches_played = len(values["xg"])
         if matches_played == 0:
             continue
 
-        avg_xg = round(
-            sum(values["xg"])
-            /
-            matches_played,
-            2
-        )
-
-        avg_xga = round(
-            sum(values["xga"])
-            /
-            matches_played,
-            2
-        )
-
-        goals_last5 = round(
-            sum(
-                values["goals"][-5:]
-            ),
-            2
-        )
-
-        conceded_last5 = round(
-            sum(
-                values["conceded"][-5:]
-            ),
-            2
-        )
-
         save_team_stats(
             team,
-            avg_xg,
-            avg_xga,
-            goals_last5,
-            conceded_last5,
-            matches_played
+            round(sum(values["xg"]) / matches_played, 2),
+            round(sum(values["xga"]) / matches_played, 2),
+            round(sum(values["goals"][-5:]), 2),
+            round(sum(values["conceded"][-5:]), 2),
+            matches_played,
         )
-
         updated += 1
 
-    print(
-        f"Updated {updated} teams"
-    )
+    print(f"Updated {updated} teams")
 
 
 if __name__ == "__main__":
-
     process_xg()

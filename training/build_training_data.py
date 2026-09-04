@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from database import get_db, get_odds_movement
 from team_normalizer import normalize_team
+from training.recency import sample_weight_from_date
 
 
 TEAM_STATS_SELECT = """
@@ -115,6 +116,27 @@ def zero_if_none(
     ]
 
 
+def resolve_match_date(conn, match_id, processed_at):
+    """
+    Prefer historical_matches.date (kickoff).
+    Fall back to match_results.processed_at so a fresh
+    API row still gets weight ~1.0.
+    """
+    row = conn.execute(
+        """
+        SELECT date
+        FROM historical_matches
+        WHERE match_id = ?
+        """,
+        (str(match_id),)
+    ).fetchone()
+
+    if row and row[0]:
+        return row[0]
+
+    return processed_at
+
+
 def build_training_data():
 
     conn = get_db()
@@ -139,7 +161,9 @@ def build_training_data():
             away_turnaround,
 
             home_lead_minute,
-            away_lead_minute
+            away_lead_minute,
+
+            processed_at
 
         FROM match_results
 
@@ -161,7 +185,9 @@ def build_training_data():
             away_turnaround,
 
             home_lead_minute,
-            away_lead_minute
+            away_lead_minute,
+
+            processed_at
         ) = match
 
         home_team = normalize_team(
@@ -239,6 +265,16 @@ def build_training_data():
             )
         )
 
+        match_date = resolve_match_date(
+            conn,
+            match_id,
+            processed_at
+        )
+
+        weight = sample_weight_from_date(
+            match_date
+        )
+
         rows_to_insert = [
 
             _build_row(
@@ -258,6 +294,8 @@ def build_training_data():
 
                 opening_back_odds=home_opening_odds,
                 odds_movement=home_odds_movement,
+
+                sample_weight=weight,
 
                 full_turnaround=home_turnaround
             ),
@@ -279,6 +317,8 @@ def build_training_data():
 
                 opening_back_odds=away_opening_odds,
                 odds_movement=away_odds_movement,
+
+                sample_weight=weight,
 
                 full_turnaround=away_turnaround
             )
@@ -436,6 +476,8 @@ def _build_row(
     opening_back_odds,
     odds_movement,
 
+    sample_weight,
+
     full_turnaround
 ):
 
@@ -520,7 +562,7 @@ def _build_row(
         None,
         None,
 
-        1.0,
+        sample_weight,
 
         full_turnaround,
 

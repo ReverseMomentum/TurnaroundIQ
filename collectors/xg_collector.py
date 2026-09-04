@@ -1,43 +1,33 @@
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
-
-import requests
-import sqlite3
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from constants import SUPPORTED_LEAGUE_IDS
+from collectors.thestatsapi import (
+    finished_window,
+    get_match_stats,
+    kickoff_of,
+    list_matches,
+    match_id_of,
+    supported_competition_ids,
+    team_name,
+)
+from database import get_db
 from team_normalizer import normalize_team
 
-API_FOOTBALL_KEY = "aa7c72b2db786ed876c98fdafd5274b4"
-DB_NAME = "two_up.db"
-HEADERS = {"x-apisports-key": API_FOOTBALL_KEY}
-
-# Last N finished games per league used for averages.
 FIXTURES_PER_LEAGUE = 10
-REQUEST_DELAY = 1.2
-
-
-def season_candidates():
-    year = datetime.now(timezone.utc).year
-    return [year, year - 1, year - 2]
-
-
-def get_db():
-    return sqlite3.connect(DB_NAME, check_same_thread=False)
 
 
 def save_team_stats(team, avg_xg, avg_xga, goals_last5, conceded_last5, matches_played):
-    xg_edge = avg_xg - avg_xga
+    xg_edge = None
+    if avg_xg is not None and avg_xga is not None:
+        xg_edge = round(avg_xg - avg_xga, 2)
+
     conn = get_db()
-    conn.execute(
-        "INSERT OR IGNORE INTO team_stats (team) VALUES (?)",
-        (team,),
-    )
+    conn.execute("INSERT OR IGNORE INTO team_stats (team) VALUES (?)", (team,))
     conn.execute(
         """
         UPDATE team_stats
@@ -66,151 +56,119 @@ def save_team_stats(team, avg_xg, avg_xga, goals_last5, conceded_last5, matches_
     conn.close()
 
 
-def fetch_finished_fixtures(league_id, season):
-    url = (
-        "https://v3.football.api-sports.io/fixtures"
-        f"?league={league_id}&season={season}&status=FT"
-    )
-    response = requests.get(url, headers=HEADERS, timeout=60)
-    response.raise_for_status()
-    payload = response.json()
-
-    errors = payload.get("errors")
-    if errors:
-        print(f"  API error league {league_id} season {season}: {errors}")
-
-    rows = payload.get("response") or []
-    rows.sort(key=lambda row: row.get("fixture", {}).get("date") or "")
-    return rows
-
-
-def get_recent_fixtures():
-    fixtures = []
-    seasons = season_candidates()
-    print(f"Trying seasons {seasons}")
-
-    for league_id, league_name in SUPPORTED_LEAGUE_IDS.items():
-        found = False
-
-        for season in seasons:
-            try:
-                rows = fetch_finished_fixtures(league_id, season)
-            except Exception as exc:
-                print(f"  Request failed {league_name} ({league_id}) {season}: {exc}")
-                continue
-
-            if not rows:
-                continue
-
-            latest = rows[-FIXTURES_PER_LEAGUE:]
-            fixtures.extend(latest)
-            print(
-                f"{league_name} ({league_id}) season {season}: "
-                f"{len(rows)} FT, using last {len(latest)}"
-            )
-            found = True
-            break
-
-        if not found:
-            print(f"No fixtures found for {league_name} ({league_id})")
-
-        time.sleep(REQUEST_DELAY)
-
-    print(f"Fixtures queued for stats: {len(fixtures)}")
-    return fixtures
-
-
-def get_fixture_statistics(fixture_id):
+def _side_xg(block):
+    if not isinstance(block, dict):
+        return None
+    value = block.get("xg")
+    if value is None:
+        return None
     try:
-        response = requests.get(
-            "https://v3.football.api-sports.io/"
-            f"fixtures/statistics?fixture={fixture_id}",
-            headers=HEADERS,
-            timeout=60,
-        )
-        if response.status_code == 429:
-            print(f"Rate limited on fixture {fixture_id}, sleeping 20s")
-            time.sleep(20)
-            return []
-        response.raise_for_status()
-        return response.json().get("response") or []
-    except Exception as exc:
-        print(f"Stats failed fixture {fixture_id}: {exc}")
-        return []
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
-def extract_stat(stats, stat_name):
-    for item in stats:
-        if item.get("type") == stat_name:
-            return item.get("value")
-    return None
+def _side_goals(block, fallback=None):
+    if isinstance(block, dict):
+        value = block.get("goals")
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                pass
+    if fallback is None:
+        return 0.0
+    try:
+        return float(fallback)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def process_xg():
-    fixtures = get_recent_fixtures()
+    competitions = supported_competition_ids()
+    date_from, date_to = finished_window(21)
     team_data = {}
 
-    for fixture in fixtures:
-        fixture_id = fixture["fixture"]["id"]
-        stats = get_fixture_statistics(fixture_id)
-        time.sleep(REQUEST_DELAY)
+    print(f"Finished window {date_from} to {date_to}")
 
-        if len(stats) < 2:
+    for league_name, competition_id in competitions.items():
+        try:
+            rows = list_matches(
+                competition_id,
+                status="finished",
+                date_from=date_from,
+                date_to=date_to,
+            )
+        except Exception as exc:
+            print(f"{league_name}: match list failed ({exc})")
             continue
 
-        home_team = normalize_team(stats[0]["team"]["name"])
-        away_team = normalize_team(stats[1]["team"]["name"])
-        home_stats = stats[0]["statistics"]
-        away_stats = stats[1]["statistics"]
+        rows.sort(key=lambda row: kickoff_of(row) or "")
+        latest = rows[-FIXTURES_PER_LEAGUE:]
+        print(f"{league_name}: {len(rows)} finished, using last {len(latest)}")
 
-        home_goals = fixture["goals"]["home"] or 0
-        away_goals = fixture["goals"]["away"] or 0
+        for match in latest:
+            mid = match_id_of(match)
+            if not mid:
+                continue
+            if match.get("xg_available") is False:
+                # Still try; some lists leave the flag stale.
+                pass
+            try:
+                stats = get_match_stats(mid)
+            except Exception as exc:
+                print(f"  stats failed {mid}: {exc}")
+                continue
 
-        home_xg = extract_stat(home_stats, "Expected Goals")
-        away_xg = extract_stat(away_stats, "Expected Goals")
+            home_block = stats.get("home") or {}
+            away_block = stats.get("away") or {}
 
-        try:
-            home_xg = float(home_xg)
-        except (TypeError, ValueError):
-            home_xg = float(home_goals)
+            home_team = normalize_team(
+                team_name(home_block) or team_name(match.get("home_team") or match.get("home"))
+            )
+            away_team = normalize_team(
+                team_name(away_block) or team_name(match.get("away_team") or match.get("away"))
+            )
+            if not home_team or not away_team:
+                continue
 
-        try:
-            away_xg = float(away_xg)
-        except (TypeError, ValueError):
-            away_xg = float(away_goals)
+            score = match.get("score") or {}
+            home_goals = _side_goals(home_block, score.get("home"))
+            away_goals = _side_goals(away_block, score.get("away"))
+            home_xg = _side_xg(home_block)
+            away_xg = _side_xg(away_block)
+            if home_xg is None:
+                home_xg = home_goals
+            if away_xg is None:
+                away_xg = away_goals
 
-        for team in (home_team, away_team):
-            if team not in team_data:
-                team_data[team] = {
-                    "xg": [],
-                    "xga": [],
-                    "goals": [],
-                    "conceded": [],
-                }
+            for team in (home_team, away_team):
+                team_data.setdefault(
+                    team,
+                    {"xg": [], "xga": [], "goals": [], "conceded": []},
+                )
 
-        team_data[home_team]["xg"].append(home_xg)
-        team_data[home_team]["xga"].append(away_xg)
-        team_data[home_team]["goals"].append(home_goals)
-        team_data[home_team]["conceded"].append(away_goals)
-
-        team_data[away_team]["xg"].append(away_xg)
-        team_data[away_team]["xga"].append(home_xg)
-        team_data[away_team]["goals"].append(away_goals)
-        team_data[away_team]["conceded"].append(home_goals)
+            team_data[home_team]["xg"].append(home_xg)
+            team_data[home_team]["xga"].append(away_xg)
+            team_data[home_team]["goals"].append(home_goals)
+            team_data[home_team]["conceded"].append(away_goals)
+            team_data[away_team]["xg"].append(away_xg)
+            team_data[away_team]["xga"].append(home_xg)
+            team_data[away_team]["goals"].append(away_goals)
+            team_data[away_team]["conceded"].append(home_goals)
 
     updated = 0
     for team, values in team_data.items():
-        matches_played = len(values["xg"])
-        if matches_played == 0:
+        n = len(values["xg"])
+        if n == 0:
             continue
-
         save_team_stats(
             team,
-            round(sum(values["xg"]) / matches_played, 2),
-            round(sum(values["xga"]) / matches_played, 2),
+            round(sum(values["xg"]) / n, 2),
+            round(sum(values["xga"]) / n, 2),
             round(sum(values["goals"][-5:]), 2),
             round(sum(values["conceded"][-5:]), 2),
-            matches_played,
+            n,
         )
         updated += 1
 

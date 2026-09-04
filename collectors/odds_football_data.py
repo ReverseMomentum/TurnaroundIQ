@@ -1,12 +1,8 @@
 """
 Pull opening + closing 1X2 back prices from football-data.co.uk CSVs.
 
-No API key. Files update about twice a week.
-Opening columns (since 2019/20): B365H / B365A
-Closing columns: B365CH / B365CA
-Pinnacle fallback: PSH / PSA and PSCH / PSCA.
-
-Lay is left empty. opportunities_engine estimates it.
+Backfills every season from 2015/16 so historical_matches and
+odds_history both get opening prices. No API key.
 """
 
 import csv
@@ -24,8 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from database import get_db, save_odds_history
 from team_normalizer import normalize_team
 
-# mmz4281/{yy}{yy+1}/{code}.csv  e.g. 2627 = 2026/27
-SEASON_CODES = ["2627", "2526"]
+FIRST_SEASON_START = 2015
 
 MAIN_DIVISIONS = {
     "E0": "Premier League",
@@ -43,7 +38,6 @@ MAIN_DIVISIONS = {
     "P1": "Primeira Liga",
 }
 
-# Extra-leagues pack (single rolling file per country).
 EXTRA_FILES = {
     "https://www.football-data.co.uk/new/USA.csv": "Major League Soccer",
     "https://www.football-data.co.uk/new/DNK.csv": "Superliga",
@@ -56,6 +50,14 @@ BOOKS = [
     ("bet365", "B365H", "B365A", "B365CH", "B365CA"),
     ("pinnacle", "PSH", "PSA", "PSCH", "PSCA"),
 ]
+
+
+def season_codes(start_year=FIRST_SEASON_START):
+    now_year = datetime.utcnow().year
+    codes = []
+    for year in range(start_year, now_year + 1):
+        codes.append(f"{year % 100:02d}{(year + 1) % 100:02d}")
+    return list(reversed(codes))
 
 
 def season_url(season_code, div_code):
@@ -84,45 +86,49 @@ def to_float(value):
         return None
 
 
-def already_saved(match_id, bookmaker, selection, back_odds):
+def load_existing_odds():
     conn = get_db()
-    row = conn.execute(
+    rows = conn.execute(
         """
-        SELECT 1 FROM odds_history
-        WHERE match_id = ?
-          AND bookmaker = ?
-          AND selection = ?
-          AND back_odds = ?
-        LIMIT 1
-        """,
-        (match_id, bookmaker, selection, back_odds),
-    ).fetchone()
+        SELECT match_id, bookmaker, selection, back_odds
+        FROM odds_history
+        WHERE match_id LIKE 'fd-%'
+        """
+    ).fetchall()
     conn.close()
-    return row is not None
+    return {(row[0], row[1], row[2], row[3]) for row in rows}
 
 
-def save_price(match_id, kickoff, league, home, away, selection, bookmaker, price):
-    if price is None:
-        return False
-    if already_saved(match_id, bookmaker, selection, price):
-        return False
-    save_odds_history(
-        match_id=match_id,
-        kickoff=kickoff,
-        league=league,
-        home_team=home,
-        away_team=away,
-        selection=selection,
-        bookmaker=bookmaker,
-        back_odds=price,
-        lay_odds=None,
-    )
-    return True
+def attach_to_historical(home, away, kickoff, odd_h, odd_a, odd_d=None):
+    if odd_h is None and odd_a is None:
+        return 0
+    conn = get_db()
+    updated = conn.execute(
+        """
+        UPDATE historical_matches
+        SET
+            odd_h = COALESCE(odd_h, ?),
+            odd_a = COALESCE(odd_a, ?),
+            odd_d = COALESCE(odd_d, ?)
+        WHERE home_team = ?
+          AND away_team = ?
+          AND (
+                date = ?
+                OR date LIKE ?
+          )
+          AND odd_h IS NULL
+        """,
+        (odd_h, odd_a, odd_d, home, away, kickoff, f"{kickoff}%"),
+    ).rowcount
+    conn.commit()
+    conn.close()
+    return updated or 0
 
 
-def ingest_rows(rows, league_name):
+def ingest_rows(rows, league_name, existing):
     saved = 0
     skipped = 0
+    linked = 0
 
     for row in rows:
         home_raw = row.get("HomeTeam") or row.get("Home") or ""
@@ -136,28 +142,44 @@ def ingest_rows(rows, league_name):
         kickoff = parse_date(row.get("Date") or row.get("date") or "")
         match_id = f"fd-{league_name}-{kickoff}-{home}-{away}"
 
+        bet365_open_h = to_float(row.get("B365H"))
+        bet365_open_a = to_float(row.get("B365A"))
+        bet365_open_d = to_float(row.get("B365D"))
+        linked += attach_to_historical(
+            home, away, kickoff, bet365_open_h, bet365_open_a, bet365_open_d
+        )
+
         for bookmaker, open_h, open_a, close_h, close_a in BOOKS:
-            opening_home = to_float(row.get(open_h))
-            opening_away = to_float(row.get(open_a))
-            closing_home = to_float(row.get(close_h))
-            closing_away = to_float(row.get(close_a))
-
-            # Opening first so get_odds_movement treats it as the open.
-            if save_price(match_id, kickoff, league_name, home, away, home, bookmaker, opening_home):
+            prices = [
+                (home, to_float(row.get(open_h))),
+                (away, to_float(row.get(open_a))),
+                (home, to_float(row.get(close_h))),
+                (away, to_float(row.get(close_a))),
+            ]
+            seen = set()
+            for selection, price in prices:
+                if price is None or (selection, bookmaker, price) in seen:
+                    continue
+                seen.add((selection, bookmaker, price))
+                key = (match_id, bookmaker, selection, price)
+                if key in existing:
+                    skipped += 1
+                    continue
+                save_odds_history(
+                    match_id=match_id,
+                    kickoff=kickoff,
+                    league=league_name,
+                    home_team=home,
+                    away_team=away,
+                    selection=selection,
+                    bookmaker=bookmaker,
+                    back_odds=price,
+                    lay_odds=None,
+                )
+                existing.add(key)
                 saved += 1
-            if save_price(match_id, kickoff, league_name, home, away, away, bookmaker, opening_away):
-                saved += 1
-            if closing_home and closing_home != opening_home:
-                if save_price(match_id, kickoff, league_name, home, away, home, bookmaker, closing_home):
-                    saved += 1
-            if closing_away and closing_away != opening_away:
-                if save_price(match_id, kickoff, league_name, home, away, away, bookmaker, closing_away):
-                    saved += 1
 
-            if opening_home is None and opening_away is None and closing_home is None:
-                skipped += 1
-
-    return saved, skipped
+    return saved, skipped, linked
 
 
 def download_csv(url):
@@ -166,16 +188,16 @@ def download_csv(url):
         return None
     response.raise_for_status()
     text = response.content.decode("utf-8-sig", errors="replace")
-    reader = csv.DictReader(io.StringIO(text))
-    return list(reader)
+    return list(csv.DictReader(io.StringIO(text)))
 
 
 def collect_football_data_odds():
+    existing = load_existing_odds()
     total_saved = 0
     total_skipped = 0
+    total_linked = 0
 
-    for season in SEASON_CODES:
-        season_hit = False
+    for season in season_codes():
         for div_code, league_name in MAIN_DIVISIONS.items():
             url = season_url(season, div_code)
             try:
@@ -184,15 +206,15 @@ def collect_football_data_odds():
                 print(f"{url} failed: {exc}")
                 continue
             if not rows:
-                print(f"{league_name} {season}: no file")
                 continue
-            season_hit = True
-            saved, skipped = ingest_rows(rows, league_name)
-            print(f"{league_name} {season}: {len(rows)} matches, +{saved} odds rows")
+            saved, skipped, linked = ingest_rows(rows, league_name, existing)
+            print(
+                f"{league_name} {season}: {len(rows)} matches, "
+                f"+{saved} odds, linked {linked} historical"
+            )
             total_saved += saved
             total_skipped += skipped
-        if season_hit:
-            break
+            total_linked += linked
 
     for url, league_name in EXTRA_FILES.items():
         try:
@@ -203,12 +225,17 @@ def collect_football_data_odds():
         if not rows:
             print(f"{league_name}: extra file missing")
             continue
-        saved, skipped = ingest_rows(rows, league_name)
-        print(f"{league_name} extra: {len(rows)} matches, +{saved} odds rows")
+        saved, skipped, linked = ingest_rows(rows, league_name, existing)
+        print(
+            f"{league_name} extra: {len(rows)} matches, "
+            f"+{saved} odds, linked {linked} historical"
+        )
         total_saved += saved
         total_skipped += skipped
+        total_linked += linked
 
-    print(f"Saved {total_saved} odds rows from football-data.co.uk")
+    print(f"Saved {total_saved} odds_history rows")
+    print(f"Filled {total_linked} historical_matches odd_h/odd_a gaps")
     print(f"Skipped {total_skipped} empty/duplicate rows")
 
 

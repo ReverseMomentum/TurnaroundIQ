@@ -24,7 +24,7 @@ from database import (
     save_model_run
 )
 
-from feature_config import FEATURE_COLUMNS
+from tests.feature_config import FEATURE_COLUMNS
 
 MODEL_FILE = "fta_model.pkl"
 

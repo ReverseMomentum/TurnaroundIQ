@@ -1,4 +1,3 @@
-import difflib
 import unicodedata
 from datetime import datetime, timezone
 
@@ -135,19 +134,8 @@ _PREFIXES = (
     "1 fc ", "1 ", "fc ", "afc ", "sc ", "sv ", "as ", "ac ",
     "fk ", "if ", "bk ", "sk ", "rc ", "rsc ", "krc ", "kaa ",
     "sl ", "cf ", "cd ", "ud ", "ss ", "us ", "tsg ", "ik ",
-    "pec ", "aj ", "as ", "the ",
+    "pec ", "aj ",
 )
-
-_SUFFIXES = (
-    " fc", " fk", " ff", " bk", " ik", " sk", " cf", " sc",
-    " united", " city", " town", " roamers",
-)
-
-_STOP = {
-    "fc", "fk", "ff", "bk", "ik", "sk", "sc", "sv", "as", "ac",
-    "afc", "cf", "cd", "ud", "if", "1", "st", "the", "de", "and",
-    "pec", "aj", "united", "city", "town",
-}
 
 _alias_cache = None
 _alias_cache_loaded = False
@@ -179,6 +167,8 @@ def _load_alias_cache():
 
 
 def reload_alias_cache():
+    global _team_stats_cache
+    _team_stats_cache = None
     _load_alias_cache()
 
 
@@ -226,17 +216,9 @@ def match_key(team_name):
                 text = text[len(prefix):]
                 changed = True
                 break
-        for suffix in _SUFFIXES:
-            if text.endswith(suffix):
-                text = text[: -len(suffix)]
-                changed = True
-                break
+    if text.endswith(" fc"):
+        text = text[:-3]
     return text.strip()
-
-
-def content_tokens(team_name):
-    key = match_key(team_name)
-    return [tok for tok in key.split() if tok and tok not in _STOP]
 
 
 def load_team_stats_names():
@@ -250,27 +232,11 @@ def load_team_stats_names():
     return _team_stats_cache
 
 
-def _unique_token_hit(tokens, known):
-    if not tokens:
-        return None
-    for token in sorted(tokens, key=len, reverse=True):
-        if len(token) < 4:
-            continue
-        hits = []
-        for stored in known:
-            stored_tokens = content_tokens(stored)
-            stored_key = match_key(stored)
-            if token in stored_tokens or token in stored_key.split():
-                hits.append(stored)
-            elif stored_key.startswith(token) or token.startswith(stored_key):
-                if min(len(token), len(stored_key)) >= 5:
-                    hits.append(stored)
-        if len(hits) == 1:
-            return hits[0]
-    return None
-
-
-def resolve_team_stats_name(team_name, known_teams=None, cutoff=0.62):
+def resolve_team_stats_name(team_name, known_teams=None, cutoff=None):
+    """
+    Exact stored name, alias, or stripped-key equality only.
+    No difflib. cutoff is ignored (kept so callers do not break).
+    """
     raw = clean_team_name(team_name)
     if not raw:
         return None, "empty"
@@ -284,33 +250,14 @@ def resolve_team_stats_name(team_name, known_teams=None, cutoff=0.62):
 
     raw_key = match_key(normalized)
     if raw_key:
-        for stored in known:
-            if match_key(stored) == raw_key:
-                return stored, "key"
-
-    tokens = content_tokens(normalized)
-    token_hit = _unique_token_hit(tokens, known)
-    if token_hit:
-        return token_hit, "token"
-
-    close = difflib.get_close_matches(
-        normalized, list(known), n=1, cutoff=cutoff
-    )
-    if close:
-        return close[0], "fuzzy"
-
-    keys = [match_key(t) for t in known]
-    close_key = difflib.get_close_matches(raw_key, keys, n=1, cutoff=cutoff)
-    if close_key:
-        hit = close_key[0]
-        for stored in known:
-            if match_key(stored) == hit:
-                return stored, "fuzzy-key"
+        hits = [stored for stored in known if match_key(stored) == raw_key]
+        if len(hits) == 1:
+            return hits[0], "key"
 
     return None, "miss"
 
 
-def save_alias(alias, canonical_name, source="fuzzy"):
+def save_alias(alias, canonical_name, source="manual"):
     conn = get_db()
     try:
         conn.execute(
@@ -347,24 +294,3 @@ def teams_match(team_a, team_b):
 
 def normalize_fixture(home_team, away_team):
     return normalize_team(home_team), normalize_team(away_team)
-
-
-if __name__ == "__main__":
-    known = load_team_stats_names()
-    samples = [
-        "1 FC Köln",
-        "Arminia Bielefeld",
-        "Aalesund",
-        "Fredrikstad",
-        "Viborg",
-        "Auxerre",
-        "Sparta Rotterdam",
-        "FC St Pauli",
-        "Bodo/Glimt",
-        "PEC Zwolle",
-        "Start",
-        "Lyngby",
-    ]
-    for team in samples:
-        resolved, method = resolve_team_stats_name(team, known)
-        print(f"{team} -> {resolved} ({method})")

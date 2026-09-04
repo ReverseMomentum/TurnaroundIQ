@@ -124,27 +124,47 @@ def create_tables():
 
         id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-        match_id TEXT,
+        match_id,
 
-        league TEXT,
+            league,
 
-        home_team TEXT,
-        away_team TEXT,
+            home_team,
+            away_team,
 
-        final_home INTEGER,
-        final_away INTEGER,
+            final_home,
+            final_away,
 
-        home_2up INTEGER,
-        away_2up INTEGER,
+            home_2up,
+            away_2up,
 
-        home_turnaround INTEGER,
-        away_turnaround INTEGER,
+            home_turnaround,
+            away_turnaround,
 
-        home_lead_minute INTEGER,
-        away_lead_minute INTEGER,
+            home_lead_minute,
+            away_lead_minute,
 
-        home_early_goal INTEGER,
-        away_early_goal INTEGER,
+            home_early_goal,
+            home_early_concede,
+            away_early_goal,
+            away_early_concede,
+
+            home_first_lead,
+            home_first_concede,
+            away_first_lead,
+            away_first_concede,
+
+            home_led,
+            away_led,
+
+            home_first_half_for,
+            home_first_half_against,
+            home_second_half_for,
+            home_second_half_against,
+
+            away_first_half_for,
+            away_first_half_against,
+            away_second_half_for,
+            away_second_half_against,
 
         processed_at TEXT
     )

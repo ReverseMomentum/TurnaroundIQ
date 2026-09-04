@@ -1,413 +1,218 @@
-import time
-import requests
-
-from datetime import (
-    datetime,
-    timedelta
-)
-
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = (
-    Path(__file__)
-    .resolve()
-    .parent
-    .parent
-)
-
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
-    sys.path.append(
-        str(PROJECT_ROOT)
-    )
+    sys.path.append(str(PROJECT_ROOT))
 
+from collectors.thestatsapi import (
+    get_match_odds,
+    kickoff_of,
+    list_matches,
+    match_id_of,
+    supported_competition_ids,
+    team_name,
+    upcoming_window,
+)
+from constants import THESTATSAPI_PREFERRED_BOOKS
 from database import (
-    save_odds_history,
-    get_tracked_teams,
     fixture_recently_checked,
-    update_fixture_cache
+    get_db,
+    save_odds_history,
+    update_fixture_cache,
 )
+from team_normalizer import normalize_team
 
-from team_normalizer import (
-    normalize_team
-)
-
-from bookmakers import (
-    get_enabled_bookmakers
-)
-
-# ==================================
-# CONFIG
-# ==================================
-
-API_KEY = "cb23a6f3-5d30-47f1-8f0c-33137e430799"
-
-BASE_URL = "https://api.oddspapi.io/v4"
-
-SPORT_ID = 10
-
-LOOKAHEAD_DAYS = 1
-
-REQUEST_DELAY = 10
-
+LOOKAHEAD_DAYS = 2
 CACHE_MINUTES = 30
 
-# ==================================
-# FIXTURES
-# ==================================
+BOOK_ALIASES = {
+    "bet365": "bet365",
+    "pinnacle": "pinnacle",
+    "paddy power": "paddypower",
+    "paddypower": "paddypower",
+    "betfair sportsbook": "betfair_sb",
+    "betfair": "betfair_sb",
+    "kambi": "kambi",
+}
 
 
-def get_fixtures():
-
-    now = datetime.utcnow()
-
-    future = (
-        now +
-        timedelta(
-            days=LOOKAHEAD_DAYS
-        )
-    )
-
-    response = requests.get(
-        f"{BASE_URL}/fixtures",
-        params={
-            "sportId": SPORT_ID,
-            "statusId": 0,
-            "hasOdds": "true",
-            "from": now.strftime(
-                "%Y-%m-%d"
-            ),
-            "to": future.strftime(
-                "%Y-%m-%d"
-            ),
-            "apiKey": API_KEY
-        },
-        timeout=30
-    )
-
-    response.raise_for_status()
-
-    return response.json()
-
-
-# ==================================
-# ODDS
-# ==================================
-
-
-def get_fixture_odds(
-    fixture_id,
-    bookmaker
-):
-
-    response = requests.get(
-        f"{BASE_URL}/odds",
-        params={
-            "fixtureId": fixture_id,
-            "bookmakers": bookmaker,
-            "oddsFormat": "decimal",
-            "language": "en",
-            "verbosity": 3,
-            "apiKey": API_KEY
-        },
-        timeout=30
-    )
-
-    response.raise_for_status()
-
-    return response.json()
-
-
-# ==================================
-# PARSER
-# ==================================
-
-
-def extract_match_odds(
-    odds_data,
-    bookmaker
-):
-
-    bookmaker_data = (
-        odds_data
-        .get(
-            "bookmakerOdds",
-            {}
-        )
-        .get(
-            bookmaker,
-            {}
-        )
-    )
-
-    if not bookmaker_data:
-        return {}
-
-    markets = bookmaker_data.get(
-        "markets",
-        {}
-    )
-
-    prices = {}
-
-    for market in markets.values():
-
-        outcomes = market.get(
-            "outcomes",
-            {}
-        )
-
-        for outcome in outcomes.values():
-
-            players = outcome.get(
-                "players",
-                {}
-            )
-
-            for player in players.values():
-
-                outcome_id = str(
-                    player.get(
-                        "bookmakerOutcomeId",
-                        ""
-                    )
-                ).lower()
-
-                price = player.get(
-                    "price"
-                )
-
-                if price is None:
+def _price(outcome):
+    if outcome is None:
+        return None
+    if isinstance(outcome, (int, float)):
+        return float(outcome)
+    if isinstance(outcome, str):
+        try:
+            return float(outcome)
+        except ValueError:
+            return None
+    if isinstance(outcome, dict):
+        for key in ("last_seen", "price", "odds", "opening"):
+            if outcome.get(key) is not None:
+                try:
+                    return float(outcome[key])
+                except (TypeError, ValueError):
                     continue
-
-                if outcome_id == "home":
-
-                    prices["home"] = float(
-                        price
-                    )
-
-                elif outcome_id == "away":
-
-                    prices["away"] = float(
-                        price
-                    )
-
-                elif outcome_id == "draw":
-
-                    prices["draw"] = float(
-                        price
-                    )
-
-    return prices
+    return None
 
 
-# ==================================
-# COLLECTOR
-# ==================================
+def _match_odds_market(markets):
+    if not isinstance(markets, dict):
+        return {}
+    for key in ("match_odds", "1x2", "full_time", "home_draw_away"):
+        if key in markets:
+            return markets[key] or {}
+    return markets
+
+
+def extract_back_prices(odds_payload):
+    """
+    Return {bookmaker_key: {home, away, draw}} from a TheStatsAPI odds payload.
+    Lay is never required.
+    """
+    data = odds_payload or {}
+    books = data.get("bookmakers") or data.get("odds") or []
+    if isinstance(books, dict):
+        books = [
+            {"bookmaker": name, "markets": payload}
+            for name, payload in books.items()
+        ]
+
+    collected = {}
+    for entry in books:
+        raw_name = (
+            entry.get("bookmaker")
+            or entry.get("name")
+            or entry.get("bookmaker_name")
+            or ""
+        )
+        key = BOOK_ALIASES.get(str(raw_name).strip().lower())
+        if not key:
+            continue
+        market = _match_odds_market(entry.get("markets") or entry)
+        home = _price(market.get("home"))
+        away = _price(market.get("away"))
+        draw = _price(market.get("draw"))
+        if home is None and away is None:
+            continue
+        collected[key] = {"home": home, "away": away, "draw": draw, "label": raw_name}
+    return collected
+
+
+def pick_books(collected):
+    if not collected:
+        return {}
+    preferred = []
+    for label in THESTATSAPI_PREFERRED_BOOKS:
+        key = BOOK_ALIASES.get(label.lower())
+        if key and key in collected:
+            preferred.append(key)
+    if preferred:
+        return {key: collected[key] for key in preferred}
+    # Fall back to whatever 1X2 books came back.
+    return collected
+
+
+def ensure_team_row(team):
+    conn = get_db()
+    conn.execute("INSERT OR IGNORE INTO team_stats (team) VALUES (?)", (team,))
+    conn.commit()
+    conn.close()
 
 
 def collect_odds():
+    competitions = supported_competition_ids()
+    date_from, date_to = upcoming_window(LOOKAHEAD_DAYS)
+    print(f"Upcoming window {date_from} to {date_to}")
 
-    bookmakers = (
-        get_enabled_bookmakers()
-    )
+    saved = 0
+    skipped = 0
 
-    fixtures = (
-        get_fixtures()
-    )
-
-    tracked_teams = (
-        get_tracked_teams()
-    )
-
-    print(
-        f"Found {len(fixtures)} fixtures"
-    )
-
-    saved_rows = 0
-
-    skipped_rows = 0
-
-    for fixture in fixtures:
-
-        fixture_id = (
-            fixture["fixtureId"]
-        )
-
-        kickoff = (
-            fixture["startTime"]
-        )
-
-        league = (
-            fixture["tournamentName"]
-        )
-
-        home_team = (
-            normalize_team(
-                fixture[
-                    "participant1Name"
-                ]
+    for league_name, competition_id in competitions.items():
+        try:
+            fixtures = list_matches(
+                competition_id,
+                status="scheduled",
+                date_from=date_from,
+                date_to=date_to,
             )
-        )
-
-        away_team = (
-            normalize_team(
-                fixture[
-                    "participant2Name"
-                ]
-            )
-        )
-
-        # Skip teams not in
-        # the ML database
-
-        if (
-            home_team not in tracked_teams
-            or
-            away_team not in tracked_teams
-        ):
-
-            skipped_rows += 1
-
+        except Exception as exc:
+            print(f"{league_name}: fixture list failed ({exc})")
             continue
 
-        # Cache Protection
+        print(f"{league_name}: {len(fixtures)} scheduled")
 
-        if fixture_recently_checked(
-            fixture_id,
-            CACHE_MINUTES
-        ):
-
-            skipped_rows += 1
-
-            continue
-
-        for bookmaker in bookmakers:
-
-            try:
-
-                odds_data = (
-                    get_fixture_odds(
-                        fixture_id,
-                        bookmaker
-                    )
-                )
-
-                prices = (
-                    extract_match_odds(
-                        odds_data,
-                        bookmaker
-                    )
-                )
-
-                if "home" in prices:
-
-                    save_odds_history(
-                        match_id=
-                        fixture_id,
-
-                        kickoff=
-                        kickoff,
-
-                        league=
-                        league,
-
-                        home_team=
-                        home_team,
-
-                        away_team=
-                        away_team,
-
-                        selection=
-                        home_team,
-
-                        bookmaker=
-                        bookmaker,
-
-                        back_odds=
-                        prices["home"]
-                    )
-
-                    saved_rows += 1
-
-                if "away" in prices:
-
-                    save_odds_history(
-                        match_id=
-                        fixture_id,
-
-                        kickoff=
-                        kickoff,
-
-                        league=
-                        league,
-
-                        home_team=
-                        home_team,
-
-                        away_team=
-                        away_team,
-
-                        selection=
-                        away_team,
-
-                        bookmaker=
-                        bookmaker,
-
-                        back_odds=
-                        prices["away"]
-                    )
-
-                    saved_rows += 1
-
-                time.sleep(
-                    REQUEST_DELAY
-                )
-
-            except Exception as exc:
-
-                if "429" in str(exc):
-
-                    print(
-                        "Rate limit reached."
-                    )
-
-                    print(
-                        "Sleeping 60 seconds..."
-                    )
-
-                    time.sleep(60)
-
-                    continue
-
-                print(
-                    f"[ERROR] "
-                    f"{fixture_id} "
-                    f"{bookmaker}"
-                )
-
-                print(exc)
-
+        for fixture in fixtures:
+            fixture_id = match_id_of(fixture)
+            if not fixture_id:
+                skipped += 1
                 continue
 
-        update_fixture_cache(
-            fixture_id,
-            kickoff
-        )
+            if fixture_recently_checked(fixture_id, CACHE_MINUTES):
+                skipped += 1
+                continue
 
-    print(
-        f"Saved {saved_rows} odds rows"
-    )
+            home_team = normalize_team(
+                team_name(fixture.get("home_team") or fixture.get("home"))
+            )
+            away_team = normalize_team(
+                team_name(fixture.get("away_team") or fixture.get("away"))
+            )
+            kickoff = kickoff_of(fixture)
+            if not home_team or not away_team:
+                skipped += 1
+                continue
 
-    print(
-        f"Skipped {skipped_rows} fixtures"
-    )
+            ensure_team_row(home_team)
+            ensure_team_row(away_team)
 
+            try:
+                odds_payload = get_match_odds(fixture_id)
+            except Exception as exc:
+                print(f"  odds failed {fixture_id}: {exc}")
+                skipped += 1
+                continue
 
-# ==================================
-# RUN
-# ==================================
+            books = pick_books(extract_back_prices(odds_payload))
+            if not books:
+                skipped += 1
+                update_fixture_cache(fixture_id, kickoff)
+                continue
+
+            for bookmaker, prices in books.items():
+                if prices.get("home") is not None:
+                    save_odds_history(
+                        match_id=fixture_id,
+                        kickoff=kickoff,
+                        league=league_name,
+                        home_team=home_team,
+                        away_team=away_team,
+                        selection=home_team,
+                        bookmaker=bookmaker,
+                        back_odds=prices["home"],
+                        lay_odds=None,
+                    )
+                    saved += 1
+                if prices.get("away") is not None:
+                    save_odds_history(
+                        match_id=fixture_id,
+                        kickoff=kickoff,
+                        league=league_name,
+                        home_team=home_team,
+                        away_team=away_team,
+                        selection=away_team,
+                        bookmaker=bookmaker,
+                        back_odds=prices["away"],
+                        lay_odds=None,
+                    )
+                    saved += 1
+
+            update_fixture_cache(fixture_id, kickoff)
+
+    print(f"Saved {saved} back-odds rows (lay left empty)")
+    print(f"Skipped {skipped} fixtures")
+
 
 if __name__ == "__main__":
-
     collect_odds()

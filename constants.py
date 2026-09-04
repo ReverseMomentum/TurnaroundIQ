@@ -31,75 +31,54 @@ BET_COLUMNS = [
     "settled_at"
 ]
 
-SUPPORTED_LEAGUES = [
-
+# API-Football league IDs. Name matching is unsafe: several
+# countries call their top flight "Premier League".
+SUPPORTED_LEAGUE_IDS = {
     # England
-
-    "Premier League",
-    "Championship",
-    "League One",
-    "League Two",
+    39: "Premier League",
+    40: "Championship",
+    41: "League One",
+    42: "League Two",
 
     # Scotland
-    # NOTE: API-Football's own historical announcements refer
-    # to this competition as just "Premiership" (see their
-    # 2018 news archive: "SCOTLAND Premiership 2018/2019"),
-    # not "Scottish Premiership". Changed based on that - the
-    # unmatched-league diagnostic in results_collector.py will
-    # confirm on first live run; revert if it still shows up
-    # there as unmatched.
-
-    "Premiership",
+    179: "Premiership",
 
     # Germany
-
-    "Bundesliga",
-    "2. Bundesliga",
+    78: "Bundesliga",
+    79: "2. Bundesliga",
 
     # Spain
-
-    "La Liga",
+    140: "La Liga",
 
     # Italy
-
-    "Serie A",
+    135: "Serie A",
 
     # France
-
-    "Ligue 1",
+    61: "Ligue 1",
 
     # Netherlands
-
-    "Eredivisie",
+    88: "Eredivisie",
 
     # Belgium
-    # NOTE: same situation - API-Football's own archive refers
-    # to this as "Jupiler Pro League", not "Belgian Pro League".
-    # Same caveat as Scotland above.
-
-    "Jupiler Pro League",
+    144: "Jupiler Pro League",
 
     # Portugal
-
-    "Primeira Liga",
+    94: "Primeira Liga",
 
     # MLS
-
-    "Major League Soccer",
+    253: "Major League Soccer",
 
     # Denmark
-
-    "Superliga",
+    119: "Superliga",
 
     # Norway
-
-    "Eliteserien",
+    103: "Eliteserien",
 
     # Sweden
-
-    "Allsvenskan",
+    113: "Allsvenskan",
 
     # Ireland
+    357: "Premier Division",
+}
 
-    "Premier Division"
-]
+SUPPORTED_LEAGUES = list(SUPPORTED_LEAGUE_IDS.values())

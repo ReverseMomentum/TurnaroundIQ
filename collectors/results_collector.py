@@ -19,7 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
     )
 
 from constants import (
-    SUPPORTED_LEAGUES
+    SUPPORTED_LEAGUE_IDS
 )
 
 from team_normalizer import (
@@ -621,19 +621,38 @@ def process_results():
                 skipped += 1
                 continue
 
-            league = (
-                fixture["league"]["name"]
+            league_meta = fixture.get(
+                "league",
+                {}
             )
 
-            if league not in SUPPORTED_LEAGUES:
+            league_id = league_meta.get(
+                "id"
+            )
+
+            league_name = league_meta.get(
+                "name",
+                ""
+            )
+
+            country = league_meta.get(
+                "country",
+                ""
+            )
+
+            if league_id not in SUPPORTED_LEAGUE_IDS:
 
                 unsupported += 1
 
                 unmatched_leagues.add(
-                    league
+                    f"{country} | {league_name} | id={league_id}"
                 )
 
                 continue
+
+            league = SUPPORTED_LEAGUE_IDS[
+                league_id
+            ]
 
             home_team = (
                 fixture["teams"]["home"]["name"]
@@ -711,9 +730,8 @@ def process_results():
     if unmatched_leagues:
 
         print(
-            "\nLeague names seen but NOT in "
-            "SUPPORTED_LEAGUES (check constants.py "
-            "for naming mismatches):"
+            "\nLeague id/name/country seen but NOT in "
+            "SUPPORTED_LEAGUE_IDS:"
         )
 
         for name in sorted(

@@ -1,13 +1,5 @@
 """
 Write data/ginf.csv and data/events.csv from FBref.
-
-Same columns as the old Kaggle dump so import_historical_events.py
-and the build_historical_* scripts do not change.
-
-Events use side=1 home / side=2 away and is_goal=1 so intelligence
-and advanced features can replay 2-up.
-
-    python -u training/fetch_fbref_source.py --league "Premier League" --season 2024
 """
 
 import argparse
@@ -31,7 +23,8 @@ GINF_FILE = DATA_DIR / "ginf.csv"
 EVENT_FILE = DATA_DIR / "events.csv"
 
 FIRST_SEASON = 2017
-SLEEP_SECONDS = 5.0
+SLEEP_SECONDS = 18.0
+SEASON_SLEEP_SECONDS = 45.0
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (compatible; TurnaroundIQ/1.0; "
@@ -189,7 +182,7 @@ def fetch_html(url):
     return response.text
 
 
-def collect(leagues=None, seasons=None):
+def collect(leagues=None, seasons=None, sleep_s=SLEEP_SECONDS, season_sleep_s=SEASON_SLEEP_SECONDS):
     try:
         import soccerdata as sd
     except ImportError:
@@ -201,7 +194,7 @@ def collect(leagues=None, seasons=None):
     wanted = leagues or list(FBREF_LEAGUES.keys())
     years = seasons or season_list()
     jobs = [(key, year) for key in wanted for year in years]
-    step(f"{len(jobs)} league-seasons -> {GINF_FILE.name} / {EVENT_FILE.name}")
+    step(f"{len(jobs)} league-seasons | {sleep_s}s/match | {season_sleep_s}s/season")
     bar = ProgressBar(len(jobs), label="FBref")
 
     for key, year in jobs:
@@ -212,6 +205,7 @@ def collect(leagues=None, seasons=None):
             schedule = fbref.read_schedule()
             if schedule is None or schedule.empty:
                 bar.update(detail=label)
+                time.sleep(season_sleep_s)
                 continue
             frame = schedule.reset_index()
             inner = ProgressBar(len(frame), label=league_name[:12])
@@ -254,7 +248,7 @@ def collect(leagues=None, seasons=None):
                         write_files(matches, events)
                         raise
                     inner.update(detail="fail")
-                    time.sleep(SLEEP_SECONDS)
+                    time.sleep(sleep_s * 2)
                     continue
                 for minute, side, team, player in goals:
                     events.append({
@@ -271,7 +265,7 @@ def collect(leagues=None, seasons=None):
                 existing_ids.add(match_id)
                 added += 1
                 inner.update(detail=f"{home} {len(goals)}g")
-                time.sleep(SLEEP_SECONDS)
+                time.sleep(sleep_s)
             inner.finish()
             write_files(matches, events)
             ok(f"{label}: +{added} shot pages, {len(matches)} matches stored")
@@ -282,6 +276,7 @@ def collect(leagues=None, seasons=None):
                 warn("Saved progress. Re-run the same command later.")
                 break
         bar.update(detail=label)
+        time.sleep(season_sleep_s)
     bar.finish()
     write_files(matches, events)
     ok(f"Wrote {len(matches)} matches -> {GINF_FILE}")
@@ -293,6 +288,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--league")
     parser.add_argument("--season", type=int)
+    parser.add_argument("--sleep", type=float, default=SLEEP_SECONDS)
+    parser.add_argument("--season-sleep", type=float, default=SEASON_SLEEP_SECONDS)
     args = parser.parse_args()
     leagues = None
     if args.league:
@@ -302,7 +299,12 @@ def main():
             sys.exit(1)
         leagues = hits
     seasons = [args.season] if args.season else None
-    collect(leagues=leagues, seasons=seasons)
+    collect(
+        leagues=leagues,
+        seasons=seasons,
+        sleep_s=args.sleep,
+        season_sleep_s=args.season_sleep,
+    )
 
 
 if __name__ == "__main__":

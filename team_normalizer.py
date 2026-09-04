@@ -228,7 +228,7 @@ TEAM_ALIASES = {
         "Paris Saint Germain",
 
     "paris sg":
-        "Paris Saint Germain"
+        "Paris Saint Germain",
 
     # Belgium
 

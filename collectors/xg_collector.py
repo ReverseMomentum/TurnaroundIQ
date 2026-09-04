@@ -16,6 +16,7 @@ from collectors.thestatsapi import (
     team_name,
 )
 from database import get_db
+from progress import ProgressBar, ok, step, warn
 from team_normalizer import normalize_team
 
 FIXTURES_PER_LEAGUE = 10
@@ -85,12 +86,13 @@ def _side_goals(block, fallback=None):
 
 
 def process_xg():
+    step("Resolving TheStatsAPI competitions")
     competitions = supported_competition_ids()
     date_from, date_to = finished_window(21)
+    ok(f"Finished window {date_from} to {date_to}")
     team_data = {}
 
-    print(f"Finished window {date_from} to {date_to}")
-
+    bar = ProgressBar(len(competitions), label="Leagues")
     for league_name, competition_id in competitions.items():
         try:
             rows = list_matches(
@@ -100,29 +102,29 @@ def process_xg():
                 date_to=date_to,
             )
         except Exception as exc:
-            print(f"{league_name}: match list failed ({exc})")
+            warn(f"{league_name}: match list failed ({exc})")
+            bar.update(detail=league_name)
             continue
 
         rows.sort(key=lambda row: kickoff_of(row) or "")
         latest = rows[-FIXTURES_PER_LEAGUE:]
-        print(f"{league_name}: {len(rows)} finished, using last {len(latest)}")
+        ok(f"{league_name}: {len(rows)} finished, using last {len(latest)}")
 
+        inner = ProgressBar(max(len(latest), 1), label="xG")
         for match in latest:
             mid = match_id_of(match)
             if not mid:
+                inner.update(detail="no id")
                 continue
-            if match.get("xg_available") is False:
-                # Still try; some lists leave the flag stale.
-                pass
             try:
                 stats = get_match_stats(mid)
             except Exception as exc:
-                print(f"  stats failed {mid}: {exc}")
+                warn(f"stats failed {mid}: {exc}")
+                inner.update(detail=str(mid))
                 continue
 
             home_block = stats.get("home") or {}
             away_block = stats.get("away") or {}
-
             home_team = normalize_team(
                 team_name(home_block) or team_name(match.get("home_team") or match.get("home"))
             )
@@ -130,6 +132,7 @@ def process_xg():
                 team_name(away_block) or team_name(match.get("away_team") or match.get("away"))
             )
             if not home_team or not away_team:
+                inner.update(detail="unnamed")
                 continue
 
             score = match.get("score") or {}
@@ -156,11 +159,18 @@ def process_xg():
             team_data[away_team]["xga"].append(home_xg)
             team_data[away_team]["goals"].append(away_goals)
             team_data[away_team]["conceded"].append(home_goals)
+            inner.update(detail=f"{home_team} v {away_team}")
+        inner.finish()
+        bar.update(detail=league_name)
 
+    bar.finish()
+    step("Writing team_stats")
     updated = 0
+    write_bar = ProgressBar(max(len(team_data), 1), label="Teams")
     for team, values in team_data.items():
         n = len(values["xg"])
         if n == 0:
+            write_bar.update(detail=team)
             continue
         save_team_stats(
             team,
@@ -171,8 +181,9 @@ def process_xg():
             n,
         )
         updated += 1
-
-    print(f"Updated {updated} teams")
+        write_bar.update(detail=team)
+    write_bar.finish()
+    ok(f"Updated {updated} teams")
 
 
 if __name__ == "__main__":

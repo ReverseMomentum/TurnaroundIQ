@@ -6,7 +6,6 @@ from database import get_db
 
 
 TEAM_ALIASES = {
-
     "man utd": "Manchester United",
     "manchester utd": "Manchester United",
     "man united": "Manchester United",
@@ -135,8 +134,20 @@ TEAM_ALIASES = {
 _PREFIXES = (
     "1 fc ", "1 ", "fc ", "afc ", "sc ", "sv ", "as ", "ac ",
     "fk ", "if ", "bk ", "sk ", "rc ", "rsc ", "krc ", "kaa ",
-    "sl ", "cf ", "cd ", "ud ", "ss ", "us ", "tsg ",
+    "sl ", "cf ", "cd ", "ud ", "ss ", "us ", "tsg ", "ik ",
+    "pec ", "aj ", "as ", "the ",
 )
+
+_SUFFIXES = (
+    " fc", " fk", " ff", " bk", " ik", " sk", " cf", " sc",
+    " united", " city", " town", " roamers",
+)
+
+_STOP = {
+    "fc", "fk", "ff", "bk", "ik", "sk", "sc", "sv", "as", "ac",
+    "afc", "cf", "cd", "ud", "if", "1", "st", "the", "de", "and",
+    "pec", "aj", "united", "city", "town",
+}
 
 _alias_cache = None
 _alias_cache_loaded = False
@@ -181,8 +192,7 @@ def clean_team_name(team_name):
         .replace("&", "and")
         .strip()
     )
-    team_name = " ".join(team_name.split())
-    return team_name
+    return " ".join(team_name.split())
 
 
 def get_alias_from_db(team_name):
@@ -216,9 +226,17 @@ def match_key(team_name):
                 text = text[len(prefix):]
                 changed = True
                 break
-    if text.endswith(" fc"):
-        text = text[:-3]
+        for suffix in _SUFFIXES:
+            if text.endswith(suffix):
+                text = text[: -len(suffix)]
+                changed = True
+                break
     return text.strip()
+
+
+def content_tokens(team_name):
+    key = match_key(team_name)
+    return [tok for tok in key.split() if tok and tok not in _STOP]
 
 
 def load_team_stats_names():
@@ -232,12 +250,27 @@ def load_team_stats_names():
     return _team_stats_cache
 
 
-def resolve_team_stats_name(team_name, known_teams=None, cutoff=0.78):
-    """
-    Map a collector name onto an existing team_stats.team value.
-    Order: normalize_team exact, stripped-key exact, difflib fuzzy.
-    Returns (resolved_name_or_None, method).
-    """
+def _unique_token_hit(tokens, known):
+    if not tokens:
+        return None
+    for token in sorted(tokens, key=len, reverse=True):
+        if len(token) < 4:
+            continue
+        hits = []
+        for stored in known:
+            stored_tokens = content_tokens(stored)
+            stored_key = match_key(stored)
+            if token in stored_tokens or token in stored_key.split():
+                hits.append(stored)
+            elif stored_key.startswith(token) or token.startswith(stored_key):
+                if min(len(token), len(stored_key)) >= 5:
+                    hits.append(stored)
+        if len(hits) == 1:
+            return hits[0]
+    return None
+
+
+def resolve_team_stats_name(team_name, known_teams=None, cutoff=0.62):
     raw = clean_team_name(team_name)
     if not raw:
         return None, "empty"
@@ -255,16 +288,19 @@ def resolve_team_stats_name(team_name, known_teams=None, cutoff=0.78):
             if match_key(stored) == raw_key:
                 return stored, "key"
 
-    candidates = list(known)
+    tokens = content_tokens(normalized)
+    token_hit = _unique_token_hit(tokens, known)
+    if token_hit:
+        return token_hit, "token"
+
     close = difflib.get_close_matches(
-        normalized, candidates, n=1, cutoff=cutoff
+        normalized, list(known), n=1, cutoff=cutoff
     )
     if close:
         return close[0], "fuzzy"
 
-    close_key = difflib.get_close_matches(
-        raw_key, [match_key(t) for t in known], n=1, cutoff=cutoff
-    )
+    keys = [match_key(t) for t in known]
+    close_key = difflib.get_close_matches(raw_key, keys, n=1, cutoff=cutoff)
     if close_key:
         hit = close_key[0]
         for stored in known:
@@ -276,19 +312,29 @@ def resolve_team_stats_name(team_name, known_teams=None, cutoff=0.78):
 
 def save_alias(alias, canonical_name, source="fuzzy"):
     conn = get_db()
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO team_aliases
-        (alias, canonical_name, source, created_at)
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            alias,
-            canonical_name,
-            source,
-            datetime.now(timezone.utc).isoformat(),
-        ),
-    )
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO team_aliases
+            (alias, canonical_name, source, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                alias,
+                canonical_name,
+                source,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+    except Exception:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO team_aliases
+            (alias, canonical_name)
+            VALUES (?, ?)
+            """,
+            (alias, canonical_name),
+        )
     conn.commit()
     conn.close()
     if _alias_cache_loaded and _alias_cache is not None:
@@ -313,8 +359,11 @@ if __name__ == "__main__":
         "Viborg",
         "Auxerre",
         "Sparta Rotterdam",
-        "Man Utd",
-        "Bayern München",
+        "FC St Pauli",
+        "Bodo/Glimt",
+        "PEC Zwolle",
+        "Start",
+        "Lyngby",
     ]
     for team in samples:
         resolved, method = resolve_team_stats_name(team, known)

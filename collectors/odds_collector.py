@@ -21,6 +21,7 @@ from database import (
     save_odds_history,
     update_fixture_cache,
 )
+from progress import ProgressBar, ok, step, warn
 from team_normalizer import normalize_team
 
 LOOKAHEAD_DAYS = 2
@@ -67,10 +68,6 @@ def _match_odds_market(markets):
 
 
 def extract_back_prices(odds_payload):
-    """
-    Return {bookmaker_key: {home, away, draw}} from a TheStatsAPI odds payload.
-    Lay is never required.
-    """
     data = odds_payload or {}
     books = data.get("bookmakers") or data.get("odds") or []
     if isinstance(books, dict):
@@ -110,7 +107,6 @@ def pick_books(collected):
             preferred.append(key)
     if preferred:
         return {key: collected[key] for key in preferred}
-    # Fall back to whatever 1X2 books came back.
     return collected
 
 
@@ -122,12 +118,14 @@ def ensure_team_row(team):
 
 
 def collect_odds():
+    step("Resolving competitions")
     competitions = supported_competition_ids()
     date_from, date_to = upcoming_window(LOOKAHEAD_DAYS)
-    print(f"Upcoming window {date_from} to {date_to}")
+    ok(f"Upcoming window {date_from} to {date_to}")
 
     saved = 0
     skipped = 0
+    bar = ProgressBar(len(competitions), label="Leagues")
 
     for league_name, competition_id in competitions.items():
         try:
@@ -138,19 +136,21 @@ def collect_odds():
                 date_to=date_to,
             )
         except Exception as exc:
-            print(f"{league_name}: fixture list failed ({exc})")
+            warn(f"{league_name}: fixture list failed ({exc})")
+            bar.update(detail=league_name)
             continue
 
-        print(f"{league_name}: {len(fixtures)} scheduled")
-
+        ok(f"{league_name}: {len(fixtures)} scheduled")
+        inner = ProgressBar(max(len(fixtures), 1), label="Odds")
         for fixture in fixtures:
             fixture_id = match_id_of(fixture)
             if not fixture_id:
                 skipped += 1
+                inner.update(detail="no id")
                 continue
-
             if fixture_recently_checked(fixture_id, CACHE_MINUTES):
                 skipped += 1
+                inner.update(detail="cached")
                 continue
 
             home_team = normalize_team(
@@ -162,6 +162,7 @@ def collect_odds():
             kickoff = kickoff_of(fixture)
             if not home_team or not away_team:
                 skipped += 1
+                inner.update(detail="unnamed")
                 continue
 
             ensure_team_row(home_team)
@@ -170,14 +171,16 @@ def collect_odds():
             try:
                 odds_payload = get_match_odds(fixture_id)
             except Exception as exc:
-                print(f"  odds failed {fixture_id}: {exc}")
+                warn(f"odds failed {fixture_id}: {exc}")
                 skipped += 1
+                inner.update(detail=str(fixture_id))
                 continue
 
             books = pick_books(extract_back_prices(odds_payload))
             if not books:
                 skipped += 1
                 update_fixture_cache(fixture_id, kickoff)
+                inner.update(detail=f"{home_team} no books")
                 continue
 
             for bookmaker, prices in books.items():
@@ -209,9 +212,13 @@ def collect_odds():
                     saved += 1
 
             update_fixture_cache(fixture_id, kickoff)
+            inner.update(detail=f"{home_team} v {away_team}")
+        inner.finish(detail=f"+{saved}")
+        bar.update(detail=league_name)
 
-    print(f"Saved {saved} back-odds rows (lay left empty)")
-    print(f"Skipped {skipped} fixtures")
+    bar.finish()
+    ok(f"Saved {saved} back-odds rows (lay left empty)")
+    ok(f"Skipped {skipped} fixtures")
 
 
 if __name__ == "__main__":

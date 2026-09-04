@@ -82,3 +82,8 @@ SUPPORTED_LEAGUE_IDS = {
 }
 
 SUPPORTED_LEAGUES = list(SUPPORTED_LEAGUE_IDS.values())
+
+# Training label decay. A match half_life_years old gets weight 0.5.
+# Floor stops 2015 rows rounding to ~0 and disappearing entirely.
+SAMPLE_WEIGHT_HALF_LIFE_YEARS = 2.0
+SAMPLE_WEIGHT_FLOOR = 0.05

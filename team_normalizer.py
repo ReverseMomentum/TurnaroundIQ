@@ -111,6 +111,12 @@ TEAM_ALIASES = {
     "heart of midlothian":
         "Heart of Midlothian",
 
+    "hearts":
+        "Heart Of Midlothian",
+
+    "heart of midlothian":
+        "Heart Of Midlothian",
+
     "hearts fc":
         "Heart of Midlothian",
 
@@ -245,7 +251,11 @@ TEAM_ALIASES = {
         "Royal Antwerp",
 
     "anderlecht":
-        "RSC Anderlecht",
+        "Anderlecht",
+
+    "rsc anderlecht":
+        "Anderlecht",
+
 
     "rsc anderlecht":
         "RSC Anderlecht",

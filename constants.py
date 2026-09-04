@@ -53,6 +53,9 @@ SUPPORTED_LEAGUES = list(SUPPORTED_LEAGUE_IDS.values())
 SAMPLE_WEIGHT_HALF_LIFE_YEARS = 2.0
 SAMPLE_WEIGHT_FLOOR = 0.05
 
+# API-Football — results_collector only.
+API_FOOTBALL_KEY = "aa7c72b2db786ed876c98fdafd5274b4"
+
 # TheStatsAPI — xG + pre-match back odds.
 THESTATSAPI_KEY = "fapi_aGYmBLcFZ7tLylMXENrK62GkYxlnEEiq"
 THESTATSAPI_PREFERRED_BOOKS = [

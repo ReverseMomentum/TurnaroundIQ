@@ -19,14 +19,13 @@ if str(PROJECT_ROOT) not in sys.path:
     )
 
 from constants import (
-    SUPPORTED_LEAGUE_IDS
+    API_FOOTBALL_KEY,
+    SUPPORTED_LEAGUE_IDS,
 )
 
 from team_normalizer import (
     normalize_team
 )
-
-API_FOOTBALL_KEY = "aa7c72b2db786ed876c98fdafd5274b4"
 
 DB_NAME = "two_up.db"
 

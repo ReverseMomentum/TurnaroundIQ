@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 from database import get_db, save_odds_history
+from progress import ProgressBar, ok, step, warn
 from team_normalizer import normalize_team
 
 FIRST_SEASON_START = 2015
@@ -125,16 +126,18 @@ def attach_to_historical(home, away, kickoff, odd_h, odd_a, odd_d=None):
     return updated or 0
 
 
-def ingest_rows(rows, league_name, existing):
+def ingest_rows(rows, league_name, existing, bar=None):
     saved = 0
     skipped = 0
     linked = 0
 
-    for row in rows:
+    for index, row in enumerate(rows, start=1):
         home_raw = row.get("HomeTeam") or row.get("Home") or ""
         away_raw = row.get("AwayTeam") or row.get("Away") or ""
         if not home_raw or not away_raw:
             skipped += 1
+            if bar:
+                bar.update(detail=f"{league_name} skip")
             continue
 
         home = normalize_team(home_raw)
@@ -179,6 +182,9 @@ def ingest_rows(rows, league_name, existing):
                 existing.add(key)
                 saved += 1
 
+        if bar:
+            bar.update(detail=f"{league_name} +{saved}")
+
     return saved, skipped, linked
 
 
@@ -192,51 +198,50 @@ def download_csv(url):
 
 
 def collect_football_data_odds():
+    step("Loading existing odds_history keys")
     existing = load_existing_odds()
+    ok(f"{len(existing)} existing football-data odds rows")
+
+    jobs = []
+    for season in season_codes():
+        for div_code, league_name in MAIN_DIVISIONS.items():
+            jobs.append(("main", season, div_code, league_name, season_url(season, div_code)))
+    for url, league_name in EXTRA_FILES.items():
+        jobs.append(("extra", "all", "", league_name, url))
+
+    step(f"{len(jobs)} files to scan")
+    bar = ProgressBar(len(jobs), label="Files")
+
     total_saved = 0
     total_skipped = 0
     total_linked = 0
 
-    for season in season_codes():
-        for div_code, league_name in MAIN_DIVISIONS.items():
-            url = season_url(season, div_code)
-            try:
-                rows = download_csv(url)
-            except Exception as exc:
-                print(f"{url} failed: {exc}")
-                continue
-            if not rows:
-                continue
-            saved, skipped, linked = ingest_rows(rows, league_name, existing)
-            print(
-                f"{league_name} {season}: {len(rows)} matches, "
-                f"+{saved} odds, linked {linked} historical"
-            )
-            total_saved += saved
-            total_skipped += skipped
-            total_linked += linked
-
-    for url, league_name in EXTRA_FILES.items():
+    for kind, season, div_code, league_name, url in jobs:
+        label = f"{league_name} {season}"
         try:
             rows = download_csv(url)
         except Exception as exc:
-            print(f"{league_name} extra failed: {exc}")
+            warn(f"{label} download failed: {exc}")
+            bar.update(detail=label)
             continue
         if not rows:
-            print(f"{league_name}: extra file missing")
+            bar.update(detail=f"{label} empty")
             continue
-        saved, skipped, linked = ingest_rows(rows, league_name, existing)
-        print(
-            f"{league_name} extra: {len(rows)} matches, "
-            f"+{saved} odds, linked {linked} historical"
-        )
+
+        inner = ProgressBar(len(rows), label=league_name[:12])
+        saved, skipped, linked = ingest_rows(rows, league_name, existing, bar=inner)
+        inner.finish(detail=f"+{saved} odds, {linked} hist")
+        ok(f"{label}: {len(rows)} matches, +{saved} odds, linked {linked}")
         total_saved += saved
         total_skipped += skipped
         total_linked += linked
+        bar.update(detail=label)
 
-    print(f"Saved {total_saved} odds_history rows")
-    print(f"Filled {total_linked} historical_matches odd_h/odd_a gaps")
-    print(f"Skipped {total_skipped} empty/duplicate rows")
+    bar.finish()
+    step("Done")
+    ok(f"Saved {total_saved} odds_history rows")
+    ok(f"Filled {total_linked} historical_matches odd_h/odd_a gaps")
+    ok(f"Skipped {total_skipped} empty/duplicate rows")
 
 
 if __name__ == "__main__":

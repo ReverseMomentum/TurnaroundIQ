@@ -1,9 +1,10 @@
 """
-Live pipeline — results, team_stats, xG, odds.
-Does not rebuild training_data.
+Live pipeline — results, team_stats, football-data odds.
+TheStatsAPI xG/odds are opt-in (key is revoked).
 
     python -u pipelines/live/run.py
-    python -u pipelines/live/run.py --skip-odds --skip-xg
+    python -u pipelines/live/run.py --skip-odds
+    python -u pipelines/live/run.py --thestatsapi
 """
 
 import argparse
@@ -22,9 +23,9 @@ STEPS = [
     ("Collect finished results", "collectors/results_collector.py", "always"),
     ("Update live team stats", "pipelines/live/team_stats.py", "always"),
     ("Update live + divergence stats", "training/update_live_team_stats.py", "always"),
-    ("Update xG / last-5 form", "collectors/xg_collector.py", "xg"),
-    ("Refresh live odds", "collectors/odds_collector.py", "odds"),
-    ("Backfill CSV odds", "collectors/odds_football_data.py", "odds"),
+    ("Update xG / last-5 form", "collectors/xg_collector.py", "thestatsapi"),
+    ("Refresh TheStatsAPI odds", "collectors/odds_collector.py", "thestatsapi"),
+    ("Football-data.co.uk odds", "collectors/odds_football_data.py", "odds"),
 ]
 
 
@@ -38,14 +39,18 @@ def run_script(script):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-odds", action="store_true")
-    parser.add_argument("--skip-xg", action="store_true")
+    parser.add_argument(
+        "--thestatsapi",
+        action="store_true",
+        help="Also run xG + TheStatsAPI odds (needs a live key)",
+    )
     args = parser.parse_args()
 
     jobs = []
     for name, script, kind in STEPS:
         if kind == "odds" and args.skip_odds:
             continue
-        if kind == "xg" and args.skip_xg:
+        if kind == "thestatsapi" and not args.thestatsapi:
             continue
         jobs.append((name, script))
 

@@ -1,5 +1,6 @@
-date,home_team,away_team,home_score,away_score,home_possession,away_possession,home_xG,away_xG,home_big_chances,away_big_chances,home_shots,away_shots,home_saves,away_saves,home_sprints,away_sprints,home_corners,away_corners
-29/08/2026,Liverpool,Forest,2,2,69,31,1.75,2.3,1,5,13,12,1,2,133,99,3,5
-05/09/2026,Newcastle,Bournemouth,2,2,57,43,0.66,1.5,1,2,8,17,4,0,107,114,4,3
-31/08/2026,Aston Villa,Arsenal,0,1,39,61,0.33,1.04,0,2,7,7,1,0,104,127,2,4
-30/08/2026,Man Utd,Ipswich,5,2,60,40,4.77,2.06,9,4,33,9,3,6,0,0,8,4
+date,home_team,away_team,home_score,away_score,home_possession,away_possession,home_xG,away_xG,home_shots,away_shots,home_shots_on_target,away_shots_on_target,home_corners,away_corners
+29/08/2026,Liverpool,Forest,2,2,69,31,1.75,2.3,13,12,6,7,3,5
+05/09/2026,Newcastle,Bournemouth,2,2,57,43,0.66,1.5,8,17,4,5,4,3
+31/08/2026,Aston Villa,Arsenal,0,1,39,61,0.33,1.04,7,7,3,4,2,4
+30/08/2026,Man Utd,Ipswich,5,2,60,40,4.77,2.06,33,9,12,4,8,4
+30/08/2026,Chelsea,Brighton,4,3,26,74,2.93,1.4,17,15,6,6,4,7

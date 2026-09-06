@@ -1,5 +1,6 @@
 """
 One live team_stats pass: trigger rates + home/away turnaround + opponent rate.
+Does not touch historical_* or lead_retention_rate (those come from historical build).
 """
 
 from datetime import datetime, timezone
@@ -51,9 +52,7 @@ TEAM_STATS_COLUMNS = {
 
 
 def migrate_team_stats(conn):
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS team_stats (team TEXT PRIMARY KEY)"
-    )
+    conn.execute("CREATE TABLE IF NOT EXISTS team_stats (team TEXT PRIMARY KEY)")
     existing = {row[1] for row in conn.execute("PRAGMA table_info(team_stats)")}
     for name, typ in TEAM_STATS_COLUMNS.items():
         if name not in existing:
@@ -110,7 +109,6 @@ def update_team_stats():
 
         trigger_rate = round(two_up_leads / matches_played * 100, 2) if matches_played else 0
         turnaround_pct = round(failed_leads / two_up_leads * 100, 2) if two_up_leads else 0
-        retention = round((two_up_leads - failed_leads) / two_up_leads * 100, 2) if two_up_leads else 100
         home_pct = round(home_fail / home_leads * 100, 2) if home_leads else 0
         away_pct = round(away_fail / away_leads * 100, 2) if away_leads else 0
         rates[team] = turnaround_pct
@@ -124,7 +122,6 @@ def update_team_stats():
                 failed_leads = ?,
                 two_up_trigger_rate = ?,
                 turnaround_pct = ?,
-                lead_retention_rate = ?,
                 home_turnaround_pct = ?,
                 away_turnaround_pct = ?,
                 updated_at = ?
@@ -132,7 +129,7 @@ def update_team_stats():
             """,
             (
                 matches_played, two_up_leads, failed_leads,
-                trigger_rate, turnaround_pct, retention,
+                trigger_rate, turnaround_pct,
                 home_pct, away_pct, now, team,
             ),
         )

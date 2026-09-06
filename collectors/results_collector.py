@@ -128,6 +128,68 @@ def mark_fixture_processed(fixture_id):
     conn.close()
 
 
+def update_form_from_results():
+    """
+    Fields xg_collector used to write that we can rebuild from scores.
+    Does not write avg_xg / avg_xga / xg_edge — those need the xG API.
+    Same last-5 sum as xg_collector (values['goals'][-5:]).
+    """
+    conn = get_db()
+    conn.execute("CREATE TABLE IF NOT EXISTS team_stats (team TEXT PRIMARY KEY)")
+    for col, typ in (
+        ("goals_last5", "INTEGER"),
+        ("conceded_last5", "INTEGER"),
+        ("matches_played", "INTEGER"),
+        ("updated_at", "TEXT"),
+    ):
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(team_stats)")}
+        if col not in existing:
+            conn.execute(f"ALTER TABLE team_stats ADD COLUMN {col} {typ}")
+    teams = conn.execute(
+        """
+        SELECT DISTINCT home_team FROM match_results
+        UNION
+        SELECT DISTINCT away_team FROM match_results
+        """
+    ).fetchall()
+    updated = 0
+    now = datetime.now(timezone.utc).isoformat()
+    for (team,) in teams:
+        if not team:
+            continue
+        rows = conn.execute(
+            """
+            SELECT processed_at, final_home, final_away FROM match_results
+            WHERE home_team = ?
+            UNION ALL
+            SELECT processed_at, final_away, final_home FROM match_results
+            WHERE away_team = ?
+            ORDER BY processed_at DESC
+            """,
+            (team, team),
+        ).fetchall()
+        matches_played = len(rows)
+        last5 = rows[:5]
+        goals_last5 = sum((row[1] or 0) for row in last5)
+        conceded_last5 = sum((row[2] or 0) for row in last5)
+        conn.execute("INSERT OR IGNORE INTO team_stats (team) VALUES (?)", (team,))
+        conn.execute(
+            """
+            UPDATE team_stats SET
+                goals_last5 = ?,
+                conceded_last5 = ?,
+                matches_played = ?,
+                updated_at = ?
+            WHERE team = ?
+            """,
+            (goals_last5, conceded_last5, matches_played, now, team),
+        )
+        updated += 1
+    conn.commit()
+    conn.close()
+    print(f"{updated} teams updated with last-5 goals from match_results")
+
+
 def get_completed_fixtures():
     fixtures = []
     for day in range(LOOKBACK_DAYS):
@@ -372,6 +434,7 @@ def process_results():
         print("\nLeague id/name/country seen but NOT in SUPPORTED_LEAGUE_IDS:")
         for name in sorted(unmatched_leagues):
             print(f"  - {name}")
+    update_form_from_results()
 
 
 if __name__ == "__main__":

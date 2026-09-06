@@ -1,6 +1,5 @@
 """
 One live team_stats pass: trigger rates + home/away turnaround + opponent rate.
-Replaces update_team_profiles.py + update_turnaround_stats.py.
 """
 
 from datetime import datetime, timezone
@@ -14,9 +13,58 @@ if str(ROOT) not in sys.path:
 from database import get_db
 from team_normalizer import normalize_team
 
+TEAM_STATS_COLUMNS = {
+    "avg_xg": "REAL",
+    "avg_xga": "REAL",
+    "xg_edge": "REAL",
+    "goals_last5": "INTEGER",
+    "conceded_last5": "INTEGER",
+    "matches_played": "INTEGER",
+    "two_up_leads": "INTEGER",
+    "failed_leads": "INTEGER",
+    "turnaround_pct": "REAL",
+    "two_up_trigger_rate": "REAL",
+    "lead_retention_rate": "REAL",
+    "home_turnaround_pct": "REAL",
+    "away_turnaround_pct": "REAL",
+    "early_goal_rate": "REAL",
+    "early_concede_rate": "REAL",
+    "first_lead_rate": "REAL",
+    "first_concede_rate": "REAL",
+    "comeback_rate": "REAL",
+    "first_half_goal_diff": "REAL",
+    "second_half_goal_diff": "REAL",
+    "burnout_index": "REAL",
+    "historical_matches": "INTEGER",
+    "historical_two_up": "INTEGER",
+    "historical_comebacks": "INTEGER",
+    "historical_turnaround_rate": "REAL",
+    "historical_trigger_rate": "REAL",
+    "league_turnaround_rate": "REAL",
+    "opponent_turnaround_rate": "REAL",
+    "momentum_score": "REAL",
+    "attack_rating": "REAL",
+    "defence_rating": "REAL",
+    "model_weight": "REAL",
+    "updated_at": "TEXT",
+}
+
+
+def migrate_team_stats(conn):
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS team_stats (team TEXT PRIMARY KEY)"
+    )
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(team_stats)")}
+    for name, typ in TEAM_STATS_COLUMNS.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE team_stats ADD COLUMN {name} {typ}")
+            print(f"Added team_stats.{name}")
+    conn.commit()
+
 
 def update_team_stats():
     conn = get_db()
+    migrate_team_stats(conn)
     teams = conn.execute(
         """
         SELECT DISTINCT home_team FROM match_results

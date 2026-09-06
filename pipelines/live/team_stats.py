@@ -1,6 +1,6 @@
 """
-One live team_stats pass: trigger rates + home/away turnaround + opponent rate.
-Does not touch historical_* or lead_retention_rate (those come from historical build).
+One live team_stats pass: trigger rates + last-5 goals from match_results.
+Does not touch historical_* columns.
 """
 
 from datetime import datetime, timezone
@@ -61,6 +61,26 @@ def migrate_team_stats(conn):
     conn.commit()
 
 
+def last5_goals(conn, team):
+    rows = conn.execute(
+        """
+        SELECT processed_at, final_home, final_away, 1 AS is_home
+        FROM match_results WHERE home_team = ?
+        UNION ALL
+        SELECT processed_at, final_away, final_home, 0 AS is_home
+        FROM match_results WHERE away_team = ?
+        ORDER BY processed_at DESC
+        LIMIT 5
+        """,
+        (team, team),
+    ).fetchall()
+    goals = conceded = 0
+    for _when, scored, against, _home in rows:
+        goals += scored or 0
+        conceded += against or 0
+    return goals, conceded
+
+
 def update_team_stats():
     conn = get_db()
     migrate_team_stats(conn)
@@ -111,6 +131,7 @@ def update_team_stats():
         turnaround_pct = round(failed_leads / two_up_leads * 100, 2) if two_up_leads else 0
         home_pct = round(home_fail / home_leads * 100, 2) if home_leads else 0
         away_pct = round(away_fail / away_leads * 100, 2) if away_leads else 0
+        goals_last5, conceded_last5 = last5_goals(conn, team)
         rates[team] = turnaround_pct
 
         conn.execute("INSERT OR IGNORE INTO team_stats (team) VALUES (?)", (team,))
@@ -124,13 +145,16 @@ def update_team_stats():
                 turnaround_pct = ?,
                 home_turnaround_pct = ?,
                 away_turnaround_pct = ?,
+                goals_last5 = ?,
+                conceded_last5 = ?,
                 updated_at = ?
             WHERE team = ?
             """,
             (
                 matches_played, two_up_leads, failed_leads,
                 trigger_rate, turnaround_pct,
-                home_pct, away_pct, now, team,
+                home_pct, away_pct,
+                goals_last5, conceded_last5, now, team,
             ),
         )
         updated += 1

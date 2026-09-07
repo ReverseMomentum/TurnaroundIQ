@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Backfill via TheStatsAPI into data/ginf_api.csv and data/events_api.csv.
-Seasons: 2020/21 through 2025/26.
+Seasons: 2020/21 through 2026/27 (current season = finished matches only).
 """
 import argparse
 import csv
@@ -20,7 +20,7 @@ UNDERSTAT_LEAGUES = {
     "Premier League", "La Liga", "Bundesliga",
     "Serie A", "Ligue 1", "Russian Premier League",
 }
-YEARS = [2020, 2021, 2022, 2023, 2024, 2025]
+YEARS = [2020, 2021, 2022, 2023, 2024, 2025, 2026]
 GINF_API = PROJECT_ROOT / "data" / "ginf_api.csv"
 EVENTS_API = PROJECT_ROOT / "data" / "events_api.csv"
 GINF_FIELDS = ["id_odsp", "date", "league", "season", "country", "ht", "at", "fthg", "ftag", "odd_h", "odd_d", "odd_a"]
@@ -129,7 +129,7 @@ def main():
         leagues = [name for name in SUPPORTED_LEAGUES if name not in UNDERSTAT_LEAGUES]
     seen = existing_ids(GINF_API)
     print(f"Leagues: {leagues}")
-    print(f"Years: {years} (start years = 20/21 through 25/26)")
+    print(f"Years: {years} (20/21-25/26 full + 26/27 finished so far)")
     print(f"Already in ginf_api.csv: {len(seen)}")
     added = goals_n = skipped = failed = 0
     for league in leagues:

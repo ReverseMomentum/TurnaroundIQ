@@ -1,3 +1,6 @@
+# SOURCE FLAG
+# Goal events (time, player, side, situation) are read from the app screenshots.
+# No external source used for this file.
 id_odsp,time,event_type,event_type2,side,event_team,player,is_goal,situation
 pl-2020-0001,8,1,,2,Fulham,Mitrovic,1,
 pl-2020-0001,54,1,,1,Arsenal,Lacazette,1,

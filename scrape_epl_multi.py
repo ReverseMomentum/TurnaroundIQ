@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""scrape_epl_multi.py - EPL 2020/21-2025/26 via getLeagueData."""
+"""scrape_epl_multi.py - EPL 2020/21-2025/26 via getLeagueData + getMatchData."""
 import json, re, time
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +11,7 @@ SEASONS = {2020: "2020/21", 2021: "2021/22", 2022: "2022/23", 2023: "2023/24", 2
 LEAGUE_URL = "https://understat.com/league/EPL/{year}"
 LEAGUE_DATA_URL = "https://understat.com/getLeagueData/EPL/{year}"
 MATCH_URL = "https://understat.com/match/{mid}"
+MATCH_DATA_URL = "https://understat.com/getMatchData/{mid}"
 SLEEP = 1.2
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
@@ -30,33 +31,6 @@ STATS_DIR = ROOT / "stats"
 DATA_DIR = ROOT / "data"
 STATS_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-def fetch(url, retries=4):
-    last = None
-    for i in range(retries):
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=30)
-            if r.status_code == 429:
-                time.sleep(8 * (i + 1)); continue
-            r.raise_for_status()
-            return r.text
-        except Exception as exc:
-            last = exc
-            time.sleep(3 * (i + 1))
-    raise RuntimeError(f"Failed {url}: {last}")
-
-def json_from_script(html, key):
-    soup = BeautifulSoup(html, "lxml")
-    for tag in soup.find_all("script"):
-        text = tag.get_text() or ""
-        if key not in text:
-            continue
-        found = re.search(r"JSON\.parse\('(.+?)'\)", text, re.DOTALL)
-        if not found:
-            continue
-        raw = found.group(1).encode("utf-8").decode("unicode_escape")
-        return json.loads(raw)
-    raise ValueError(f"Could not find {key}")
 
 def canon(name):
     return TEAM_MAP.get(name or "", name or "")
@@ -111,7 +85,13 @@ def main():
             shots = []
             if mid:
                 try:
-                    shots = flatten_shots(json_from_script(fetch(MATCH_URL.format(mid=mid)), "shotsData"))
+                    shot_resp = requests.get(
+                        MATCH_DATA_URL.format(mid=mid),
+                        headers={**HEADERS, "X-Requested-With": "XMLHttpRequest", "Referer": MATCH_URL.format(mid=mid)},
+                        timeout=30,
+                    )
+                    shot_resp.raise_for_status()
+                    shots = flatten_shots(shot_resp.json().get("shots"))
                 except Exception as exc:
                     print(f"    shots failed {home} vs {away}: {exc}")
             sh = sa = 0

@@ -2,6 +2,7 @@
 # Goal events (time, player, side, situation) are sourced from Sofascore.
 # No external source used for this file.
 # Date format: DD/MM/YYYY for all SofaScore-sourced rows (pl-2020-*). FBref rows (pl-2019-*) remain YYYY-MM-DD.
+# side: 1 = home team (ht), 2 = away team (at). event_team must match stats file ht/at for that id_odsp.
 id_odsp,time,event_type,event_type2,side,event_team,player,is_goal,situation
 pl-2019-0001,7,1,own_goal,1,Liverpool,Hanley,1,open_play
 pl-2019-0001,19,1,goal,1,Liverpool,Salah,1,open_play
@@ -139,7 +140,7 @@ pl-2020-0022,77,2,goal,2,Southampton,Michael Obafemi,1,open_play
 pl-2020-0022,77,2,goal,2,Southampton,Nathan Tella,1,open_play
 pl-2020-0022,77,2,goal,2,Southampton,Moussa Djenepo,1,open_play
 pl-2020-0023,6,1,goal,2,Leeds,Calvin Phillips,1,open_play
-pl-2020-0023,46,2,yellow_card,1,Sheff Utd,John Lundstram,0,
+pl-2020-0023,46,2,yellow_card,1,Sheffield Utd,John Lundstram,0,
 pl-2020-0023,58,2,goal,2,Leeds,Rodrigo,1,open_play
 pl-2020-0023,64,2,goal,2,Leeds,Tyler Roberts,1,open_play
 pl-2020-0024,25,1,goal,1,Tottenham,Moura,1,open_play
@@ -149,19 +150,19 @@ pl-2020-0024,53,2,goal,2,Newcastle,Joelinton,1,open_play
 pl-2020-0025,4,1,goal,1,Man City,Riyad Mahrez,1,penalty
 pl-2020-0025,22,2,goal,2,Leicester,Yourri Tielemans,1,penalty
 pl-2020-0025,37,2,goal,2,Leicester,Jamie Vardy,1,penalty
-pl-2020-0026,17,1,goal,1,Wolves,Jarrod Bowen,1,open_play
-pl-2020-0026,49,1,goal,1,Wolves,Ben Johnson,1,open_play
-pl-2020-0026,51,1,goal,1,Wolves,Conor Coady,1,open_play
-pl-2020-0027,4,1,goal,2,Fulham,Jack Grealish,1,open_play
-pl-2020-0027,11,1,goal,2,Fulham,Matt Targett,1,open_play
-pl-2020-0027,11,1,goal,2,Fulham,Bobby Reid,1,open_play
+pl-2020-0026,17,1,goal,1,West Ham,Jarrod Bowen,1,open_play
+pl-2020-0026,49,1,goal,1,West Ham,Ben Johnson,1,open_play
+pl-2020-0026,51,1,goal,1,West Ham,Conor Coady,1,open_play
+pl-2020-0027,4,1,goal,2,Aston Villa,Jack Grealish,1,open_play
+pl-2020-0027,11,1,goal,2,Aston Villa,Matt Targett,1,open_play
+pl-2020-0027,11,1,goal,2,Aston Villa,Bobby Reid,1,open_play
 pl-2020-0028,3,1,goal,1,Liverpool,Sadio Mane,1,open_play
 pl-2020-0028,25,1,goal,1,Liverpool,Sadio Robertson,1,open_play
 pl-2020-0028,28,1,goal,1,Liverpool,Andrew Robertson,1,open_play
 pl-2020-0028,34,1,goal,1,Liverpool,Alexandre Lacazette,1,open_play
-pl-2020-0029,50,1,goal,1,Crystal Palace,Ben Chilwell,1,open_play
-pl-2020-0029,64,1,goal,1,Crystal Palace,Cesar Azpilicueta,1,open_play
-pl-2020-0029,66,1,goal,1,Crystal Palace,Kurt Zouma,1,open_play
+pl-2020-0029,50,1,goal,1,Chelsea,Ben Chilwell,1,open_play
+pl-2020-0029,64,1,goal,1,Chelsea,Cesar Azpilicueta,1,open_play
+pl-2020-0029,66,1,goal,1,Chelsea,Kurt Zouma,1,open_play
 pl-2020-0030,4,1,goal,1,Everton,Dominic Calvert-Lewin,1,open_play
 pl-2020-0030,16,1,goal,1,Everton,Alex Iwobi,1,open_play
 pl-2020-0030,25,1,goal,1,Everton,Richarlison,1,open_play

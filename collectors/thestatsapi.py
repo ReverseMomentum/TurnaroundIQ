@@ -17,11 +17,11 @@ HEADERS = {
     "Authorization": f"Bearer {THESTATSAPI_KEY}",
     "Accept": "application/json",
 }
-REQUEST_DELAY = 0.6
+REQUEST_DELAY = 2.5
 
-# Known IDs so we skip a search call when possible.
 KNOWN_COMPETITIONS = {
     "Premier League": "comp_3039",
+    "Championship": "comp_8321",
     "Major League Soccer": "comp_9799",
 }
 
@@ -30,17 +30,21 @@ _competition_cache = {}
 
 def api_get(path, params=None):
     url = f"{BASE_URL}{path}"
-    response = requests.get(url, headers=HEADERS, params=params or {}, timeout=45)
-    if response.status_code == 429:
-        retry = int(response.headers.get("Retry-After", "8"))
-        print(f"TheStatsAPI 429, sleeping {retry}s")
-        time.sleep(retry)
+    last = None
+    for attempt in range(6):
         response = requests.get(url, headers=HEADERS, params=params or {}, timeout=45)
-    if response.status_code >= 400:
-        print(f"TheStatsAPI {response.status_code} {path}: {response.text[:240]}")
-        response.raise_for_status()
+        last = response
+        if response.status_code != 429:
+            break
+        retry = int(response.headers.get("Retry-After", "20"))
+        wait = max(retry, 20) + (10 * attempt)
+        print(f"TheStatsAPI 429, sleeping {wait}s")
+        time.sleep(wait)
+    if last.status_code >= 400:
+        print(f"TheStatsAPI {last.status_code} {path}: {last.text[:240]}")
+        last.raise_for_status()
     time.sleep(REQUEST_DELAY)
-    return response.json()
+    return last.json()
 
 
 def unwrap(payload):

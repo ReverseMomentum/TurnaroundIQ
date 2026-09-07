@@ -2,9 +2,6 @@
 # Goal events (time, player, side, situation) are sourced from Sofascore.
 # No external source used for this file.
 id_odsp,time,event_type,event_type2,side,event_team,player,is_goal,situation
-pl-2020-0001,8,1,,2,Fulham,Mitrovic,1,
-pl-2020-0001,54,1,,1,Arsenal,Lacazette,1,
-pl-2020-0002,13,1,,1,Crystal Palace,Zaha,1,
 pl-2019-0001,7,1,own_goal,1,Liverpool,Hanley,1,open_play
 pl-2019-0001,19,1,goal,1,Liverpool,Salah,1,open_play
 pl-2019-0001,28,1,goal,1,Liverpool,van Dijk,1,set_piece

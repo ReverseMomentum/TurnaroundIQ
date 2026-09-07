@@ -1,5 +1,5 @@
 # SOURCE FLAG
-# xG values (xg_for, xg_against) are sourced from Sofascore, not from the app screenshot.
+# xG values (xg_for, xg_against) are sourced from Understat, not from the app screenshot.
 # All other fields (date, teams, score, possession, shots, corners, scorers, minutes) are read from the app.
 # Do not treat xG as app-sourced data.
 id_odsp,date,league,season,country,ht,at,fthg,ftag,odd_h,odd_d,odd_a,xg_for,xg_against

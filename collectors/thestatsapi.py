@@ -17,7 +17,7 @@ HEADERS = {
     "Authorization": f"Bearer {THESTATSAPI_KEY}",
     "Accept": "application/json",
 }
-REQUEST_DELAY = 2.5
+REQUEST_DELAY = 5.0
 
 KNOWN_COMPETITIONS = {
     "Premier League": "comp_3039",
@@ -31,13 +31,17 @@ _competition_cache = {}
 def api_get(path, params=None):
     url = f"{BASE_URL}{path}"
     last = None
-    for attempt in range(6):
+    for attempt in range(4):
         response = requests.get(url, headers=HEADERS, params=params or {}, timeout=45)
         last = response
         if response.status_code != 429:
             break
-        retry = int(response.headers.get("Retry-After", "20"))
-        wait = max(retry, 20) + (10 * attempt)
+        if attempt == 3:
+            raise RuntimeError(
+                "TheStatsAPI 429 four times. Quota is likely exhausted for today. Stop and rerun tomorrow."
+            )
+        retry = int(response.headers.get("Retry-After", "30"))
+        wait = max(retry, 30) + (15 * attempt)
         print(f"TheStatsAPI 429, sleeping {wait}s")
         time.sleep(wait)
     if last.status_code >= 400:

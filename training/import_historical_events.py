@@ -10,21 +10,24 @@ if str(PROJECT_ROOT) not in sys.path:
 from database import get_db
 from team_normalizer import normalize_team
 
-MATCH_FILE = PROJECT_ROOT / "data" / "ginf.csv"
-EVENT_FILE = PROJECT_ROOT / "data" / "events.csv"
+DATA_DIR = PROJECT_ROOT / "data"
 
 
-def _required(path):
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Missing {path}. Run: python -u training/fetch_fbref_source.py"
-        )
+def load_csvs(pattern):
+    paths = sorted(DATA_DIR.glob(pattern))
+    frames = []
+    for path in paths:
+        print(f"Reading {path.name}")
+        frames.append(pd.read_csv(path))
+    if not frames:
+        raise FileNotFoundError(f"No files matching data/{pattern}")
+    return pd.concat(frames, ignore_index=True)
 
 
 def import_matches():
     print("Loading matches...")
-    _required(MATCH_FILE)
-    df = pd.read_csv(MATCH_FILE)
+    df = load_csvs("ginf*.csv")
+    df = df.drop_duplicates(subset=["id_odsp"], keep="first")
     conn = get_db()
     conn.execute("DELETE FROM historical_matches")
     records = []
@@ -32,14 +35,14 @@ def import_matches():
         records.append(
             (
                 str(row["id_odsp"]),
-                str(row["date"]),
-                str(row["league"]),
-                str(row["season"]),
+                str(row.get("date", "")),
+                str(row.get("league", "")),
+                str(row.get("season", "")),
                 str(row.get("country", "")),
                 normalize_team(str(row["ht"])),
                 normalize_team(str(row["at"])),
-                None if pd.isna(row["fthg"]) else int(row["fthg"]),
-                None if pd.isna(row["ftag"]) else int(row["ftag"]),
+                None if pd.isna(row.get("fthg")) else int(row["fthg"]),
+                None if pd.isna(row.get("ftag")) else int(row["ftag"]),
                 None if pd.isna(row.get("odd_h")) else row.get("odd_h"),
                 None if pd.isna(row.get("odd_d")) else row.get("odd_d"),
                 None if pd.isna(row.get("odd_a")) else row.get("odd_a"),
@@ -63,8 +66,11 @@ def import_matches():
 
 def import_events():
     print("Loading events...")
-    _required(EVENT_FILE)
-    df = pd.read_csv(EVENT_FILE)
+    try:
+        df = load_csvs("events*.csv")
+    except FileNotFoundError:
+        print("No events*.csv files")
+        return
     conn = get_db()
     conn.execute("DELETE FROM historical_events")
     records = []
@@ -75,7 +81,7 @@ def import_events():
         records.append(
             (
                 str(row["id_odsp"]),
-                None if pd.isna(row["time"]) else int(row["time"]),
+                None if pd.isna(row.get("time")) else int(row["time"]),
                 row.get("event_type"),
                 row.get("event_type2"),
                 int(side),

@@ -5,3 +5,4 @@
 id_odsp,date,league,season,country,ht,at,fthg,ftag,odd_h,odd_d,odd_a,xg_for,xg_against
 pl-2019-0001,2019-08-09,Premier League,2019,england,Liverpool,Norwich,4,1,,,1.68,0.83
 pl-2019-0002,2019-08-10,Premier League,2019,england,West Ham,Man City,0,5,,,1.20,3.18
+pl-2019-0003,2019-08-10,Premier League,2019,england,Bournemouth,Sheffield Utd,1,1,,,1.34,1.60

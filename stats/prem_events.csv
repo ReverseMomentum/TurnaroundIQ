@@ -1,6 +1,7 @@
 # SOURCE FLAG
 # Goal events (time, player, side, situation) are sourced from Sofascore.
 # No external source used for this file.
+# Date format: DD/MM/YYYY for all SofaScore-sourced rows (pl-2020-*). FBref rows (pl-2019-*) remain YYYY-MM-DD.
 id_odsp,time,event_type,event_type2,side,event_team,player,is_goal,situation
 pl-2019-0001,7,1,own_goal,1,Liverpool,Hanley,1,open_play
 pl-2019-0001,19,1,goal,1,Liverpool,Salah,1,open_play

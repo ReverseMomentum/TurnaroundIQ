@@ -46,6 +46,7 @@ SUPPORTED_LEAGUE_IDS = {
     103: "Eliteserien",
     113: "Allsvenskan",
     357: "Premier Division",
+    235: "Russian Premier League",
 }
 
 SUPPORTED_LEAGUES = list(SUPPORTED_LEAGUE_IDS.values())

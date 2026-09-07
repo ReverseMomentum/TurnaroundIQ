@@ -1,3 +1,7 @@
+# SOURCE FLAG
+# xG values (xg_for, xg_against) are sourced from Understat, not from the app screenshot.
+# All other fields (date, teams, score, possession, shots, corners, scorers, minutes) are read from the app.
+# Do not treat xG as app-sourced data.
 id_odsp,date,league,season,country,ht,at,fthg,ftag,odd_h,odd_d,odd_a,xg_for,xg_against
 pl-2020-0001,2020-09-12,Premier League,2020,england,Arsenal,Fulham,1,1,1.53,4.20,6.50,,
 pl-2020-0002,2020-09-12,Premier League,2020,england,Crystal Palace,Southampton,1,0,2.60,3.25,2.80,,

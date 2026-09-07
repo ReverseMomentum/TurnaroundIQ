@@ -1,9 +1,0 @@
-id_odsp,date,league,season,country,ht,at,fthg,ftag,odd_h,odd_d,odd_a,xg_for,xg_against
-pl-2020-0001,2020-09-12,Premier League,2020,england,Arsenal,Fulham,1,1,1.53,4.20,6.50,,
-pl-2020-0002,2020-09-12,Premier League,2020,england,Crystal Palace,Southampton,1,0,2.60,3.25,2.80,,
-pl-2026-0001,2026-08-29,Premier League,2026,england,Liverpool,Forest,2,2,,,1.75,2.3
-pl-2026-0002,2026-09-05,Premier League,2026,england,Newcastle,Bournemouth,2,2,,,0.66,1.5
-pl-2026-0003,2026-08-31,Premier League,2026,england,Aston Villa,Arsenal,0,1,,,0.33,1.04
-pl-2026-0004,2026-08-30,Premier League,2026,england,Man Utd,Ipswich,5,2,,,4.77,2.06
-pl-2026-0005,2026-08-30,Premier League,2026,england,Chelsea,Brighton,4,3,,,2.93,1.4
-pl-2026-0006,2026-08-30,Premier League,2026,england,Sunderland,Fulham,1,0,,,2.02,0.95

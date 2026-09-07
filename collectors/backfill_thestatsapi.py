@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 """
 Backfill via TheStatsAPI into data/ginf_api.csv and data/events_api.csv.
-Does not touch Understat data/ginf.csv or data/events.csv.
-
-Default: the 13 supported leagues Understat does not cover.
-
-    python3 -u collectors/backfill_thestatsapi.py --league Championship --year 2024
-    python3 -u collectors/backfill_thestatsapi.py
+Seasons: 2020/21 through 2025/26.
 """
 import argparse
 import csv
@@ -25,7 +20,7 @@ UNDERSTAT_LEAGUES = {
     "Premier League", "La Liga", "Bundesliga",
     "Serie A", "Ligue 1", "Russian Premier League",
 }
-YEARS = [2020, 2021, 2022, 2023, 2024]
+YEARS = [2020, 2021, 2022, 2023, 2024, 2025]
 GINF_API = PROJECT_ROOT / "data" / "ginf_api.csv"
 EVENTS_API = PROJECT_ROOT / "data" / "events_api.csv"
 GINF_FIELDS = ["id_odsp", "date", "league", "season", "country", "ht", "at", "fthg", "ftag", "odd_h", "odd_d", "odd_a"]
@@ -134,7 +129,7 @@ def main():
         leagues = [name for name in SUPPORTED_LEAGUES if name not in UNDERSTAT_LEAGUES]
     seen = existing_ids(GINF_API)
     print(f"Leagues: {leagues}")
-    print(f"Years: {years}")
+    print(f"Years: {years} (start years = 20/21 through 25/26)")
     print(f"Already in ginf_api.csv: {len(seen)}")
     added = goals_n = skipped = failed = 0
     for league in leagues:
@@ -155,7 +150,7 @@ def main():
             except Exception as exc:
                 print(f"  {league} {year}: list failed ({exc})")
                 continue
-            print(f"  {league} {year}: {len(matches)} finished")
+            print(f"  {league} {year}/{str(year+1)[-2:]}: {len(matches)} finished")
             for match in matches:
                 mid = ts.match_id_of(match)
                 if not mid:

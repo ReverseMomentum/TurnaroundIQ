@@ -11,22 +11,27 @@ from database import get_db
 from team_normalizer import normalize_team
 
 DATA_DIR = PROJECT_ROOT / "data"
+MATCH_FILES = ["ginf.csv", "ginf_api.csv"]
+EVENT_FILES = ["events.csv", "events_api.csv"]
 
 
-def load_csvs(pattern):
-    paths = sorted(DATA_DIR.glob(pattern))
+def load_named(names):
     frames = []
-    for path in paths:
-        print(f"Reading {path.name}")
+    for name in names:
+        path = DATA_DIR / name
+        if not path.exists():
+            print(f"Skip missing {name}")
+            continue
+        print(f"Reading {name}")
         frames.append(pd.read_csv(path))
     if not frames:
-        raise FileNotFoundError(f"No files matching data/{pattern}")
+        raise FileNotFoundError(f"None of {names} exist in data/")
     return pd.concat(frames, ignore_index=True)
 
 
 def import_matches():
     print("Loading matches...")
-    df = load_csvs("ginf*.csv")
+    df = load_named(MATCH_FILES)
     df = df.drop_duplicates(subset=["id_odsp"], keep="first")
     conn = get_db()
     conn.execute("DELETE FROM historical_matches")
@@ -67,9 +72,9 @@ def import_matches():
 def import_events():
     print("Loading events...")
     try:
-        df = load_csvs("events*.csv")
+        df = load_named(EVENT_FILES)
     except FileNotFoundError:
-        print("No events*.csv files")
+        print("No events files")
         return
     conn = get_db()
     conn.execute("DELETE FROM historical_events")

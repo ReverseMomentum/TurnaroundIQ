@@ -3,49 +3,50 @@
 # All other fields (date, teams, score, possession, shots, corners, scorers, minutes) are read from the app.
 # Possession: when app and FBref differ, use the average of the two.
 # Do not treat xG as app-sourced data.
+# xG is unavailable for SofaScore-sourced rows until SofaScore begins tracking it; leave blank.
 id_odsp,date,league,season,country,ht,at,fthg,ftag,odd_h,odd_d,odd_a,xg_for,xg_against
 pl-2019-0001,2019-08-09,Premier League,2019,england,Liverpool,Norwich,4,1,,,1.68,0.83
 pl-2019-0002,2019-08-10,Premier League,2019,england,West Ham,Man City,0,5,,,1.20,3.18
 pl-2019-0004,2019-08-10,Premier League,2019,england,Watford,Brighton,0,3,,,0.70,0.80
-pl-2020-0001,2020-09-12,Premier League,2020,england,Fulham,Arsenal,0,3,,,0.15,2.76
-pl-2020-0002,2020-09-12,Premier League,2020,england,Crystal Palace,Southampton,1,0,,,1.11,0.89
-pl-2020-0003,2020-09-12,Premier League,2020,england,Liverpool,Leeds,4,3,,,2.76,0.32
-pl-2020-0004,2020-09-12,Premier League,2020,england,West Ham,Newcastle,0,2,,,1.09,1.57
-pl-2020-0005,2020-09-13,Premier League,2020,england,West Brom,Leicester,0,3,,,0.40,2.80
-pl-2020-0006,2020-09-13,Premier League,2020,england,Tottenham,Everton,0,1,,,1.13,1.20
-pl-2020-0007,2020-09-14,Premier League,2020,england,Sheffield Utd,Wolves,0,2,,,1.04,1.40
-pl-2020-0008,2020-09-14,Premier League,2020,england,Brighton,Chelsea,1,3,,,1.44,1.27
-pl-2020-0009,2020-09-19,Premier League,2020,england,Everton,West Brom,5,2,,,3.97,0.34
-pl-2020-0010,2020-09-19,Premier League,2020,england,Fulham,Leeds,4,3,,,1.37,1.74
-pl-2020-0011,2020-09-19,Premier League,2020,england,Crystal Palace,Man United,1,3,,,1.23,1.66
-pl-2020-0012,2020-09-19,Premier League,2020,england,Arsenal,West Ham,2,1,,,1.11,2.08
-pl-2020-0013,2020-09-20,Premier League,2020,england,Southampton,Tottenham,2,5,,,2.12,2.09
-pl-2020-0014,2020-09-20,Premier League,2020,england,Newcastle,Brighton,0,3,,,0.52,1.78
-pl-2020-0015,2020-09-20,Premier League,2020,england,Chelsea,Liverpool,0,2,,,0.93,2.12
-pl-2020-0016,2020-09-20,Premier League,2020,england,Leicester,Burnley,4,2,,,1.22,1.39
-pl-2020-0017,2020-09-20,Premier League,2020,england,Aston Villa,Sheffield Utd,1,0,,,1.01,0.93
-pl-2020-0018,2020-09-21,Premier League,2020,england,Wolves,Man City,1,3,,,0.95,2.10
-pl-2020-0019,2020-09-26,Premier League,2020,england,Brighton,Man United,2,3,,,2.55,1.55
-pl-2020-0020,2020-09-26,Premier League,2020,england,Crystal Palace,Everton,1,2,,,0.43,1.94
-pl-2020-0021,2020-09-26,Premier League,2020,england,West Brom,Chelsea,3,3,,,0.58,2.04
-pl-2020-0022,2020-09-26,Premier League,2020,england,Burnley,Southampton,0,1,,,0.50,0.63
-pl-2020-0023,2020-09-27,Premier League,2020,england,Sheffield Utd,Leeds,0,1,,,1.40,1.17
-pl-2020-0024,2020-09-27,Premier League,2020,england,Tottenham,Newcastle,1,1,,,2.95,1.01
-pl-2020-0025,2020-09-27,Premier League,2020,england,Man City,Leicester,2,5,,,0.87,2.85
-pl-2020-0026,2020-09-27,Premier League,2020,england,West Ham,Wolves,4,0,,,2.36,0.46
-pl-2020-0027,2020-09-28,Premier League,2020,england,Fulham,Aston Villa,0,3,,,0.72,1.42
-pl-2020-0028,2020-09-28,Premier League,2020,england,Liverpool,Arsenal,3,1,,,2.71,1.26
-pl-2020-0029,2020-10-03,Premier League,2020,england,Chelsea,Crystal Palace,4,0,,,2.68,0.15
-pl-2020-0030,2020-10-03,Premier League,2020,england,Everton,Brighton,4,2,,,1.60,1.35
-pl-2020-0031,2020-10-03,Premier League,2020,england,Leeds,Man City,1,1,,,1.21,2.43
-pl-2020-0032,2020-10-03,Premier League,2020,england,Newcastle,Burnley,3,1,,,1.83,0.43
-pl-2020-0033,2020-10-04,Premier League,2020,england,Leicester,West Ham,0,3,,,0.57,2.01
-pl-2020-0034,2020-10-04,Premier League,2020,england,Southampton,West Brom,2,0,,,1.23,0.19
-pl-2020-0035,2020-10-04,Premier League,2020,england,Arsenal,Sheffield Utd,2,1,,,0.56,0.19
-pl-2020-0036,2020-10-04,Premier League,2020,england,Wolves,Fulham,1,0,,,1.25,0.89
-pl-2020-0037,2020-10-04,Premier League,2020,england,Man United,Tottenham,1,6,,,0.95,3.51
-pl-2020-0038,2020-10-04,Premier League,2020,england,Aston Villa,Liverpool,2,7,,,2.70,1.78
-pl-2020-0039,2020-10-17,Premier League,2020,england,Everton,Liverpool,2,2,,,1.45,1.55
-pl-2020-0040,2020-10-17,Premier League,2020,england,Chelsea,Southampton,3,3,,,1.60,1.40
-pl-2020-0041,2020-10-17,Premier League,2020,england,Man City,Arsenal,1,0,,,1.68,0.83
-pl-2020-0042,2020-10-17,Premier League,2020,england,Newcastle,Man United,1,4,,,0.95,2.85
+pl-2020-0001,2020-09-12,Premier League,2020,england,Fulham,Arsenal,0,3,,,,
+pl-2020-0002,2020-09-12,Premier League,2020,england,Crystal Palace,Southampton,1,0,,,,
+pl-2020-0003,2020-09-12,Premier League,2020,england,Liverpool,Leeds,4,3,,,,
+pl-2020-0004,2020-09-12,Premier League,2020,england,West Ham,Newcastle,0,2,,,,
+pl-2020-0005,2020-09-13,Premier League,2020,england,West Brom,Leicester,0,3,,,,
+pl-2020-0006,2020-09-13,Premier League,2020,england,Tottenham,Everton,0,1,,,,
+pl-2020-0007,2020-09-14,Premier League,2020,england,Sheffield Utd,Wolves,0,2,,,,
+pl-2020-0008,2020-09-14,Premier League,2020,england,Brighton,Chelsea,1,3,,,,
+pl-2020-0009,2020-09-19,Premier League,2020,england,Everton,West Brom,5,2,,,,
+pl-2020-0010,2020-09-19,Premier League,2020,england,Fulham,Leeds,4,3,,,,
+pl-2020-0011,2020-09-19,Premier League,2020,england,Crystal Palace,Man United,1,3,,,,
+pl-2020-0012,2020-09-19,Premier League,2020,england,Arsenal,West Ham,2,1,,,,
+pl-2020-0013,2020-09-20,Premier League,2020,england,Southampton,Tottenham,2,5,,,,
+pl-2020-0014,2020-09-20,Premier League,2020,england,Newcastle,Brighton,0,3,,,,
+pl-2020-0015,2020-09-20,Premier League,2020,england,Chelsea,Liverpool,0,2,,,,
+pl-2020-0016,2020-09-20,Premier League,2020,england,Leicester,Burnley,4,2,,,,
+pl-2020-0017,2020-09-20,Premier League,2020,england,Aston Villa,Sheffield Utd,1,0,,,,
+pl-2020-0018,2020-09-21,Premier League,2020,england,Wolves,Man City,1,3,,,,
+pl-2020-0019,2020-09-26,Premier League,2020,england,Brighton,Man United,2,3,,,,
+pl-2020-0020,2020-09-26,Premier League,2020,england,Crystal Palace,Everton,1,2,,,,
+pl-2020-0021,2020-09-26,Premier League,2020,england,West Brom,Chelsea,3,3,,,,
+pl-2020-0022,2020-09-26,Premier League,2020,england,Burnley,Southampton,0,1,,,,
+pl-2020-0023,2020-09-27,Premier League,2020,england,Sheffield Utd,Leeds,0,1,,,,
+pl-2020-0024,2020-09-27,Premier League,2020,england,Tottenham,Newcastle,1,1,,,,
+pl-2020-0025,2020-09-27,Premier League,2020,england,Man City,Leicester,2,5,,,,
+pl-2020-0026,2020-09-27,Premier League,2020,england,West Ham,Wolves,4,0,,,,
+pl-2020-0027,2020-09-28,Premier League,2020,england,Fulham,Aston Villa,0,3,,,,
+pl-2020-0028,2020-09-28,Premier League,2020,england,Liverpool,Arsenal,3,1,,,,
+pl-2020-0029,2020-10-03,Premier League,2020,england,Chelsea,Crystal Palace,4,0,,,,
+pl-2020-0030,2020-10-03,Premier League,2020,england,Everton,Brighton,4,2,,,,
+pl-2020-0031,2020-10-03,Premier League,2020,england,Leeds,Man City,1,1,,,,
+pl-2020-0032,2020-10-03,Premier League,2020,england,Newcastle,Burnley,3,1,,,,
+pl-2020-0033,2020-10-04,Premier League,2020,england,Leicester,West Ham,0,3,,,,
+pl-2020-0034,2020-10-04,Premier League,2020,england,Southampton,West Brom,2,0,,,,
+pl-2020-0035,2020-10-04,Premier League,2020,england,Arsenal,Sheffield Utd,2,1,,,,
+pl-2020-0036,2020-10-04,Premier League,2020,england,Wolves,Fulham,1,0,,,,
+pl-2020-0037,2020-10-04,Premier League,2020,england,Man United,Tottenham,1,6,,,,
+pl-2020-0038,2020-10-04,Premier League,2020,england,Aston Villa,Liverpool,2,7,,,,
+pl-2020-0039,2020-10-17,Premier League,2020,england,Everton,Liverpool,2,2,,,,
+pl-2020-0040,2020-10-17,Premier League,2020,england,Chelsea,Southampton,3,3,,,,
+pl-2020-0041,2020-10-17,Premier League,2020,england,Man City,Arsenal,1,0,,,,
+pl-2020-0042,2020-10-17,Premier League,2020,england,Newcastle,Man United,1,4,,,,

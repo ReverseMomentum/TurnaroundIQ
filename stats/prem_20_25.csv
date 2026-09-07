@@ -1,5 +1,5 @@
 # SOURCE FLAG
-# xG values (xg_for, xg_against) are sourced from Understat, not from the app screenshot.
+# xG values (xg_for, xg_against) are sourced from FBref (Opta), not from the app screenshot.
 # All other fields (date, teams, score, possession, shots, corners, scorers, minutes) are read from the app.
 # Possession: when app and FBref differ, use the average of the two.
 # Do not treat xG as app-sourced data.

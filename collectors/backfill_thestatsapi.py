@@ -4,7 +4,6 @@ Backfill via TheStatsAPI into data/ginf_api.csv and data/events_api.csv.
 Does not touch Understat data/ginf.csv or data/events.csv.
 
 Default: the 13 supported leagues Understat does not cover.
-Pass --include-understat to also hit PL/La Liga/etc (wastes quota).
 
     python3 -u collectors/backfill_thestatsapi.py --league Championship --year 2024
     python3 -u collectors/backfill_thestatsapi.py
@@ -12,29 +11,19 @@ Pass --include-understat to also hit PL/La Liga/etc (wastes quota).
 import argparse
 import csv
 import sys
-import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from collectors.thestatsapi import (
-    api_get,
-    find_competition_id,
-    flatten := None,
-)
 from collectors import thestatsapi as ts
 from constants import SUPPORTED_LEAGUES
 from team_normalizer import normalize_team
 
 UNDERSTAT_LEAGUES = {
-    "Premier League",
-    "La Liga",
-    "Bundesliga",
-    "Serie A",
-    "Ligue 1",
-    "Russian Premier League",
+    "Premier League", "La Liga", "Bundesliga",
+    "Serie A", "Ligue 1", "Russian Premier League",
 }
 YEARS = [2020, 2021, 2022, 2023, 2024]
 GINF_API = PROJECT_ROOT / "data" / "ginf_api.csv"

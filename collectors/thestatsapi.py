@@ -25,6 +25,15 @@ KNOWN_COMPETITIONS = {
     "Major League Soccer": "comp_9799",
 }
 
+SEARCH_ALIASES = {
+    "Primeira Liga": ["Liga Portugal", "Liga Portugal Betclic", "Liga NOS", "Primeira Liga"],
+    "Jupiler Pro League": ["Jupiler Pro League", "Belgian Pro League", "Pro League"],
+    "Premiership": ["Premiership", "Scottish Premiership", "cinch Premiership"],
+    "2. Bundesliga": ["2. Bundesliga", "2 Bundesliga", "Bundesliga 2"],
+    "Premier Division": ["Premier Division", "League of Ireland"],
+    "Superliga": ["Superliga", "Danish Superliga"],
+}
+
 _competition_cache = {}
 
 
@@ -57,6 +66,20 @@ def unwrap(payload):
     return payload
 
 
+def _pick_competition(rows, league_name):
+    target = league_name.lower()
+    aliases = [a.lower() for a in SEARCH_ALIASES.get(league_name, [])]
+    for row in rows:
+        name = (row.get("name") or "").lower()
+        if name == target or name in aliases:
+            return row.get("id"), row.get("name")
+    for row in rows:
+        name = (row.get("name") or "").lower()
+        if target in name or any(a in name for a in aliases):
+            return row.get("id"), row.get("name")
+    return None, None
+
+
 def find_competition_id(league_name):
     if league_name in _competition_cache:
         return _competition_cache[league_name]
@@ -64,24 +87,25 @@ def find_competition_id(league_name):
         _competition_cache[league_name] = KNOWN_COMPETITIONS[league_name]
         return KNOWN_COMPETITIONS[league_name]
 
-    payload = api_get("/football/competitions", {"search": league_name, "per_page": 25})
-    rows = unwrap(payload) or []
-    if isinstance(rows, dict):
-        rows = [rows]
-
-    target = league_name.lower()
+    queries = SEARCH_ALIASES.get(league_name, [league_name])
+    if league_name not in queries:
+        queries = [league_name] + queries
     chosen = None
-    for row in rows:
-        name = (row.get("name") or "").lower()
-        if name == target:
-            chosen = row.get("id")
+    shown = None
+    for query in queries:
+        payload = api_get("/football/competitions", {"search": query, "per_page": 25})
+        rows = unwrap(payload) or []
+        if isinstance(rows, dict):
+            rows = [rows]
+        chosen, shown = _pick_competition(rows, league_name)
+        if chosen:
             break
-    if not chosen and rows:
-        chosen = rows[0].get("id")
+        if rows:
+            print(f"  search {query!r} -> {[r.get('name') for r in rows[:8]]}")
 
     _competition_cache[league_name] = chosen
     if chosen:
-        print(f"{league_name} -> {chosen}")
+        print(f"{league_name} -> {chosen} ({shown})")
     else:
         print(f"No competition id for {league_name}")
     return chosen

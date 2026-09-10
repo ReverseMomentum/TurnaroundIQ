@@ -47,6 +47,12 @@ SUPPORTED_LEAGUE_IDS = {
     113: "Allsvenskan",
     357: "Premier Division",
     235: "Russian Premier League",
+    136: "Serie B",
+    62: "Ligue 2",
+    203: "Super Lig",
+    218: "Austrian Bundesliga",
+    207: "Swiss Super League",
+    71: "Serie A",
 }
 
 SUPPORTED_LEAGUES = list(SUPPORTED_LEAGUE_IDS.values())

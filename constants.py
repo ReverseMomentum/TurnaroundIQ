@@ -52,7 +52,7 @@ SUPPORTED_LEAGUE_IDS = {
     203: "Super Lig",
     218: "Austrian Bundesliga",
     207: "Swiss Super League",
-    71: "Serie A",
+    71: "Brasileirao",
 }
 
 SUPPORTED_LEAGUES = list(SUPPORTED_LEAGUE_IDS.values())

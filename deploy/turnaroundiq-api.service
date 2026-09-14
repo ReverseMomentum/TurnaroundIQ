@@ -1,0 +1,15 @@
+[Unit]
+Description=TurnaroundIQ FastAPI
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TurnaroundIQ
+EnvironmentFile=-/etc/turnaroundiq.env
+ExecStart=/root/TurnaroundIQ/venv/bin/uvicorn api.app:app --host 127.0.0.1 --port 8080
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

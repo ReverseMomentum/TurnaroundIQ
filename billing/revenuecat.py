@@ -1,5 +1,5 @@
 """
-RevenueCat v1 subscriber lookup + local cache.
+RevenueCat v1 subscriber lookup + local cache + user prefs.
 
 Env:
   REVENUECAT_SECRET_API_KEY   sk_...
@@ -8,6 +8,7 @@ Env:
 """
 
 from datetime import datetime, timezone
+import json
 import os
 from urllib.parse import quote
 
@@ -18,10 +19,25 @@ from database import get_db
 RC_API = "https://api.revenuecat.com/v1"
 ENTITLEMENT = os.environ.get("REVENUECAT_ENTITLEMENT", "pro")
 
-# Events that mean entitlement is gone now.
 EXPIRED_EVENTS = {"EXPIRATION", "REFUND", "REVOKE"}
-# Keep access until period end if still before expires_at.
 SOFT_EVENTS = {"CANCELLATION", "BILLING_ISSUE"}
+ACTIVE_EVENTS = {
+    "INITIAL_PURCHASE",
+    "RENEWAL",
+    "UNCANCELLATION",
+    "PRODUCT_CHANGE",
+    "NON_RENEWING_PURCHASE",
+}
+
+DEFAULT_PREFS = {
+    "default_stake": 100,
+    "default_commission": 2.0,
+    "risk_warning_pct": 5.0,
+    "notify_opportunity": True,
+    "notify_fixture_starting": True,
+    "notify_live_trigger": True,
+    "notify_exchange_entry": True,
+}
 
 
 def _secret():
@@ -58,6 +74,15 @@ def ensure_tables():
     cols = {row[1] for row in conn.execute("PRAGMA table_info(subscribers)")}
     if "status" not in cols:
         conn.execute("ALTER TABLE subscribers ADD COLUMN status TEXT")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_prefs (
+            app_user_id TEXT PRIMARY KEY,
+            prefs_json TEXT NOT NULL,
+            updated_at TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -129,6 +154,45 @@ def get_subscriber_row(app_user_id):
     return dict(zip(keys, row))
 
 
+def get_prefs(app_user_id):
+    ensure_tables()
+    conn = get_db()
+    row = conn.execute(
+        "SELECT prefs_json FROM user_prefs WHERE app_user_id = ?",
+        (app_user_id,),
+    ).fetchone()
+    conn.close()
+    prefs = dict(DEFAULT_PREFS)
+    if row and row[0]:
+        try:
+            prefs.update(json.loads(row[0]))
+        except json.JSONDecodeError:
+            pass
+    return prefs
+
+
+def save_prefs(app_user_id, patch):
+    ensure_tables()
+    current = get_prefs(app_user_id)
+    for key, value in (patch or {}).items():
+        if key in DEFAULT_PREFS:
+            current[key] = value
+    conn = get_db()
+    conn.execute(
+        """
+        INSERT INTO user_prefs (app_user_id, prefs_json, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(app_user_id) DO UPDATE SET
+            prefs_json = excluded.prefs_json,
+            updated_at = excluded.updated_at
+        """,
+        (app_user_id, json.dumps(current), datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+    return current
+
+
 def _not_expired(expires_at):
     if not expires_at:
         return True
@@ -189,6 +253,9 @@ def is_entitled(app_user_id, refresh=False):
     except Exception:
         cached = cached_entitled(app_user_id)
         return bool(cached)
+    if payload is None:
+        cached = cached_entitled(app_user_id)
+        return bool(cached)
     entitled, expires, product = entitlement_from_subscriber(payload)
     upsert_subscriber(
         app_user_id,
@@ -225,20 +292,12 @@ def apply_webhook(body):
         entitled = False
         status = "expired" if kind == "EXPIRATION" else kind.lower()
     elif kind in SOFT_EVENTS:
-        # Paid through period / billing retry — still entitled if not past expires_at
         entitled = _not_expired(expires_at) if expires_at else True
         status = "cancelled" if kind == "CANCELLATION" else "billing_issue"
-    elif kind in {
-        "INITIAL_PURCHASE",
-        "RENEWAL",
-        "UNCANCELLATION",
-        "PRODUCT_CHANGE",
-        "NON_RENEWING_PURCHASE",
-    }:
+    elif kind in ACTIVE_EVENTS:
         entitled = (ENTITLEMENT in ids) if ids else True
         status = "active"
     else:
-        # Unknown event: refresh from RC API when possible
         try:
             return bool(is_entitled(user_id, refresh=True))
         except Exception:
@@ -255,7 +314,6 @@ def apply_webhook(body):
         last_event=kind,
         status=status,
     )
-    # Authoritative refresh when secret key is configured
     try:
         is_entitled(user_id, refresh=True)
     except Exception:

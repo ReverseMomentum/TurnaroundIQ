@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from database import get_db, get_odds_movement
+from database import get_db
 from team_normalizer import load_team_stats_names, normalize_team, resolve_team_stats_name
 from training.recency import sample_weight_from_date
 
@@ -169,6 +169,31 @@ def get_league_turnaround_rate(conn, league):
     return None
 
 
+def odds_on_conn(conn, home_team, away_team, selection):
+    """Same-connection odds lookup to avoid database is locked."""
+    try:
+        rows = conn.execute(
+            """
+            SELECT back_odds FROM odds_history
+            WHERE home_team = ? AND away_team = ? AND selection = ?
+            ORDER BY kickoff ASC
+            """,
+            (home_team, away_team, selection),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return None, None
+    if not rows:
+        return None, None
+    opening = rows[0][0]
+    closing = rows[-1][0]
+    if opening is None or closing is None:
+        return opening, None
+    try:
+        return opening, float(closing) - float(opening)
+    except (TypeError, ValueError):
+        return opening, None
+
+
 def empty_stats():
     return [None] * STATS_LENGTH
 
@@ -206,14 +231,11 @@ def ensure_team_row(conn, team, known_teams):
         (team,),
     )
     known_teams.append(team)
-    print(f"No profile yet: {team} (features NULL)")
 
 
 def bind_team(conn, raw_name, known_teams):
     resolved, method = resolve_team_stats_name(raw_name, known_teams)
     if resolved:
-        if method == "key" and resolved != raw_name:
-            print(f"{raw_name} -> {resolved} ({method})")
         return resolved
     name = normalize_team(raw_name) or raw_name
     ensure_team_row(conn, name, known_teams)
@@ -248,7 +270,6 @@ def _build_row(
 
 
 def analyze_historical_goals(goals):
-    """Replay goal events. side 1 = home, 2 = away."""
     home_score = away_score = 0
     home_2up = away_2up = False
     home_lead_minute = away_lead_minute = 0
@@ -278,52 +299,6 @@ def analyze_historical_goals(goals):
         "home_lead_minute": home_lead_minute,
         "away_lead_minute": away_lead_minute,
     }
-
-
-def insert_side(
-    conn, known_teams, match_id, league, team, is_home,
-    opponent_stats, league_turnaround_rate, lead_minute,
-    match_date, full_turnaround,
-):
-    team = bind_team(conn, team, known_teams)
-    stats = as_stats(conn.execute(TEAM_STATS_SELECT, (team,)).fetchone())
-    unprofiled = 1 if all(v is None for v in stats) else 0
-    xg_edge = safe_sub(stats[0], stats[1])
-    opening_odds, odds_movement = get_odds_movement(
-        team if is_home else None,
-        None if is_home else team,
-        team,
-    )
-    # get_odds_movement expects home, away, selection — use match teams when possible
-    weight = sample_weight_from_date(match_date)
-    row = _build_row(
-        match_id, league, team, is_home, stats, xg_edge,
-        league_turnaround_rate, opponent_stats[17] if opponent_stats else None,
-        lead_minute or 0, opening_odds, odds_movement,
-        weight, int(full_turnaround),
-    )
-    conn.execute(INSERT_SQL, row)
-    return unprofiled
-
-
-def insert_side_with_odds(
-    conn, known_teams, match_id, league, home_team, away_team,
-    team, is_home, opp_stats, league_rate, lead_minute, match_date, full_turnaround,
-):
-    team = bind_team(conn, team, known_teams)
-    stats = as_stats(conn.execute(TEAM_STATS_SELECT, (team,)).fetchone())
-    unprofiled = 1 if all(v is None for v in stats) else 0
-    xg_edge = safe_sub(stats[0], stats[1])
-    opening_odds, odds_movement = get_odds_movement(home_team, away_team, team)
-    weight = sample_weight_from_date(match_date)
-    row = _build_row(
-        match_id, league, team, is_home, stats, xg_edge,
-        league_rate, opp_stats[17] if opp_stats else None,
-        lead_minute or 0, opening_odds, odds_movement,
-        weight, int(full_turnaround),
-    )
-    conn.execute(INSERT_SQL, row)
-    return unprofiled
 
 
 def add_live_rows(conn, known_teams):
@@ -357,7 +332,7 @@ def add_live_rows(conn, known_teams):
             (home_team, 1, home_stats, away_stats, home_lead_minute, home_turnaround),
             (away_team, 0, away_stats, home_stats, away_lead_minute, away_turnaround),
         ):
-            opening_odds, odds_movement = get_odds_movement(home_team, away_team, team)
+            opening_odds, odds_movement = odds_on_conn(conn, home_team, away_team, team)
             weight = sample_weight_from_date(match_date)
             xg_edge = safe_sub(stats[0], stats[1])
             row = _build_row(
@@ -373,7 +348,7 @@ def add_live_rows(conn, known_teams):
 
 
 def add_historical_rows(conn, known_teams):
-    """One row per side that went 2-up in historical_events."""
+    """One row per side that went 2-up. No per-row odds (avoids lock + mostly empty)."""
     try:
         matches = conn.execute(
             """
@@ -414,13 +389,8 @@ def add_historical_rows(conn, known_teams):
             skipped_no_events += 1
             continue
         analysis = analyze_historical_goals(goals)
-        # Prefer event tally; fall back to stored finals for turnaround check
-        fh = analysis["home_score"] if analysis["home_score"] or analysis["away_score"] else (final_home or 0)
-        fa = analysis["away_score"] if analysis["home_score"] or analysis["away_score"] else (final_away or 0)
-        if final_home is not None:
-            fh = final_home
-        if final_away is not None:
-            fa = final_away
+        fh = final_home if final_home is not None else analysis["home_score"]
+        fa = final_away if final_away is not None else analysis["away_score"]
 
         home_team = bind_team(conn, home, known_teams)
         away_team = bind_team(conn, away, known_teams)
@@ -428,19 +398,18 @@ def add_historical_rows(conn, known_teams):
         away_stats = as_stats(conn.execute(TEAM_STATS_SELECT, (away_team,)).fetchone())
         league_rate = get_league_turnaround_rate(conn, league)
         match_date = date or ""
+        weight = sample_weight_from_date(match_date)
 
         if analysis["home_2up"]:
             two_up_sides += 1
-            label = int(fh <= fa)
+            label = int((fh or 0) <= (fa or 0))
             if all(v is None for v in home_stats):
                 unprofiled += 1
-            opening_odds, odds_movement = get_odds_movement(home_team, away_team, home_team)
-            weight = sample_weight_from_date(match_date)
             xg_edge = safe_sub(home_stats[0], home_stats[1])
             row = _build_row(
                 match_id, league, home_team, 1, home_stats, xg_edge,
                 league_rate, away_stats[17],
-                analysis["home_lead_minute"], opening_odds, odds_movement,
+                analysis["home_lead_minute"], None, None,
                 weight, label,
             )
             conn.execute(INSERT_SQL, row)
@@ -448,16 +417,14 @@ def add_historical_rows(conn, known_teams):
 
         if analysis["away_2up"]:
             two_up_sides += 1
-            label = int(fa <= fh)
+            label = int((fa or 0) <= (fh or 0))
             if all(v is None for v in away_stats):
                 unprofiled += 1
-            opening_odds, odds_movement = get_odds_movement(home_team, away_team, away_team)
-            weight = sample_weight_from_date(match_date)
             xg_edge = safe_sub(away_stats[0], away_stats[1])
             row = _build_row(
                 match_id, league, away_team, 0, away_stats, xg_edge,
                 league_rate, home_stats[17],
-                analysis["away_lead_minute"], opening_odds, odds_movement,
+                analysis["away_lead_minute"], None, None,
                 weight, label,
             )
             conn.execute(INSERT_SQL, row)
@@ -470,15 +437,22 @@ def add_historical_rows(conn, known_teams):
 
 def build_training_data():
     conn = get_db()
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=60000")
+    except sqlite3.Error:
+        pass
     migrate_training_data(conn)
     conn.execute("DELETE FROM training_data")
+    conn.commit()
     known_teams = load_team_stats_names()
 
     live_n, live_un = add_live_rows(conn, known_teams)
+    conn.commit()
     hist_n, hist_un = add_historical_rows(conn, known_teams)
-
     conn.commit()
     conn.close()
+
     total = live_n + hist_n
     print(f"{total} training rows built (live {live_n} + historical {hist_n})")
     print(f"{live_un + hist_un} sides had no team_stats profile (NULL features)")

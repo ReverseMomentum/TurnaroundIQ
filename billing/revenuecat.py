@@ -18,6 +18,11 @@ from database import get_db
 RC_API = "https://api.revenuecat.com/v1"
 ENTITLEMENT = os.environ.get("REVENUECAT_ENTITLEMENT", "pro")
 
+# Events that mean entitlement is gone now.
+EXPIRED_EVENTS = {"EXPIRATION", "REFUND", "REVOKE"}
+# Keep access until period end if still before expires_at.
+SOFT_EVENTS = {"CANCELLATION", "BILLING_ISSUE"}
+
 
 def _secret():
     return os.environ.get("REVENUECAT_SECRET_API_KEY", "").strip()
@@ -45,24 +50,38 @@ def ensure_tables():
             product_id TEXT,
             environment TEXT,
             last_event TEXT,
+            status TEXT,
             updated_at TEXT
         )
         """
     )
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(subscribers)")}
+    if "status" not in cols:
+        conn.execute("ALTER TABLE subscribers ADD COLUMN status TEXT")
     conn.commit()
     conn.close()
 
 
-def upsert_subscriber(app_user_id, entitled, entitlement=None, expires_at=None,
-                      product_id=None, environment=None, last_event=None):
+def upsert_subscriber(
+    app_user_id,
+    entitled,
+    entitlement=None,
+    expires_at=None,
+    product_id=None,
+    environment=None,
+    last_event=None,
+    status=None,
+):
     ensure_tables()
+    if status is None:
+        status = "active" if entitled else "expired"
     conn = get_db()
     conn.execute(
         """
         INSERT INTO subscribers (
             app_user_id, entitled, entitlement, expires_at,
-            product_id, environment, last_event, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            product_id, environment, last_event, status, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(app_user_id) DO UPDATE SET
             entitled = excluded.entitled,
             entitlement = excluded.entitlement,
@@ -70,6 +89,7 @@ def upsert_subscriber(app_user_id, entitled, entitlement=None, expires_at=None,
             product_id = excluded.product_id,
             environment = excluded.environment,
             last_event = excluded.last_event,
+            status = excluded.status,
             updated_at = excluded.updated_at
         """,
         (
@@ -80,6 +100,7 @@ def upsert_subscriber(app_user_id, entitled, entitlement=None, expires_at=None,
             product_id,
             environment,
             last_event,
+            status,
             datetime.now(timezone.utc).isoformat(),
         ),
     )
@@ -87,25 +108,46 @@ def upsert_subscriber(app_user_id, entitled, entitlement=None, expires_at=None,
     conn.close()
 
 
-def cached_entitled(app_user_id):
+def get_subscriber_row(app_user_id):
     ensure_tables()
     conn = get_db()
     row = conn.execute(
-        "SELECT entitled, expires_at FROM subscribers WHERE app_user_id = ?",
+        """
+        SELECT app_user_id, entitled, entitlement, expires_at,
+               product_id, environment, last_event, status, updated_at
+        FROM subscribers WHERE app_user_id = ?
+        """,
         (app_user_id,),
     ).fetchone()
     conn.close()
     if not row:
         return None
-    entitled, expires_at = row
-    if expires_at:
-        try:
-            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-            if exp < datetime.now(timezone.utc):
-                return False
-        except ValueError:
-            pass
-    return bool(entitled)
+    keys = [
+        "app_user_id", "entitled", "entitlement", "expires_at",
+        "product_id", "environment", "last_event", "status", "updated_at",
+    ]
+    return dict(zip(keys, row))
+
+
+def _not_expired(expires_at):
+    if not expires_at:
+        return True
+    try:
+        exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        return exp > datetime.now(timezone.utc)
+    except ValueError:
+        return True
+
+
+def cached_entitled(app_user_id):
+    row = get_subscriber_row(app_user_id)
+    if not row:
+        return None
+    if not row["entitled"]:
+        return False
+    if not _not_expired(row.get("expires_at")):
+        return False
+    return True
 
 
 def fetch_subscriber(app_user_id):
@@ -130,13 +172,8 @@ def entitlement_from_subscriber(payload, name=ENTITLEMENT):
     if not item:
         return False, None, None
     expires = item.get("expires_date")
-    if expires:
-        try:
-            exp = datetime.fromisoformat(expires.replace("Z", "+00:00"))
-            if exp < datetime.now(timezone.utc):
-                return False, expires, item.get("product_identifier")
-        except ValueError:
-            pass
+    if expires and not _not_expired(expires):
+        return False, expires, item.get("product_identifier")
     return True, expires, item.get("product_identifier")
 
 
@@ -160,6 +197,7 @@ def is_entitled(app_user_id, refresh=False):
         expires_at=expires,
         product_id=product,
         last_event="GET /subscribers",
+        status="active" if entitled else "expired",
     )
     return entitled
 
@@ -169,31 +207,55 @@ def apply_webhook(body):
     user_id = event.get("app_user_id") or event.get("original_app_user_id")
     if not user_id:
         return False
-    kind = event.get("type") or ""
-    ids = event.get("entitlement_ids") or []
+    kind = (event.get("type") or "").upper()
+    ids = list(event.get("entitlement_ids") or [])
     if event.get("entitlement_id"):
-        ids = list(set(list(ids) + [event.get("entitlement_id")]))
+        ids = list(set(ids + [event.get("entitlement_id")]))
     expires_ms = event.get("expiration_at_ms")
     expires_at = None
     if expires_ms:
-        expires_at = datetime.fromtimestamp(expires_ms / 1000, tz=timezone.utc).isoformat()
-    lost = kind in {"EXPIRATION", "CANCELLATION", "BILLING_ISSUE"}
-    entitled = (ENTITLEMENT in ids or not ids) and not lost
-    if kind == "CANCELLATION" and expires_at:
+        expires_at = datetime.fromtimestamp(
+            expires_ms / 1000, tz=timezone.utc
+        ).isoformat()
+
+    product_id = event.get("product_id")
+    environment = event.get("environment")
+
+    if kind in EXPIRED_EVENTS:
+        entitled = False
+        status = "expired" if kind == "EXPIRATION" else kind.lower()
+    elif kind in SOFT_EVENTS:
+        # Paid through period / billing retry — still entitled if not past expires_at
+        entitled = _not_expired(expires_at) if expires_at else True
+        status = "cancelled" if kind == "CANCELLATION" else "billing_issue"
+    elif kind in {
+        "INITIAL_PURCHASE",
+        "RENEWAL",
+        "UNCANCELLATION",
+        "PRODUCT_CHANGE",
+        "NON_RENEWING_PURCHASE",
+    }:
+        entitled = (ENTITLEMENT in ids) if ids else True
+        status = "active"
+    else:
+        # Unknown event: refresh from RC API when possible
         try:
-            exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-            entitled = exp > datetime.now(timezone.utc)
-        except ValueError:
-            entitled = False
+            return bool(is_entitled(user_id, refresh=True))
+        except Exception:
+            entitled = cached_entitled(user_id) or False
+            status = "unknown"
+
     upsert_subscriber(
         user_id,
         entitled,
         entitlement=ENTITLEMENT,
         expires_at=expires_at,
-        product_id=event.get("product_id"),
-        environment=event.get("environment"),
+        product_id=product_id,
+        environment=environment,
         last_event=kind,
+        status=status,
     )
+    # Authoritative refresh when secret key is configured
     try:
         is_entitled(user_id, refresh=True)
     except Exception:

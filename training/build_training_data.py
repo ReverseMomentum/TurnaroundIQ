@@ -1,3 +1,12 @@
+"""
+Build training_data from:
+  1) live match_results (all sides)
+  2) historical_matches + historical_events (sides that went 2-up only)
+
+Historical full_turnaround matches results_collector:
+  went 2-up AND finished level or behind.
+"""
+from collections import defaultdict
 from datetime import datetime, timezone
 import sqlite3
 import sys
@@ -95,6 +104,45 @@ TEAM_STATS_SELECT = """
     FROM team_stats WHERE team = ?
 """
 
+INSERT_SQL = """
+    INSERT INTO training_data (
+        match_id, league, team, is_home,
+        back_odds, lay_odds,
+        avg_xg, avg_xga, xg_edge,
+        goals_last5, conceded_last5,
+        turnaround_pct, two_up_trigger_rate,
+        historical_turnaround_rate, historical_trigger_rate,
+        early_goal_rate, early_concede_rate,
+        first_lead_rate, first_concede_rate,
+        comeback_rate, lead_retention_rate,
+        first_half_goal_diff, second_half_goal_diff,
+        burnout_index,
+        league_turnaround_rate, opponent_turnaround_rate,
+        live_trigger_rate, live_early_goal_rate,
+        live_early_concede_rate, live_first_lead_rate,
+        live_first_concede_rate, live_comeback_rate,
+        live_lead_retention_rate, live_first_half_goal_diff,
+        live_second_half_goal_diff, live_burnout_index,
+        trigger_rate_delta, early_goal_delta,
+        early_concede_delta, first_lead_delta,
+        first_concede_delta, comeback_delta,
+        lead_retention_delta, burnout_delta,
+        abs_trigger_delta, abs_retention_delta,
+        lead_minute, max_lead,
+        opening_back_odds, odds_movement,
+        red_cards_for, red_cards_against,
+        shots_for, shots_against,
+        sample_weight, full_turnaround, created_at
+    ) VALUES (
+        ?,?,?,?,?,?,?,?,?,?,
+        ?,?,?,?,?,?,?,?,?,?,
+        ?,?,?,?,?,?,?,?,?,?,
+        ?,?,?,?,?,?,?,?,?,?,
+        ?,?,?,?,?,?,?,?,?,?,
+        ?,?,?,?,?,?,?
+    )
+"""
+
 
 def migrate_training_data(conn):
     conn.execute(
@@ -172,109 +220,6 @@ def bind_team(conn, raw_name, known_teams):
     return name
 
 
-def build_training_data():
-    conn = get_db()
-    migrate_training_data(conn)
-    conn.execute("DELETE FROM training_data")
-    known_teams = load_team_stats_names()
-    matches = conn.execute(
-        """
-        SELECT match_id, league, home_team, away_team,
-               home_turnaround, away_turnaround,
-               home_lead_minute, away_lead_minute, processed_at
-        FROM match_results
-        """
-    ).fetchall()
-
-    inserted = 0
-    unprofiled = 0
-    for match in matches:
-        (
-            match_id, league, home_team, away_team,
-            home_turnaround, away_turnaround,
-            home_lead_minute, away_lead_minute, processed_at,
-        ) = match
-        home_team = bind_team(conn, home_team, known_teams)
-        away_team = bind_team(conn, away_team, known_teams)
-        home_stats = as_stats(conn.execute(TEAM_STATS_SELECT, (home_team,)).fetchone())
-        away_stats = as_stats(conn.execute(TEAM_STATS_SELECT, (away_team,)).fetchone())
-        if all(v is None for v in home_stats):
-            unprofiled += 1
-        if all(v is None for v in away_stats):
-            unprofiled += 1
-        league_turnaround_rate = get_league_turnaround_rate(conn, league)
-        home_xg_edge = safe_sub(home_stats[0], home_stats[1])
-        away_xg_edge = safe_sub(away_stats[0], away_stats[1])
-        home_opening_odds, home_odds_movement = get_odds_movement(
-            home_team, away_team, home_team
-        )
-        away_opening_odds, away_odds_movement = get_odds_movement(
-            home_team, away_team, away_team
-        )
-        match_date = resolve_match_date(conn, match_id, processed_at)
-        weight = sample_weight_from_date(match_date)
-        for row in (
-            _build_row(
-                match_id, league, home_team, 1, home_stats, home_xg_edge,
-                league_turnaround_rate, away_stats[17],
-                home_lead_minute or 0, home_opening_odds, home_odds_movement,
-                weight, home_turnaround,
-            ),
-            _build_row(
-                match_id, league, away_team, 0, away_stats, away_xg_edge,
-                league_turnaround_rate, home_stats[17],
-                away_lead_minute or 0, away_opening_odds, away_odds_movement,
-                weight, away_turnaround,
-            ),
-        ):
-            conn.execute(
-                """
-                INSERT INTO training_data (
-                    match_id, league, team, is_home,
-                    back_odds, lay_odds,
-                    avg_xg, avg_xga, xg_edge,
-                    goals_last5, conceded_last5,
-                    turnaround_pct, two_up_trigger_rate,
-                    historical_turnaround_rate, historical_trigger_rate,
-                    early_goal_rate, early_concede_rate,
-                    first_lead_rate, first_concede_rate,
-                    comeback_rate, lead_retention_rate,
-                    first_half_goal_diff, second_half_goal_diff,
-                    burnout_index,
-                    league_turnaround_rate, opponent_turnaround_rate,
-                    live_trigger_rate, live_early_goal_rate,
-                    live_early_concede_rate, live_first_lead_rate,
-                    live_first_concede_rate, live_comeback_rate,
-                    live_lead_retention_rate, live_first_half_goal_diff,
-                    live_second_half_goal_diff, live_burnout_index,
-                    trigger_rate_delta, early_goal_delta,
-                    early_concede_delta, first_lead_delta,
-                    first_concede_delta, comeback_delta,
-                    lead_retention_delta, burnout_delta,
-                    abs_trigger_delta, abs_retention_delta,
-                    lead_minute, max_lead,
-                    opening_back_odds, odds_movement,
-                    red_cards_for, red_cards_against,
-                    shots_for, shots_against,
-                    sample_weight, full_turnaround, created_at
-                ) VALUES (
-                    ?,?,?,?,?,?,?,?,?,?,
-                    ?,?,?,?,?,?,?,?,?,?,
-                    ?,?,?,?,?,?,?,?,?,?,
-                    ?,?,?,?,?,?,?,?,?,?,
-                    ?,?,?,?,?,?,?,?,?,?,
-                    ?,?,?,?,?,?,?
-                )
-                """,
-                row,
-            )
-        inserted += 2
-    conn.commit()
-    conn.close()
-    print(f"{inserted} training rows built")
-    print(f"{unprofiled} sides had no team_stats profile (NULL features)")
-
-
 def _build_row(
     match_id, league, team, is_home, team_stats, xg_edge,
     league_turnaround_rate, opponent_turnaround_rate,
@@ -300,6 +245,243 @@ def _build_row(
         sample_weight, full_turnaround,
         datetime.now(timezone.utc).isoformat(),
     )
+
+
+def analyze_historical_goals(goals):
+    """Replay goal events. side 1 = home, 2 = away."""
+    home_score = away_score = 0
+    home_2up = away_2up = False
+    home_lead_minute = away_lead_minute = 0
+    for minute, side, is_goal in goals:
+        if not is_goal:
+            continue
+        minute = int(minute or 0)
+        if side == 1:
+            home_score += 1
+        elif side == 2:
+            away_score += 1
+        else:
+            continue
+        if home_score - away_score >= 2:
+            home_2up = True
+            if home_lead_minute == 0:
+                home_lead_minute = minute
+        if away_score - home_score >= 2:
+            away_2up = True
+            if away_lead_minute == 0:
+                away_lead_minute = minute
+    return {
+        "home_score": home_score,
+        "away_score": away_score,
+        "home_2up": home_2up,
+        "away_2up": away_2up,
+        "home_lead_minute": home_lead_minute,
+        "away_lead_minute": away_lead_minute,
+    }
+
+
+def insert_side(
+    conn, known_teams, match_id, league, team, is_home,
+    opponent_stats, league_turnaround_rate, lead_minute,
+    match_date, full_turnaround,
+):
+    team = bind_team(conn, team, known_teams)
+    stats = as_stats(conn.execute(TEAM_STATS_SELECT, (team,)).fetchone())
+    unprofiled = 1 if all(v is None for v in stats) else 0
+    xg_edge = safe_sub(stats[0], stats[1])
+    opening_odds, odds_movement = get_odds_movement(
+        team if is_home else None,
+        None if is_home else team,
+        team,
+    )
+    # get_odds_movement expects home, away, selection — use match teams when possible
+    weight = sample_weight_from_date(match_date)
+    row = _build_row(
+        match_id, league, team, is_home, stats, xg_edge,
+        league_turnaround_rate, opponent_stats[17] if opponent_stats else None,
+        lead_minute or 0, opening_odds, odds_movement,
+        weight, int(full_turnaround),
+    )
+    conn.execute(INSERT_SQL, row)
+    return unprofiled
+
+
+def insert_side_with_odds(
+    conn, known_teams, match_id, league, home_team, away_team,
+    team, is_home, opp_stats, league_rate, lead_minute, match_date, full_turnaround,
+):
+    team = bind_team(conn, team, known_teams)
+    stats = as_stats(conn.execute(TEAM_STATS_SELECT, (team,)).fetchone())
+    unprofiled = 1 if all(v is None for v in stats) else 0
+    xg_edge = safe_sub(stats[0], stats[1])
+    opening_odds, odds_movement = get_odds_movement(home_team, away_team, team)
+    weight = sample_weight_from_date(match_date)
+    row = _build_row(
+        match_id, league, team, is_home, stats, xg_edge,
+        league_rate, opp_stats[17] if opp_stats else None,
+        lead_minute or 0, opening_odds, odds_movement,
+        weight, int(full_turnaround),
+    )
+    conn.execute(INSERT_SQL, row)
+    return unprofiled
+
+
+def add_live_rows(conn, known_teams):
+    matches = conn.execute(
+        """
+        SELECT match_id, league, home_team, away_team,
+               home_turnaround, away_turnaround,
+               home_lead_minute, away_lead_minute, processed_at
+        FROM match_results
+        """
+    ).fetchall()
+    inserted = 0
+    unprofiled = 0
+    for match in matches:
+        (
+            match_id, league, home_team, away_team,
+            home_turnaround, away_turnaround,
+            home_lead_minute, away_lead_minute, processed_at,
+        ) = match
+        home_team = bind_team(conn, home_team, known_teams)
+        away_team = bind_team(conn, away_team, known_teams)
+        home_stats = as_stats(conn.execute(TEAM_STATS_SELECT, (home_team,)).fetchone())
+        away_stats = as_stats(conn.execute(TEAM_STATS_SELECT, (away_team,)).fetchone())
+        if all(v is None for v in home_stats):
+            unprofiled += 1
+        if all(v is None for v in away_stats):
+            unprofiled += 1
+        league_rate = get_league_turnaround_rate(conn, league)
+        match_date = resolve_match_date(conn, match_id, processed_at)
+        for team, is_home, stats, opp, lead, label in (
+            (home_team, 1, home_stats, away_stats, home_lead_minute, home_turnaround),
+            (away_team, 0, away_stats, home_stats, away_lead_minute, away_turnaround),
+        ):
+            opening_odds, odds_movement = get_odds_movement(home_team, away_team, team)
+            weight = sample_weight_from_date(match_date)
+            xg_edge = safe_sub(stats[0], stats[1])
+            row = _build_row(
+                match_id, league, team, is_home, stats, xg_edge,
+                league_rate, opp[17],
+                lead or 0, opening_odds, odds_movement,
+                weight, label,
+            )
+            conn.execute(INSERT_SQL, row)
+            inserted += 1
+    print(f"{inserted} live training rows")
+    return inserted, unprofiled
+
+
+def add_historical_rows(conn, known_teams):
+    """One row per side that went 2-up in historical_events."""
+    try:
+        matches = conn.execute(
+            """
+            SELECT match_id, league, home_team, away_team,
+                   final_home, final_away, date
+            FROM historical_matches
+            """
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        print(f"historical_matches missing: {exc}")
+        return 0, 0
+
+    try:
+        events = conn.execute(
+            """
+            SELECT match_id, minute, side, is_goal
+            FROM historical_events
+            WHERE is_goal = 1
+            ORDER BY match_id, minute
+            """
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        print(f"historical_events missing: {exc}")
+        return 0, 0
+
+    events_by_match = defaultdict(list)
+    for match_id, minute, side, is_goal in events:
+        events_by_match[match_id].append((minute, side, is_goal))
+
+    inserted = 0
+    unprofiled = 0
+    two_up_sides = 0
+    skipped_no_events = 0
+
+    for match_id, league, home, away, final_home, final_away, date in matches:
+        goals = events_by_match.get(match_id)
+        if not goals:
+            skipped_no_events += 1
+            continue
+        analysis = analyze_historical_goals(goals)
+        # Prefer event tally; fall back to stored finals for turnaround check
+        fh = analysis["home_score"] if analysis["home_score"] or analysis["away_score"] else (final_home or 0)
+        fa = analysis["away_score"] if analysis["home_score"] or analysis["away_score"] else (final_away or 0)
+        if final_home is not None:
+            fh = final_home
+        if final_away is not None:
+            fa = final_away
+
+        home_team = bind_team(conn, home, known_teams)
+        away_team = bind_team(conn, away, known_teams)
+        home_stats = as_stats(conn.execute(TEAM_STATS_SELECT, (home_team,)).fetchone())
+        away_stats = as_stats(conn.execute(TEAM_STATS_SELECT, (away_team,)).fetchone())
+        league_rate = get_league_turnaround_rate(conn, league)
+        match_date = date or ""
+
+        if analysis["home_2up"]:
+            two_up_sides += 1
+            label = int(fh <= fa)
+            if all(v is None for v in home_stats):
+                unprofiled += 1
+            opening_odds, odds_movement = get_odds_movement(home_team, away_team, home_team)
+            weight = sample_weight_from_date(match_date)
+            xg_edge = safe_sub(home_stats[0], home_stats[1])
+            row = _build_row(
+                match_id, league, home_team, 1, home_stats, xg_edge,
+                league_rate, away_stats[17],
+                analysis["home_lead_minute"], opening_odds, odds_movement,
+                weight, label,
+            )
+            conn.execute(INSERT_SQL, row)
+            inserted += 1
+
+        if analysis["away_2up"]:
+            two_up_sides += 1
+            label = int(fa <= fh)
+            if all(v is None for v in away_stats):
+                unprofiled += 1
+            opening_odds, odds_movement = get_odds_movement(home_team, away_team, away_team)
+            weight = sample_weight_from_date(match_date)
+            xg_edge = safe_sub(away_stats[0], away_stats[1])
+            row = _build_row(
+                match_id, league, away_team, 0, away_stats, xg_edge,
+                league_rate, home_stats[17],
+                analysis["away_lead_minute"], opening_odds, odds_movement,
+                weight, label,
+            )
+            conn.execute(INSERT_SQL, row)
+            inserted += 1
+
+    print(f"{inserted} historical 2-up training rows ({two_up_sides} two-up sides)")
+    print(f"{skipped_no_events} historical matches had no goal events")
+    return inserted, unprofiled
+
+
+def build_training_data():
+    conn = get_db()
+    migrate_training_data(conn)
+    conn.execute("DELETE FROM training_data")
+    known_teams = load_team_stats_names()
+
+    live_n, live_un = add_live_rows(conn, known_teams)
+    hist_n, hist_un = add_historical_rows(conn, known_teams)
+
+    conn.commit()
+    conn.close()
+    total = live_n + hist_n
+    print(f"{total} training rows built (live {live_n} + historical {hist_n})")
+    print(f"{live_un + hist_un} sides had no team_stats profile (NULL features)")
 
 
 if __name__ == "__main__":

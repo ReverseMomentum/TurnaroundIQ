@@ -1,0 +1,25 @@
+# TurnaroundIQ API — reverse proxy
+#
+# 1. Replace api.yourdomain.com with your real hostname
+# 2. Point the DNS A record at this VPS public IP
+# 3. API must listen on 127.0.0.1:8080 only (not 0.0.0.0)
+#
+#   caddy run --config /root/TurnaroundIQ/deploy/Caddyfile
+#   or: cp to /etc/caddy/Caddyfile && systemctl reload caddy
+
+api.yourdomain.com {
+	encode gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		# Apps call from native clients; loosen if you need a web origin:
+		# Access-Control-Allow-Origin *
+	}
+
+	reverse_proxy 127.0.0.1:8080
+
+	log {
+		output file /var/log/caddy/turnaroundiq-api.log
+	}
+}

@@ -1,12 +1,10 @@
 """
-Chaos Index (0–100) with pie-chart breakdown:
-  o2_5, btts, early_goal, instability  (share of score, sum ≈ 100)
-
-BTTS / O2.5 from historical_matches + match_results scores.
-Early goal + instability from team_stats rates.
+Chaos Index with pie slices: o2_5, btts, early_goal, instability.
+Last 10 games weigh ~70% when sample is large enough.
 """
 
 from models.opportunities_engine import get_team_stats
+from models.form_decay import recent_score_form, blended_rate
 from database import get_db
 
 
@@ -23,8 +21,7 @@ def _clip(x, lo=0.0, hi=100.0):
     return max(lo, min(hi, x))
 
 
-def _score_rates(team):
-    """BTTS% and O2.5% for a team from stored finals (0–100)."""
+def _long_run_score_rates(team):
     conn = get_db()
     n = btts = o25 = 0
     try:
@@ -45,72 +42,52 @@ def _score_rates(team):
                 o25 += 1
     except Exception:
         pass
-    try:
-        rows = conn.execute(
-            """
-            SELECT final_home, final_away FROM match_results
-            WHERE home_team = ? OR away_team = ?
-            """,
-            (team, team),
-        ).fetchall()
-        for fh, fa in rows:
-            if fh is None or fa is None:
-                continue
-            n += 1
-            if fh > 0 and fa > 0:
-                btts += 1
-            if (fh + fa) >= 3:
-                o25 += 1
-    except Exception:
-        pass
     conn.close()
     if n <= 0:
-        return {"sample": 0, "btts": 50.0, "o2_5": 50.0}
+        return {"sample": 0, "btts": None, "o2_5": None}
     return {
         "sample": n,
-        "btts": round(100.0 * btts / n, 1),
-        "o2_5": round(100.0 * o25 / n, 1),
+        "btts": 100.0 * btts / n,
+        "o2_5": 100.0 * o25 / n,
     }
 
 
 def team_chaos_components(team):
     stats = get_team_stats(team) or {}
-    scores = _score_rates(team)
+    recent = recent_score_form(team, n=10)
+    long_run = _long_run_score_rates(team)
 
-    early = _pct(stats.get("early_goal_rate"))
-    live_early = _pct(stats.get("live_early_goal_rate"))
-    early_use = live_early if live_early > 0 else early
+    btts = blended_rate(recent.get("btts"), long_run.get("btts"), recent["sample"])
+    o2_5 = blended_rate(recent.get("o2_5"), long_run.get("o2_5"), recent["sample"])
+    if btts is None:
+        btts = 50.0
+    if o2_5 is None:
+        o2_5 = 50.0
 
-    comeback = _pct(stats.get("comeback_rate"))
-    live_comeback = _pct(stats.get("live_comeback_rate"))
-    comeback_use = live_comeback if live_comeback > 0 else comeback
+    prior_early = _pct(stats.get("live_early_goal_rate")) or _pct(stats.get("early_goal_rate"))
+    early_use = blended_rate(recent.get("early_goal"), prior_early, recent["sample"]) or 0.0
 
+    comeback = _pct(stats.get("live_comeback_rate")) or _pct(stats.get("comeback_rate"))
     retention = _pct(stats.get("lead_retention_rate"))
     retention_chaos = _clip(100.0 - retention)
-
     trigger = max(
         _pct(stats.get("live_trigger_rate")),
         _pct(stats.get("two_up_trigger_rate")),
         _pct(stats.get("historical_trigger_rate")),
     )
-
-    # Instability blends soft lead holding + comebacks + triggers
-    instability = _clip(
-        0.45 * retention_chaos + 0.35 * comeback_use + 0.20 * trigger
-    )
+    instability = _clip(0.45 * retention_chaos + 0.35 * comeback + 0.20 * trigger)
 
     return {
         "team": team,
-        "btts": scores["btts"],
-        "o2_5": scores["o2_5"],
-        "early_goal": early_use,
+        "btts": round(btts, 1),
+        "o2_5": round(o2_5, 1),
+        "early_goal": round(early_use, 1),
         "instability": round(instability, 1),
-        "sample": scores["sample"],
+        "recent_sample": recent["sample"],
     }
 
 
 def _pie_shares(o2_5, btts, early_goal, instability):
-    """Four slices for the app pie; renormalized to sum 100."""
     raw = {
         "o2_5": max(0.0, o2_5),
         "btts": max(0.0, btts),
@@ -130,17 +107,9 @@ def chaos_index(home_team, away_team, league="", kickoff=None, match_id=None):
     early = (h["early_goal"] + a["early_goal"]) / 2.0
     instability = (h["instability"] + a["instability"]) / 2.0
 
-    # Overall chaos 0–100 (equal-ish blend of the four drivers)
     score = _clip(0.28 * o2_5 + 0.28 * btts + 0.22 * early + 0.22 * instability)
     score = round(score, 1)
-
-    if score >= 75:
-        label = "high"
-    elif score >= 45:
-        label = "medium"
-    else:
-        label = "low"
-
+    label = "high" if score >= 75 else "medium" if score >= 45 else "low"
     pie = _pie_shares(o2_5, btts, early, instability)
 
     return {

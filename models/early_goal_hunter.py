@@ -1,8 +1,10 @@
 """
 Early Goal Hunter — standalone feature segment.
 
-Uses existing team_stats rates (no new model / no pipeline overhaul).
-Rates in DB are stored as percents (0–100).
+Primary angles:
+  - P(1H goal in match)
+  - P(home scores first) / P(away scores first)
+  - Home early concede vs away early score (classic "away FG / home leak" angle)
 """
 
 from models.opportunities_engine import get_team_stats
@@ -25,21 +27,33 @@ def team_early_profile(team):
     stats = get_team_stats(team) or {}
     early = _pct(stats.get("early_goal_rate"))
     live_early = _pct(stats.get("live_early_goal_rate"))
+    early_concede = _pct(stats.get("early_concede_rate"))
+    live_concede = _pct(stats.get("live_early_concede_rate"))
     first_lead = _pct(stats.get("first_lead_rate"))
     live_first = _pct(stats.get("live_first_lead_rate"))
-    # Prefer live when present, else historical
+    first_concede = _pct(stats.get("first_concede_rate"))
+    live_first_concede = _pct(stats.get("live_first_concede_rate"))
+
     early_use = live_early if live_early > 0 else early
+    concede_use = live_concede if live_concede > 0 else early_concede
     first_use = live_first if live_first > 0 else first_lead
-    # Heuristic: first-half goal intensity from early rate + half goal diff signal
+    first_concede_use = live_first_concede if live_first_concede > 0 else first_concede
+
     half_diff = _pct(stats.get("first_half_goal_diff"), 0.0)
     p_scores_first = _clip01(first_use / 100.0)
+    p_concedes_first = _clip01(first_concede_use / 100.0)
     p_first_half_goal = _clip01(early_use / 100.0 * 0.85 + max(half_diff, 0) * 0.05)
+    p_early_concede = _clip01(concede_use / 100.0)
+
     score = round(100 * (0.55 * p_scores_first + 0.45 * p_first_half_goal), 1)
     return {
         "team": team,
         "p_scores_first": round(p_scores_first, 3),
+        "p_concedes_first": round(p_concedes_first, 3),
         "p_first_half_goal": round(p_first_half_goal, 3),
+        "p_early_concede": round(p_early_concede, 3),
         "early_goal_rate": early_use,
+        "early_concede_rate": concede_use,
         "first_lead_rate": first_use,
         "hunter_score": score,
     }
@@ -48,9 +62,11 @@ def team_early_profile(team):
 def match_early_goal(home_team, away_team, league="", kickoff=None, match_id=None):
     home = team_early_profile(home_team)
     away = team_early_profile(away_team)
-    # P(someone scores first in 1H) ≈ complementary of both quiet
-    p_1h_any = _clip01(1.0 - (1.0 - home["p_first_half_goal"]) * (1.0 - away["p_first_half_goal"]))
-    # Normalize first-scorer probs so they sum to ~1 among the two
+
+    p_1h_any = _clip01(
+        1.0 - (1.0 - home["p_first_half_goal"]) * (1.0 - away["p_first_half_goal"])
+    )
+
     raw_h = home["p_scores_first"]
     raw_a = away["p_scores_first"]
     total = raw_h + raw_a
@@ -59,7 +75,26 @@ def match_early_goal(home_team, away_team, league="", kickoff=None, match_id=Non
         p_away_first = raw_a / total
     else:
         p_home_first = p_away_first = 0.5
-    hunter_score = round(100 * (0.5 * p_1h_any + 0.25 * max(raw_h, raw_a) + 0.25 * abs(raw_h - raw_a)), 1)
+
+    # Away scores first while home is leaky early — explicit betting angle
+    away_first_home_leak = round(
+        _clip01(0.55 * p_away_first + 0.45 * home["p_early_concede"]), 3
+    )
+    home_first_away_leak = round(
+        _clip01(0.55 * p_home_first + 0.45 * away["p_early_concede"]), 3
+    )
+
+    hunter_score = round(
+        100
+        * (
+            0.40 * p_1h_any
+            + 0.25 * max(raw_h, raw_a)
+            + 0.20 * abs(raw_h - raw_a)
+            + 0.15 * max(away_first_home_leak, home_first_away_leak)
+        ),
+        1,
+    )
+
     return {
         "match_id": match_id,
         "match": f"{home_team} vs {away_team}",
@@ -70,6 +105,8 @@ def match_early_goal(home_team, away_team, league="", kickoff=None, match_id=Non
         "p_first_half_goal": round(p_1h_any, 3),
         "p_home_scores_first": round(p_home_first, 3),
         "p_away_scores_first": round(p_away_first, 3),
+        "away_first_home_leak": away_first_home_leak,
+        "home_first_away_leak": home_first_away_leak,
         "home": home,
         "away": away,
         "hunter_score": hunter_score,
@@ -78,7 +115,6 @@ def match_early_goal(home_team, away_team, league="", kickoff=None, match_id=Non
 
 
 def rank_early_goal_matches(fixtures):
-    """fixtures: list with home_team, away_team, optional league/kickoff/match_id."""
     seen = set()
     ranked = []
     for fx in fixtures:

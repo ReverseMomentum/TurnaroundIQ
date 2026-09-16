@@ -1,24 +1,21 @@
 """
 Public API for the mobile app.
 
-    export REVENUECAT_SECRET_API_KEY=sk_...
-    export REVENUECAT_WEBHOOK_AUTH=...
-    export REVENUECAT_ENTITLEMENT=pro
-    export CORS_ORIGINS=*
-    uvicorn api.app:app --host 0.0.0.0 --port 8080
-
-App: Authorization: Bearer <RevenueCat app_user_id>
+Segments:
+  GET /opportunities     — 2UP / FTA (Pro)
+  GET /features/early-goal — Early Goal Hunter (Pro)
+  GET /features/chaos      — Chaos Index (Pro)
 """
 
 from datetime import datetime, timezone
 import os
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -35,12 +32,14 @@ from billing.revenuecat import (
 )
 from database import get_db, create_tables
 from models.opportunities_engine import rank_opportunities
+from models.early_goal_hunter import rank_early_goal_matches
+from models.chaos_index import rank_chaos_matches
 
 CORS_ORIGINS = [
     o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
 ]
 
-app = FastAPI(title="TurnaroundIQ", version="0.2")
+app = FastAPI(title="TurnaroundIQ", version="0.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["*"],
@@ -88,6 +87,7 @@ def require_pro(authorization: str | None) -> str:
 
 
 def latest_fixtures(limit=40):
+    """Odds rows for 2UP engine (per selection)."""
     conn = get_db()
     try:
         rows = conn.execute(
@@ -128,6 +128,58 @@ def latest_fixtures(limit=40):
     return fixtures[:limit]
 
 
+def latest_match_pairs(limit=40):
+    """Unique home/away pairs for Early Goal + Chaos segments."""
+    conn = get_db()
+    pairs = []
+    try:
+        rows = conn.execute(
+            """
+            SELECT match_id, kickoff, league, home_team, away_team
+            FROM odds_history
+            WHERE home_team IS NOT NULL AND away_team IS NOT NULL
+            GROUP BY home_team, away_team, IFNULL(kickoff, ''), IFNULL(league, '')
+            ORDER BY MAX(id) DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        for row in rows:
+            pairs.append({
+                "match_id": row[0],
+                "kickoff": row[1],
+                "league": row[2],
+                "home_team": row[3],
+                "away_team": row[4],
+            })
+    except Exception:
+        pass
+
+    if len(pairs) < 5:
+        try:
+            rows = conn.execute(
+                """
+                SELECT match_id, processed_at, league, home_team, away_team
+                FROM match_results
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            for row in rows:
+                pairs.append({
+                    "match_id": row[0],
+                    "kickoff": row[1],
+                    "league": row[2],
+                    "home_team": row[3],
+                    "away_team": row[4],
+                })
+        except Exception:
+            pass
+    conn.close()
+    return pairs[:limit]
+
+
 @app.get("/health")
 def health():
     db_ok = False
@@ -141,7 +193,8 @@ def health():
     return {
         "ok": db_ok,
         "time": datetime.now(timezone.utc).isoformat(),
-        "version": "0.2",
+        "version": "0.3",
+        "features": ["opportunities", "early_goal_hunter", "chaos_index"],
     }
 
 
@@ -189,6 +242,38 @@ def opportunities(
     limit = max(1, min(limit, 100))
     ranked = rank_opportunities(latest_fixtures(limit=max(limit, 20)))
     return {"count": len(ranked[:limit]), "opportunities": ranked[:limit]}
+
+
+@app.get("/features/early-goal")
+def early_goal_feature(
+    authorization: str | None = Header(default=None),
+    limit: int = 20,
+):
+    """Early Goal Hunter segment — floating submenu."""
+    require_pro(authorization)
+    limit = max(1, min(limit, 50))
+    ranked = rank_early_goal_matches(latest_match_pairs(limit=max(limit, 30)))
+    return {
+        "feature": "early_goal_hunter",
+        "count": len(ranked[:limit]),
+        "matches": ranked[:limit],
+    }
+
+
+@app.get("/features/chaos")
+def chaos_feature(
+    authorization: str | None = Header(default=None),
+    limit: int = 20,
+):
+    """Chaos Index segment — floating submenu."""
+    require_pro(authorization)
+    limit = max(1, min(limit, 50))
+    ranked = rank_chaos_matches(latest_match_pairs(limit=max(limit, 30)))
+    return {
+        "feature": "chaos_index",
+        "count": len(ranked[:limit]),
+        "matches": ranked[:limit],
+    }
 
 
 @app.post("/webhooks/revenuecat")

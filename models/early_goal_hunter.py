@@ -1,13 +1,9 @@
 """
-Early Goal Hunter — standalone feature segment.
-
-Primary angles:
-  - P(1H goal in match)
-  - P(home scores first) / P(away scores first)
-  - Home early concede vs away early score (classic "away FG / home leak" angle)
+Early Goal Hunter — last 10 games outweigh long-run team_stats.
 """
 
 from models.opportunities_engine import get_team_stats
+from models.form_decay import recent_score_form, blended_rate
 
 
 def _pct(value, default=0.0):
@@ -25,19 +21,21 @@ def _clip01(x):
 
 def team_early_profile(team):
     stats = get_team_stats(team) or {}
-    early = _pct(stats.get("early_goal_rate"))
-    live_early = _pct(stats.get("live_early_goal_rate"))
-    early_concede = _pct(stats.get("early_concede_rate"))
-    live_concede = _pct(stats.get("live_early_concede_rate"))
-    first_lead = _pct(stats.get("first_lead_rate"))
-    live_first = _pct(stats.get("live_first_lead_rate"))
-    first_concede = _pct(stats.get("first_concede_rate"))
-    live_first_concede = _pct(stats.get("live_first_concede_rate"))
+    recent = recent_score_form(team, n=10)
 
-    early_use = live_early if live_early > 0 else early
-    concede_use = live_concede if live_concede > 0 else early_concede
-    first_use = live_first if live_first > 0 else first_lead
-    first_concede_use = live_first_concede if live_first_concede > 0 else first_concede
+    prior_early = _pct(stats.get("live_early_goal_rate")) or _pct(stats.get("early_goal_rate"))
+    prior_concede = _pct(stats.get("live_early_concede_rate")) or _pct(stats.get("early_concede_rate"))
+    prior_first = _pct(stats.get("live_first_lead_rate")) or _pct(stats.get("first_lead_rate"))
+    prior_first_concede = _pct(stats.get("live_first_concede_rate")) or _pct(
+        stats.get("first_concede_rate")
+    )
+
+    early_use = blended_rate(recent.get("early_goal"), prior_early, recent["sample"]) or 0.0
+    concede_use = blended_rate(recent.get("early_concede"), prior_concede, recent["sample"]) or 0.0
+    first_use = blended_rate(recent.get("scores_first"), prior_first, recent["sample"]) or 0.0
+    first_concede_use = blended_rate(
+        recent.get("concedes_first"), prior_first_concede, recent["sample"]
+    ) or 0.0
 
     half_diff = _pct(stats.get("first_half_goal_diff"), 0.0)
     p_scores_first = _clip01(first_use / 100.0)
@@ -55,6 +53,7 @@ def team_early_profile(team):
         "early_goal_rate": early_use,
         "early_concede_rate": concede_use,
         "first_lead_rate": first_use,
+        "recent_sample": recent["sample"],
         "hunter_score": score,
     }
 
@@ -76,7 +75,6 @@ def match_early_goal(home_team, away_team, league="", kickoff=None, match_id=Non
     else:
         p_home_first = p_away_first = 0.5
 
-    # Away scores first while home is leaky early — explicit betting angle
     away_first_home_leak = round(
         _clip01(0.55 * p_away_first + 0.45 * home["p_early_concede"]), 3
     )

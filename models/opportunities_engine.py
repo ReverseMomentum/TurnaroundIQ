@@ -40,6 +40,12 @@ TEAM_STATS_COLUMNS = [
     "abs_trigger_delta", "abs_retention_delta",
 ]
 
+_last_rank_errors = []
+
+
+def get_last_rank_errors():
+    return list(_last_rank_errors)
+
 
 def estimate_lay_odds(back_odds):
     if back_odds < 2:
@@ -52,49 +58,41 @@ def estimate_lay_odds(back_odds):
 
 
 def get_team_stats(team):
+    if not team:
+        return {c: None for c in TEAM_STATS_COLUMNS}
     conn = get_db()
     try:
-        columns_sql = ",\n            ".join(TEAM_STATS_COLUMNS)
+        columns_sql = ", ".join(TEAM_STATS_COLUMNS)
         row = conn.execute(
             f"SELECT {columns_sql} FROM team_stats WHERE team = ?",
             (team,),
         ).fetchone()
+        conn.close()
         if row:
-            conn.close()
             return dict(zip(TEAM_STATS_COLUMNS, row))
     except Exception:
-        pass
-    try:
-        row = conn.execute(
-            "SELECT * FROM team_stats WHERE team = ?", (team,)
-        ).fetchone()
-        if row:
-            names = [d[0] for d in conn.execute("PRAGMA table_info(team_stats)")]
-            # PRAGMA then re-fetch is messy; use description if available
+        try:
             conn.close()
-            # fallback empty stats so model can still run with NaNs
-            return {c: None for c in TEAM_STATS_COLUMNS}
-    except Exception:
-        pass
-    conn.close()
-    return None
+        except Exception:
+            pass
+    return {c: None for c in TEAM_STATS_COLUMNS}
 
 
 def build_opportunity(fixture, stake=40, commission=2):
-    team = fixture["team"]
-    stats = get_team_stats(team)
-    if not stats:
-        # allow score with empty features when team unknown
-        stats = {c: None for c in TEAM_STATS_COLUMNS}
+    team = fixture.get("team") or fixture.get("home_team")
+    if not team:
+        raise ValueError("fixture missing team")
 
-    back_odds = float(fixture["back_odds"])
+    stats = get_team_stats(team)
+    back_odds = float(fixture.get("back_odds") or 2.1)
+
     supplied_lay = fixture.get("lay_odds")
-    estimated_lay = False
     if supplied_lay is None:
         lay_odds = estimate_lay_odds(back_odds)
         estimated_lay = True
     else:
         lay_odds = float(supplied_lay)
+        estimated_lay = False
 
     home_team = fixture.get("home_team")
     away_team = fixture.get("away_team")
@@ -111,7 +109,7 @@ def build_opportunity(fixture, stake=40, commission=2):
     feature_vector = build_feature_vector(
         team_stats=stats,
         is_home=fixture.get("is_home", True),
-        opening_back_odds=opening_back_odds,
+        opening_back_odds=opening_back_odds if opening_back_odds is not None else back_odds,
         odds_movement=odds_movement,
         lead_minute=0,
         max_lead=2,
@@ -138,10 +136,10 @@ def build_opportunity(fixture, stake=40, commission=2):
     ranking_score = calculate_ranking_score(expected_profit, fta_pct)
 
     return {
-        "match": fixture.get("match", ""),
+        "match": fixture.get("match") or f"{home_team} vs {away_team}",
         "team": team,
-        "league": fixture.get("league", ""),
-        "bookmaker": fixture.get("bookmaker", ""),
+        "league": fixture.get("league") or "",
+        "bookmaker": fixture.get("bookmaker") or "",
         "back_odds": round(back_odds, 2),
         "lay_odds": round(lay_odds, 2),
         "estimated_lay": estimated_lay,
@@ -196,13 +194,21 @@ def rebuild_opportunity(opportunity, lay_odds, commission):
 
 
 def rank_opportunities(fixtures):
+    global _last_rank_errors
     opportunities = []
+    _last_rank_errors = []
     for fixture in fixtures:
         try:
             opportunity = build_opportunity(fixture)
             if opportunity:
                 opportunities.append(opportunity)
-        except Exception:
+        except Exception as exc:
+            if len(_last_rank_errors) < 5:
+                _last_rank_errors.append({
+                    "team": fixture.get("team"),
+                    "match": fixture.get("match"),
+                    "error": f"{type(exc).__name__}: {exc}",
+                })
             continue
     opportunities.sort(key=lambda x: x["ev_rating"], reverse=True)
     return opportunities

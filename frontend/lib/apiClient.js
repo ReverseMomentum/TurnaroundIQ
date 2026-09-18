@@ -1,9 +1,5 @@
 /**
  * TurnaroundIQ → FastAPI client
- *
- * Env:
- *   NEXT_PUBLIC_API_BASE=http://144.91.92.72:8080
- *   NEXT_PUBLIC_DEV_USER_ID=test_user   (dev only, until RevenueCat)
  */
 
 export const API_BASE =
@@ -62,19 +58,26 @@ async function request(path, { method = "GET", body, token } = {}) {
 
   if (!res.ok) {
     const detail =
-      typeof data?.detail === "object" ? data.detail : { message: data?.detail || data?.message };
+      typeof data?.detail === "object"
+        ? data.detail
+        : { message: data?.detail || data?.message };
     throw new ApiError(res.status, detail || data);
   }
   return data;
 }
 
 export const api = {
-  health: () => request("/health", { token: null }).catch(() =>
-    fetch(`${API_BASE}/health`).then((r) => r.json())
-  ),
+  health: () =>
+    fetch(`${API_BASE}/health`).then((r) => r.json()),
   me: () => request("/me"),
-  opportunities: (limit = 20) => request(`/opportunities?limit=${limit}`),
+  opportunities: (limit = 20) =>
+    request(`/opportunities?limit=${limit}&include_tracked=true`),
   earlyGoal: (limit = 20) => request(`/features/early-goal?limit=${limit}`),
   chaos: (limit = 20) => request(`/features/chaos?limit=${limit}`),
   patchPrefs: (prefs) => request("/me/prefs", { method: "PATCH", body: prefs }),
+  trackedList: (status) =>
+    request(status ? `/tracked?status=${status}` : "/tracked"),
+  trackedCreate: (body) => request("/tracked", { method: "POST", body }),
+  trackedSettle: (id, body) =>
+    request(`/tracked/${id}`, { method: "PATCH", body }),
 };

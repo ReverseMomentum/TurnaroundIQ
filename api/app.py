@@ -1,10 +1,10 @@
 """
 Public API for the mobile app.
 
-Segments:
-  GET /opportunities     — 2UP / FTA (Pro)
-  GET /features/early-goal — Early Goal Hunter (Pro)
-  GET /features/chaos      — Chaos Index (Pro)
+  GET  /opportunities          — auto (odds) + optional manual merge
+  POST /tracked                — manual insert (no odds feed needed)
+  GET  /tracked                — your paper / real tracked bets
+  PATCH /tracked/{id}          — settle result + profit
 """
 
 from datetime import datetime, timezone
@@ -15,7 +15,7 @@ from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -31,15 +31,16 @@ from billing.revenuecat import (
     ensure_tables,
 )
 from database import get_db, create_tables
-from models.opportunities_engine import rank_opportunities
+from models.opportunities_engine import rank_opportunities, build_opportunity
 from models.early_goal_hunter import rank_early_goal_matches
 from models.chaos_index import rank_chaos_matches
+from api import tracked as tracked_store
 
 CORS_ORIGINS = [
     o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
 ]
 
-app = FastAPI(title="TurnaroundIQ", version="0.3")
+app = FastAPI(title="TurnaroundIQ", version="0.4")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["*"],
@@ -58,10 +59,35 @@ class PrefsPatch(BaseModel):
     notify_exchange_entry: Optional[bool] = None
 
 
+class TrackedCreate(BaseModel):
+    home_team: str
+    away_team: str
+    team: Optional[str] = None
+    is_home: Optional[bool] = True
+    league: Optional[str] = ""
+    kickoff: Optional[str] = None
+    bookmaker: Optional[str] = "Manual"
+    back_odds: Optional[float] = None
+    lay_odds: Optional[float] = None
+    stake: Optional[float] = 40.0
+    commission: Optional[float] = 2.0
+    fta_pct: Optional[float] = None
+    notes: Optional[str] = None
+    match_id: Optional[str] = None
+    score_with_model: bool = True
+
+
+class TrackedSettle(BaseModel):
+    result: str = Field(description="won|lost|void|fta|no_fta")
+    actual_profit: Optional[float] = None
+    actual_fta: Optional[int] = None
+
+
 @app.on_event("startup")
 def startup():
     create_tables()
     ensure_tables()
+    tracked_store.ensure_tracked_tables()
 
 
 def user_from_auth(authorization: str | None) -> str:
@@ -87,7 +113,6 @@ def require_pro(authorization: str | None) -> str:
 
 
 def latest_fixtures(limit=40):
-    """Odds rows for 2UP engine (per selection)."""
     conn = get_db()
     try:
         rows = conn.execute(
@@ -129,7 +154,6 @@ def latest_fixtures(limit=40):
 
 
 def latest_match_pairs(limit=40):
-    """Unique home/away pairs for Early Goal + Chaos segments."""
     conn = get_db()
     pairs = []
     try:
@@ -180,6 +204,34 @@ def latest_match_pairs(limit=40):
     return pairs[:limit]
 
 
+def score_manual_fixture(body: TrackedCreate):
+    """Try model path; if no odds, use placeholder back so build_opportunity can run."""
+    team = body.team or body.home_team
+    back = body.back_odds if body.back_odds is not None else 2.0
+    fixture = {
+        "match_id": body.match_id or f"manual-{body.home_team}-{body.away_team}",
+        "match": f"{body.home_team} vs {body.away_team}",
+        "kickoff": body.kickoff,
+        "league": body.league or "",
+        "home_team": body.home_team,
+        "away_team": body.away_team,
+        "team": team,
+        "is_home": body.is_home if body.is_home is not None else (team == body.home_team),
+        "bookmaker": body.bookmaker or "Manual",
+        "back_odds": back,
+        "lay_odds": body.lay_odds,
+    }
+    try:
+        opp = build_opportunity(
+            fixture,
+            stake=body.stake or 40,
+            commission=body.commission or 2,
+        )
+        return opp
+    except Exception:
+        return None
+
+
 @app.get("/health")
 def health():
     db_ok = False
@@ -193,8 +245,13 @@ def health():
     return {
         "ok": db_ok,
         "time": datetime.now(timezone.utc).isoformat(),
-        "version": "0.3",
-        "features": ["opportunities", "early_goal_hunter", "chaos_index"],
+        "version": "0.4",
+        "features": [
+            "opportunities",
+            "tracked",
+            "early_goal_hunter",
+            "chaos_index",
+        ],
     }
 
 
@@ -237,11 +294,110 @@ def patch_prefs(
 def opportunities(
     authorization: str | None = Header(default=None),
     limit: int = 20,
+    include_tracked: bool = True,
 ):
-    require_pro(authorization)
+    """
+    Auto-ranked from odds when available.
+    Always can merge open manual tracked rows so the tab is usable without odds.
+    """
+    user_id = require_pro(authorization)
     limit = max(1, min(limit, 100))
     ranked = rank_opportunities(latest_fixtures(limit=max(limit, 20)))
-    return {"count": len(ranked[:limit]), "opportunities": ranked[:limit]}
+    for r in ranked:
+        r["source"] = "auto"
+
+    manual = []
+    if include_tracked:
+        for t in tracked_store.list_tracked(user_id, status="open", limit=limit):
+            manual.append({
+                "match": t["match"],
+                "team": t["team"],
+                "league": t["league"],
+                "bookmaker": t["bookmaker"],
+                "back_odds": t["back_odds"],
+                "lay_odds": t["lay_odds"],
+                "estimated_lay": t["estimated_lay"],
+                "stake": t["stake"],
+                "commission": t["commission"],
+                "fta_pct": t["fta_pct"],
+                "lay_stake": t["lay_stake"],
+                "liability": t["liability"],
+                "source": "manual",
+                "tracked_id": t["id"],
+                "status": t["status"],
+                "kickoff": t["kickoff"],
+                "home_team": t["home_team"],
+                "away_team": t["away_team"],
+            })
+
+    combined = manual + ranked
+    return {
+        "count": len(combined[:limit]),
+        "auto_count": len(ranked),
+        "manual_count": len(manual),
+        "opportunities": combined[:limit],
+    }
+
+
+@app.get("/tracked")
+def tracked_list(
+    authorization: str | None = Header(default=None),
+    status: Optional[str] = None,
+    limit: int = 50,
+):
+    user_id = require_pro(authorization)
+    items = tracked_store.list_tracked(user_id, status=status, limit=limit)
+    return {
+        "count": len(items),
+        "summary": tracked_store.summary(user_id),
+        "bets": items,
+    }
+
+
+@app.post("/tracked")
+def tracked_create(
+    body: TrackedCreate,
+    authorization: str | None = Header(default=None),
+):
+    """Self-insert opportunity / bet — no odds API required."""
+    user_id = require_pro(authorization)
+    payload = body.model_dump()
+
+    if body.score_with_model and body.fta_pct is None:
+        scored = score_manual_fixture(body)
+        if scored:
+            payload["fta_pct"] = scored.get("fta_pct")
+            payload["lay_stake"] = scored.get("lay_stake")
+            payload["liability"] = scored.get("liability")
+            if payload.get("lay_odds") is None:
+                payload["lay_odds"] = scored.get("lay_odds")
+            if payload.get("back_odds") is None:
+                payload["back_odds"] = scored.get("back_odds")
+
+    try:
+        bet = tracked_store.create_tracked(user_id, payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return bet
+
+
+@app.patch("/tracked/{bet_id}")
+def tracked_settle(
+    bet_id: int,
+    body: TrackedSettle,
+    authorization: str | None = Header(default=None),
+):
+    user_id = require_pro(authorization)
+    bet = tracked_store.settle_tracked(
+        user_id,
+        bet_id,
+        result=body.result,
+        actual_profit=body.actual_profit,
+        actual_fta=body.actual_fta,
+    )
+    if not bet:
+        raise HTTPException(404, "Tracked bet not found")
+    return bet
 
 
 @app.get("/features/early-goal")
@@ -249,7 +405,6 @@ def early_goal_feature(
     authorization: str | None = Header(default=None),
     limit: int = 20,
 ):
-    """Early Goal Hunter segment — floating submenu."""
     require_pro(authorization)
     limit = max(1, min(limit, 50))
     ranked = rank_early_goal_matches(latest_match_pairs(limit=max(limit, 30)))
@@ -265,7 +420,6 @@ def chaos_feature(
     authorization: str | None = Header(default=None),
     limit: int = 20,
 ):
-    """Chaos Index segment — floating submenu."""
     require_pro(authorization)
     limit = max(1, min(limit, 50))
     ranked = rank_chaos_matches(latest_match_pairs(limit=max(limit, 30)))

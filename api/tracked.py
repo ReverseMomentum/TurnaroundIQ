@@ -1,47 +1,51 @@
 """
 User-entered opportunities / bets — no odds_history required.
-
-Allows paper-tracking FTA results from the app.
 """
 
 from datetime import datetime, timezone
-import json
 
 from database import get_db
+
+TRACKED_DDL = """
+CREATE TABLE IF NOT EXISTS tracked_bets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_user_id TEXT NOT NULL,
+    match_id TEXT,
+    league TEXT,
+    home_team TEXT NOT NULL,
+    away_team TEXT NOT NULL,
+    team TEXT NOT NULL,
+    is_home INTEGER DEFAULT 1,
+    kickoff TEXT,
+    bookmaker TEXT,
+    back_odds REAL,
+    lay_odds REAL,
+    stake REAL,
+    commission REAL DEFAULT 2.0,
+    lay_stake REAL,
+    liability REAL,
+    fta_pct REAL,
+    notes TEXT,
+    status TEXT DEFAULT 'open',
+    result TEXT,
+    actual_profit REAL,
+    actual_fta INTEGER,
+    created_at TEXT,
+    settled_at TEXT
+)
+"""
 
 
 def ensure_tracked_tables():
     conn = get_db()
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS tracked_bets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            app_user_id TEXT NOT NULL,
-            match_id TEXT,
-            league TEXT,
-            home_team TEXT NOT NULL,
-            away_team TEXT NOT NULL,
-            team TEXT NOT NULL,
-            is_home INTEGER DEFAULT 1,
-            kickoff TEXT,
-            bookmaker TEXT,
-            back_odds REAL,
-            lay_odds REAL,
-            stake REAL,
-            commission REAL DEFAULT 2.0,
-            lay_stake REAL,
-            liability REAL,
-            fta_pct REAL,
-            notes TEXT,
-            status TEXT DEFAULT 'open',
-            result TEXT,
-            actual_profit REAL,
-            actual_fta INTEGER,
-            created_at TEXT,
-            settled_at TEXT
-        )
-        """
-    )
+    conn.execute(TRACKED_DDL)
+    cols = {
+        r[1] for r in conn.execute("PRAGMA table_info(tracked_bets)").fetchall()
+    }
+    if "app_user_id" not in cols:
+        # Old/empty schema — rebuild (no production data expected yet)
+        conn.execute("DROP TABLE IF EXISTS tracked_bets")
+        conn.execute(TRACKED_DDL)
     conn.commit()
     conn.close()
 
@@ -156,9 +160,6 @@ def create_tracked(app_user_id, data):
 
 
 def settle_tracked(app_user_id, bet_id, result, actual_profit=None, actual_fta=None):
-    """
-    result: won | lost | void | fta | no_fta
-    """
     ensure_tracked_tables()
     now = datetime.now(timezone.utc).isoformat()
     conn = get_db()

@@ -1,10 +1,10 @@
 """
 Public API for the mobile app.
 
-  GET  /opportunities          — auto (odds) + optional manual merge
-  POST /tracked                — manual insert (no odds feed needed)
-  GET  /tracked                — your paper / real tracked bets
-  PATCH /tracked/{id}          — settle result + profit
+Opportunities work WITHOUT odds_history:
+  - real odds used when present
+  - otherwise fixtures from match_results / historical pairs
+  - model still returns fta_pct / confidence (lay/back estimated)
 """
 
 from datetime import datetime, timezone
@@ -36,11 +36,15 @@ from models.early_goal_hunter import rank_early_goal_matches
 from models.chaos_index import rank_chaos_matches
 from api import tracked as tracked_store
 
+# Placeholder back price so EV math can run when no book is available.
+# FTA % comes from the model + team_stats, not from this number.
+DEFAULT_BACK_ODDS = float(os.environ.get("DEFAULT_BACK_ODDS", "2.10"))
+
 CORS_ORIGINS = [
     o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
 ]
 
-app = FastAPI(title="TurnaroundIQ", version="0.4")
+app = FastAPI(title="TurnaroundIQ", version="0.5")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["*"],
@@ -112,8 +116,82 @@ def require_pro(authorization: str | None) -> str:
     return user_id
 
 
-def latest_fixtures(limit=40):
+def latest_match_pairs(limit=40):
     conn = get_db()
+    pairs = []
+    seen = set()
+
+    def add(match_id, kickoff, league, home, away):
+        if not home or not away:
+            return
+        key = (home, away, kickoff or "", league or "")
+        if key in seen:
+            return
+        seen.add(key)
+        pairs.append({
+            "match_id": match_id,
+            "kickoff": kickoff,
+            "league": league or "",
+            "home_team": home,
+            "away_team": away,
+        })
+
+    try:
+        rows = conn.execute(
+            """
+            SELECT match_id, kickoff, league, home_team, away_team
+            FROM odds_history
+            WHERE home_team IS NOT NULL AND away_team IS NOT NULL
+            GROUP BY home_team, away_team, IFNULL(kickoff, ''), IFNULL(league, '')
+            ORDER BY MAX(id) DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        for row in rows:
+            add(row[0], row[1], row[2], row[3], row[4])
+    except Exception:
+        pass
+
+    if len(pairs) < limit:
+        try:
+            rows = conn.execute(
+                """
+                SELECT match_id, processed_at, league, home_team, away_team
+                FROM match_results
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            for row in rows:
+                add(row[0], row[1], row[2], row[3], row[4])
+        except Exception:
+            pass
+
+    if len(pairs) < limit:
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, date, league, home_team, away_team
+                FROM historical_matches
+                ORDER BY date DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            for row in rows:
+                add(str(row[0]), row[1], row[2], row[3], row[4])
+        except Exception:
+            pass
+
+    conn.close()
+    return pairs[:limit]
+
+
+def fixtures_from_odds(limit=40):
+    conn = get_db()
+    fixtures = []
     try:
         rows = conn.execute(
             """
@@ -132,7 +210,6 @@ def latest_fixtures(limit=40):
         conn.close()
         return []
     conn.close()
-    fixtures = []
     for row in rows:
         match_id, kickoff, league, home, away, selection, book, back, lay = row
         if back is None:
@@ -146,68 +223,61 @@ def latest_fixtures(limit=40):
             "away_team": away,
             "team": selection,
             "is_home": selection == home,
-            "bookmaker": book,
+            "bookmaker": book or "Book",
             "back_odds": back,
             "lay_odds": lay,
+            "odds_estimated": False,
         })
     return fixtures[:limit]
 
 
-def latest_match_pairs(limit=40):
-    conn = get_db()
-    pairs = []
-    try:
-        rows = conn.execute(
-            """
-            SELECT match_id, kickoff, league, home_team, away_team
-            FROM odds_history
-            WHERE home_team IS NOT NULL AND away_team IS NOT NULL
-            GROUP BY home_team, away_team, IFNULL(kickoff, ''), IFNULL(league, '')
-            ORDER BY MAX(id) DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-        for row in rows:
-            pairs.append({
-                "match_id": row[0],
-                "kickoff": row[1],
-                "league": row[2],
-                "home_team": row[3],
-                "away_team": row[4],
-            })
-    except Exception:
-        pass
+def fixtures_without_odds(limit=40):
+    """
+    Build model-scorable fixtures from match pairs.
+    Both home and away selections so FTA can be ranked either side.
+    """
+    fixtures = []
+    for pair in latest_match_pairs(limit=max(limit, 20)):
+        home = pair["home_team"]
+        away = pair["away_team"]
+        base = {
+            "match_id": pair.get("match_id"),
+            "match": f"{home} vs {away}",
+            "kickoff": pair.get("kickoff"),
+            "league": pair.get("league") or "",
+            "home_team": home,
+            "away_team": away,
+            "bookmaker": "Estimated",
+            "back_odds": DEFAULT_BACK_ODDS,
+            "lay_odds": None,
+            "odds_estimated": True,
+        }
+        fixtures.append({**base, "team": home, "is_home": True})
+        fixtures.append({**base, "team": away, "is_home": False})
+    return fixtures[: limit * 2]
 
-    if len(pairs) < 5:
-        try:
-            rows = conn.execute(
-                """
-                SELECT match_id, processed_at, league, home_team, away_team
-                FROM match_results
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
-            for row in rows:
-                pairs.append({
-                    "match_id": row[0],
-                    "kickoff": row[1],
-                    "league": row[2],
-                    "home_team": row[3],
-                    "away_team": row[4],
-                })
-        except Exception:
-            pass
-    conn.close()
-    return pairs[:limit]
+
+def latest_fixtures(limit=40):
+    """Prefer real odds; fall back to estimated-odds fixtures so FTA still shows."""
+    with_odds = fixtures_from_odds(limit=limit)
+    if len(with_odds) >= 3:
+        return with_odds
+    # Merge: real odds first, then fill with estimated
+    seen = {(f.get("match_id"), f.get("team")) for f in with_odds}
+    for f in fixtures_without_odds(limit=limit):
+        key = (f.get("match_id"), f.get("team"))
+        if key in seen:
+            continue
+        with_odds.append(f)
+        seen.add(key)
+        if len(with_odds) >= limit * 2:
+            break
+    return with_odds
 
 
 def score_manual_fixture(body: TrackedCreate):
-    """Try model path; if no odds, use placeholder back so build_opportunity can run."""
     team = body.team or body.home_team
-    back = body.back_odds if body.back_odds is not None else 2.0
+    back = body.back_odds if body.back_odds is not None else DEFAULT_BACK_ODDS
     fixture = {
         "match_id": body.match_id or f"manual-{body.home_team}-{body.away_team}",
         "match": f"{body.home_team} vs {body.away_team}",
@@ -220,14 +290,14 @@ def score_manual_fixture(body: TrackedCreate):
         "bookmaker": body.bookmaker or "Manual",
         "back_odds": back,
         "lay_odds": body.lay_odds,
+        "odds_estimated": body.back_odds is None,
     }
     try:
-        opp = build_opportunity(
+        return build_opportunity(
             fixture,
             stake=body.stake or 40,
             commission=body.commission or 2,
         )
-        return opp
     except Exception:
         return None
 
@@ -245,13 +315,15 @@ def health():
     return {
         "ok": db_ok,
         "time": datetime.now(timezone.utc).isoformat(),
-        "version": "0.4",
+        "version": "0.5",
         "features": [
             "opportunities",
+            "opportunities_odds_bypass",
             "tracked",
             "early_goal_hunter",
             "chaos_index",
         ],
+        "default_back_odds": DEFAULT_BACK_ODDS,
     }
 
 
@@ -297,14 +369,19 @@ def opportunities(
     include_tracked: bool = True,
 ):
     """
-    Auto-ranked from odds when available.
-    Always can merge open manual tracked rows so the tab is usable without odds.
+    Ranked FTA opportunities for the app.
+    Odds optional: without odds_history, fixtures still get fta_pct from the model.
     """
     user_id = require_pro(authorization)
     limit = max(1, min(limit, 100))
-    ranked = rank_opportunities(latest_fixtures(limit=max(limit, 20)))
+
+    fixtures = latest_fixtures(limit=max(limit, 20))
+    ranked = rank_opportunities(fixtures)
     for r in ranked:
         r["source"] = "auto"
+        # build_opportunity sets estimated_lay; surface odds bypass clearly for UI
+        if r.get("estimated_lay") or r.get("bookmaker") == "Estimated":
+            r["odds_estimated"] = True
 
     manual = []
     if include_tracked:
@@ -317,6 +394,7 @@ def opportunities(
                 "back_odds": t["back_odds"],
                 "lay_odds": t["lay_odds"],
                 "estimated_lay": t["estimated_lay"],
+                "odds_estimated": t["back_odds"] is None,
                 "stake": t["stake"],
                 "commission": t["commission"],
                 "fta_pct": t["fta_pct"],
@@ -335,6 +413,7 @@ def opportunities(
         "count": len(combined[:limit]),
         "auto_count": len(ranked),
         "manual_count": len(manual),
+        "odds_bypass": len(fixtures_from_odds(limit=5)) < 3,
         "opportunities": combined[:limit],
     }
 
@@ -359,7 +438,6 @@ def tracked_create(
     body: TrackedCreate,
     authorization: str | None = Header(default=None),
 ):
-    """Self-insert opportunity / bet — no odds API required."""
     user_id = require_pro(authorization)
     payload = body.model_dump()
 

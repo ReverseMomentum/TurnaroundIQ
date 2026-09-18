@@ -27,7 +27,11 @@ from billing.revenuecat import (
     ensure_tables,
 )
 from database import get_db, create_tables
-from models.opportunities_engine import rank_opportunities, build_opportunity
+from models.opportunities_engine import (
+    rank_opportunities,
+    build_opportunity,
+    get_last_rank_errors,
+)
 from models.early_goal_hunter import rank_early_goal_matches
 from models.chaos_index import rank_chaos_matches
 
@@ -47,7 +51,7 @@ CORS_ORIGINS = [
     o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
 ]
 
-app = FastAPI(title="TurnaroundIQ", version="0.5.1")
+app = FastAPI(title="TurnaroundIQ", version="0.5.2")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["*"],
@@ -294,7 +298,7 @@ def health():
     return {
         "ok": db_ok,
         "time": datetime.now(timezone.utc).isoformat(),
-        "version": "0.5.1",
+        "version": "0.5.2",
         "model_present": model_ok,
         "model_path": model_path,
         "features": [
@@ -390,6 +394,7 @@ def opportunities(
             "auto_count": len(ranked),
             "manual_count": len(manual),
             "fixture_count": len(fixtures),
+            "rank_errors": get_last_rank_errors(),
             "opportunities": combined[:limit],
         }
     except Exception as exc:

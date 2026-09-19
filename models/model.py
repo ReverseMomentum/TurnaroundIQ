@@ -28,8 +28,21 @@ def load_model():
 
 
 def _to_frame(feature_data):
-    row = {col: feature_data.get(col) for col in FEATURE_COLUMNS}
-    return pd.DataFrame([row])[FEATURE_COLUMNS]
+    row = {
+        col: feature_data.get(col)
+        for col in FEATURE_COLUMNS
+    }
+
+    df = pd.DataFrame([row])[FEATURE_COLUMNS]
+
+    for col in FEATURE_COLUMNS:
+        df[col] = pd.to_numeric(
+            df[col],
+            errors="coerce"
+        )
+
+    return df
+
 
 
 def predict_fta(feature_data):

@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import uuid
 
 
+from database import get_db, create_tables, get_model_runs
+
 from datetime import datetime
 
 from database import (

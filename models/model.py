@@ -59,9 +59,10 @@ def predict_with_confidence(feature_data):
     fta_probability = probabilities[1]
     confidence = max(probabilities) * 100
     return {
-        "fta_pct": round(fta_probability * 100, 2),
-        "confidence": round(confidence, 2),
-    }
+       "fta_pct": float(round(float(fta_probability) * 100, 2)),
+       "confidence": float(round(float(confidence), 2)),
+}
+
 
 
 def calculate_ranking_score(expected_profit, fta_pct, xg_edge=0):

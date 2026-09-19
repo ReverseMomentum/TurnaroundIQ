@@ -120,8 +120,18 @@ def build_opportunity(fixture, stake=40, commission=2):
     )
 
     prediction = predict_with_confidence(feature_vector)
-    fta_pct = prediction["fta_pct"]
-    confidence = prediction["confidence"]
+
+    fta_pct = float(prediction["fta_pct"])
+    confidence = float(prediction["confidence"])
+
+    two_up_pct = float(
+        stats.get("two_up_trigger_rate") or 0
+    )
+
+    joint_pct = (
+        two_up_pct * fta_pct
+    ) / 100
+
 
     lay_stake = calculate_lay_stake(back_odds, lay_odds, stake, commission)
     liability = calculate_liability(lay_odds, lay_stake)
@@ -148,6 +158,8 @@ def build_opportunity(fixture, stake=40, commission=2):
         "commission": commission,
         "fta_pct": round(fta_pct, 2),
         "confidence": round(confidence, 2),
+        "two_up_pct": round(two_up_pct, 2),
+        "joint_pct": round(joint_pct, 2),
         "lay_stake": round(lay_stake, 2),
         "liability": round(liability, 2),
         "qualifying_loss": round(qualifying_loss, 2),

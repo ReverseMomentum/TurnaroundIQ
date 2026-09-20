@@ -57,6 +57,37 @@ def estimate_lay_odds(back_odds):
     return round(back_odds * (1 + margin), 2)
 
 
+def _rate(value):
+    """Coerce a stored rate to float percent, or None if missing."""
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if v != v:  # NaN
+        return None
+    return v
+
+
+def resolve_two_up_pct(stats):
+    """Prefer live two_up_trigger_rate, else historical_trigger_rate."""
+    for key in ("two_up_trigger_rate", "live_trigger_rate", "historical_trigger_rate"):
+        v = _rate(stats.get(key))
+        if v is not None and v > 0:
+            return v, key
+    return 0.0, None
+
+
+def resolve_turnaround_pct(stats):
+    """Prefer live turnaround_pct, else historical_turnaround_rate."""
+    for key in ("turnaround_pct", "historical_turnaround_rate"):
+        v = _rate(stats.get(key))
+        if v is not None and v > 0:
+            return v, key
+    return 0.0, None
+
+
 def get_team_stats(team):
     if not team:
         return {c: None for c in TEAM_STATS_COLUMNS}
@@ -69,7 +100,17 @@ def get_team_stats(team):
         ).fetchone()
         conn.close()
         if row:
-            return dict(zip(TEAM_STATS_COLUMNS, row))
+            stats = dict(zip(TEAM_STATS_COLUMNS, row))
+            # Backfill empty live fields from historical so the model sees signal
+            if not _rate(stats.get("two_up_trigger_rate")):
+                hist = _rate(stats.get("historical_trigger_rate"))
+                if hist:
+                    stats["two_up_trigger_rate"] = hist
+            if not _rate(stats.get("turnaround_pct")):
+                hist = _rate(stats.get("historical_turnaround_rate"))
+                if hist:
+                    stats["turnaround_pct"] = hist
+            return stats
     except Exception:
         try:
             conn.close()
@@ -120,18 +161,13 @@ def build_opportunity(fixture, stake=40, commission=2):
     )
 
     prediction = predict_with_confidence(feature_vector)
-
     fta_pct = float(prediction["fta_pct"])
     confidence = float(prediction["confidence"])
 
-    two_up_pct = float(
-        stats.get("two_up_trigger_rate") or 0
-    )
-
-    joint_pct = (
-        two_up_pct * fta_pct
-    ) / 100
-
+    two_up_pct, two_up_source = resolve_two_up_pct(stats)
+    turnaround_pct, turnaround_source = resolve_turnaround_pct(stats)
+    # Joint empirical rate: P(2UP) * P(fail|2UP) as percent
+    joint_pct = (two_up_pct * turnaround_pct) / 100.0 if two_up_pct and turnaround_pct else 0.0
 
     lay_stake = calculate_lay_stake(back_odds, lay_odds, stake, commission)
     liability = calculate_liability(lay_odds, lay_stake)
@@ -159,7 +195,10 @@ def build_opportunity(fixture, stake=40, commission=2):
         "fta_pct": round(fta_pct, 2),
         "confidence": round(confidence, 2),
         "two_up_pct": round(two_up_pct, 2),
+        "turnaround_pct": round(turnaround_pct, 2),
         "joint_pct": round(joint_pct, 2),
+        "two_up_source": two_up_source,
+        "turnaround_source": turnaround_source,
         "lay_stake": round(lay_stake, 2),
         "liability": round(liability, 2),
         "qualifying_loss": round(qualifying_loss, 2),

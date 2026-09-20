@@ -1,68 +1,88 @@
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+import joblib
+import numpy as np
+import pandas as pd
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
-
-import joblib
-import pandas as pd
 
 from tests.feature_config import FEATURE_COLUMNS
 
 MODEL_FILE = PROJECT_ROOT / "fta_model.pkl"
-_model_cache = None
+_bundle_cache = None
 
 
-def load_model():
-    global _model_cache
-    if _model_cache is not None:
-        return _model_cache
+def _logit(p, eps=1e-6):
+    p = np.clip(float(p), eps, 1 - eps)
+    return np.log(p / (1 - p))
+
+
+def load_bundle():
+    """Load model bundle or legacy bare XGBClassifier."""
+    global _bundle_cache
+    if _bundle_cache is not None:
+        return _bundle_cache
     if not MODEL_FILE.is_file():
         raise FileNotFoundError(
             f"Model not found at {MODEL_FILE}. Run: python3 -u run.py train"
         )
-    _model_cache = joblib.load(MODEL_FILE)
-    return _model_cache
+    obj = joblib.load(MODEL_FILE)
+    if isinstance(obj, dict) and "model" in obj:
+        _bundle_cache = obj
+    else:
+        _bundle_cache = {
+            "model": obj,
+            "calibrator": None,
+            "version": "legacy",
+            "base_rate": None,
+        }
+    return _bundle_cache
+
+
+def load_model():
+    return load_bundle()["model"]
 
 
 def _to_frame(feature_data):
-    row = {
-        col: feature_data.get(col)
-        for col in FEATURE_COLUMNS
-    }
-
+    row = {col: feature_data.get(col) for col in FEATURE_COLUMNS}
     df = pd.DataFrame([row])[FEATURE_COLUMNS]
-
     for col in FEATURE_COLUMNS:
-        df[col] = pd.to_numeric(
-            df[col],
-            errors="coerce"
-        )
-
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
 
+def _calibrate_prob(raw_p, calibrator):
+    if calibrator is None:
+        return float(raw_p)
+    x = np.array([[_logit(raw_p)]])
+    return float(calibrator.predict_proba(x)[0, 1])
+
 
 def predict_fta(feature_data):
-    model = load_model()
+    bundle = load_bundle()
     df = _to_frame(feature_data)
-    probability = model.predict_proba(df)[0][1]
-    return round(probability * 100, 2)
+    raw = float(bundle["model"].predict_proba(df)[0][1])
+    p = _calibrate_prob(raw, bundle.get("calibrator"))
+    return round(p * 100, 2)
 
 
 def predict_with_confidence(feature_data):
-    model = load_model()
+    bundle = load_bundle()
     df = _to_frame(feature_data)
-    probabilities = model.predict_proba(df)[0]
-    fta_probability = probabilities[1]
-    confidence = max(probabilities) * 100
+    probs = bundle["model"].predict_proba(df)[0]
+    raw_fta = float(probs[1])
+    fta_probability = _calibrate_prob(raw_fta, bundle.get("calibrator"))
+    # confidence from calibrated distance to 0.5
+    confidence = max(fta_probability, 1 - fta_probability) * 100
     return {
-       "fta_pct": float(round(float(fta_probability) * 100, 2)),
-       "confidence": float(round(float(confidence), 2)),
-}
-
+        "fta_pct": float(round(fta_probability * 100, 2)),
+        "confidence": float(round(confidence, 2)),
+        "raw_fta_pct": float(round(raw_fta * 100, 2)),
+        "model_version": bundle.get("version") or "unknown",
+    }
 
 
 def calculate_ranking_score(expected_profit, fta_pct, xg_edge=0):
@@ -97,7 +117,7 @@ def build_feature_vector(
     if avg_xg is not None and avg_xga is not None:
         xg_edge = avg_xg - avg_xga
 
-    vector = {
+    return {
         "avg_xg": avg_xg,
         "avg_xga": avg_xga,
         "xg_edge": xg_edge,
@@ -148,8 +168,10 @@ def build_feature_vector(
         "red_cards_for": red_cards_for,
         "red_cards_against": red_cards_against,
     }
-    return vector
 
 
 def model_version():
-    return "V4.0"
+    try:
+        return load_bundle().get("version") or "V4.1-calibrated"
+    except Exception:
+        return "V4.1-calibrated"

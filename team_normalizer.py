@@ -453,11 +453,13 @@ def clean_team_name(team_name):
         return ""
     team_name = str(team_name)
     team_name = (
-        team_name.replace(".", " ")
-        .replace("-", " ")
-        .replace("&", "and")
-        .strip()
-    )
+    team_name.replace(".", " ")
+    .replace("-", " ")
+    .replace("&", "and")
+    .replace("'", "")
+    .strip()
+)
+
     return " ".join(team_name.split())
 
 

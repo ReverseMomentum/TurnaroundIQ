@@ -1,3 +1,5 @@
+import argparse
+import os
 import time
 from datetime import datetime, timedelta, timezone
 import sqlite3
@@ -14,8 +16,10 @@ from constants import API_FOOTBALL_KEY, SUPPORTED_LEAGUE_IDS
 from team_normalizer import normalize_team
 
 DB_NAME = "two_up.db"
-LOOKBACK_DAYS = 5
-REQUEST_DELAY = 3
+# Cover ~full season so far from a mid-season date (Aug → now).
+# Override: RESULTS_LOOKBACK_DAYS=90 python3 collectors/results_collector.py
+LOOKBACK_DAYS = int(os.environ.get("RESULTS_LOOKBACK_DAYS", "75"))
+REQUEST_DELAY = float(os.environ.get("RESULTS_REQUEST_DELAY", "3"))
 EARLY_GOAL_CUTOFF = 30
 HALF_CUTOFF = 45
 
@@ -142,6 +146,24 @@ def unmark_fixture_processed(fixture_id):
     conn.close()
 
 
+def clear_results_for_force(lookback_days):
+    """Delete match_results + processed markers so the window can be rebuilt."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+    conn = get_db()
+    # processed_at / fixture markers from this window
+    deleted_mr = conn.execute(
+        "DELETE FROM match_results WHERE processed_at >= ? OR processed_at IS NULL",
+        (cutoff,),
+    ).rowcount
+    # Safer full wipe of processed_fixtures for force season rebuild:
+    # otherwise already-seen IDs outside the processed_at filter stay blocked.
+    deleted_pf = conn.execute("DELETE FROM processed_fixtures").rowcount
+    conn.commit()
+    conn.close()
+    print(f"[FORCE] cleared {deleted_mr} match_results rows (processed_at >= {cutoff[:10]}…)")
+    print(f"[FORCE] cleared {deleted_pf} processed_fixtures markers")
+
+
 def update_form_from_results():
     conn = get_db()
     conn.execute("CREATE TABLE IF NOT EXISTS team_stats (team TEXT PRIMARY KEY)")
@@ -199,9 +221,9 @@ def update_form_from_results():
     print(f"{updated} teams updated with last-5 goals from match_results")
 
 
-def get_completed_fixtures():
+def get_completed_fixtures(lookback_days):
     fixtures = []
-    for day in range(LOOKBACK_DAYS):
+    for day in range(lookback_days):
         target_date = (
             datetime.now(timezone.utc) - timedelta(days=day)
         ).strftime("%Y-%m-%d")
@@ -211,6 +233,10 @@ def get_completed_fixtures():
         )
         try:
             response = requests.get(url, headers=HEADERS, timeout=60)
+            if response.status_code == 429:
+                print(f"[RATE LIMIT] fixtures {target_date} — sleep 20s")
+                time.sleep(20)
+                response = requests.get(url, headers=HEADERS, timeout=60)
             response.raise_for_status()
         except Exception as exc:
             print(f"API request failed: {exc}")
@@ -218,6 +244,7 @@ def get_completed_fixtures():
         day_fixtures = response.json().get("response", [])
         print(f"{target_date}: {len(day_fixtures)} fixtures")
         fixtures.extend(day_fixtures)
+        time.sleep(0.4)
     print(f"Fixtures found: {len(fixtures)}")
     return fixtures
 
@@ -287,8 +314,6 @@ def analyze_match_events(home_team, away_team, events, official_home=None, offic
         team_name = (event.get("team") or {}).get("name") or ""
         minute = (event.get("time") or {}).get("elapsed") or 0
 
-        # Own goal: API attributes the event to the team that put it in
-        # their own net — credit the opposite side.
         if "own" in detail:
             if team_name == home_team:
                 is_home_goal = False
@@ -347,7 +372,6 @@ def analyze_match_events(home_team, away_team, events, official_home=None, offic
                 away_second_half_for += 1
                 home_second_half_against += 1
 
-    # Prefer official FT score from the fixtures endpoint (immune to missed pens)
     if official_home is not None and official_away is not None:
         final_home = int(official_home)
         final_away = int(official_away)
@@ -438,19 +462,27 @@ def save_result(fixture_id, league, home_team, away_team, analysis):
     conn.close()
 
 
-def process_results():
+def process_results(lookback_days=None, force=False):
+    lookback_days = lookback_days if lookback_days is not None else LOOKBACK_DAYS
     migrate_match_results()
     create_processed_fixtures_table()
-    fixtures = get_completed_fixtures()
+
+    if force:
+        print(f"[FORCE] season rebuild — lookback {lookback_days} days")
+        clear_results_for_force(lookback_days)
+
+    fixtures = get_completed_fixtures(lookback_days)
     processed = skipped = unsupported = failed = 0
     unmatched_leagues = set()
 
     for fixture in fixtures:
         fixture_id = fixture["fixture"]["id"]
         try:
-            if fixture_already_processed(fixture_id):
+            if not force and fixture_already_processed(fixture_id):
                 skipped += 1
                 continue
+            if force:
+                unmark_fixture_processed(fixture_id)
             league_meta = fixture.get("league", {})
             league_id = league_meta.get("id")
             league_name = league_meta.get("name", "")
@@ -485,6 +517,8 @@ def process_results():
             )
             mark_fixture_processed(fixture_id)
             processed += 1
+            if processed % 25 == 0:
+                print(f"… {processed} processed so far")
             time.sleep(REQUEST_DELAY)
         except Exception as exc:
             failed += 1
@@ -503,4 +537,17 @@ def process_results():
 
 
 if __name__ == "__main__":
-    process_results()
+    parser = argparse.ArgumentParser(description="Collect FT results + 2UP flags")
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=LOOKBACK_DAYS,
+        help=f"How many days back (default {LOOKBACK_DAYS})",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Clear existing results in window and reprocess (fixes missed-pen rows)",
+    )
+    args = parser.parse_args()
+    process_results(lookback_days=args.days, force=args.force)

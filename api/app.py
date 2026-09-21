@@ -2,13 +2,15 @@
 Public API for the mobile app.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 import sys
+import time
 import traceback
 from pathlib import Path
 from typing import Optional
 
+import requests
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -26,6 +28,7 @@ from billing.revenuecat import (
     webhook_auth_ok,
     ensure_tables,
 )
+from constants import API_FOOTBALL_KEY, SUPPORTED_LEAGUE_IDS
 from database import get_db, create_tables
 from models.opportunities_engine import (
     rank_opportunities,
@@ -34,6 +37,7 @@ from models.opportunities_engine import (
 )
 from models.early_goal_hunter import rank_early_goal_matches
 from models.chaos_index import rank_chaos_matches
+from team_normalizer import normalize_team
 
 try:
     from api import tracked as tracked_store
@@ -46,18 +50,22 @@ except ImportError:
     _spec.loader.exec_module(tracked_store)
 
 DEFAULT_BACK_ODDS = float(os.environ.get("DEFAULT_BACK_ODDS", "2.10"))
+UPCOMING_DAYS = int(os.environ.get("UPCOMING_DAYS", "7"))
+FIXTURE_CACHE_SECONDS = int(os.environ.get("FIXTURE_CACHE_SECONDS", "300"))
 
 CORS_ORIGINS = [
     o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
 ]
 
-app = FastAPI(title="TurnaroundIQ", version="0.5.2")
+app = FastAPI(title="TurnaroundIQ", version="0.5.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_upcoming_cache = {"ts": 0.0, "pairs": []}
 
 
 class PrefsPatch(BaseModel):
@@ -123,102 +131,112 @@ def require_pro(authorization: str | None) -> str:
     return user_id
 
 
-def latest_match_pairs(limit=40):
-    conn = get_db()
+def fetch_upcoming_from_api_football(days=UPCOMING_DAYS):
+    """Pull not-started fixtures for supported leagues over the next N days."""
+    if not API_FOOTBALL_KEY:
+        return []
+
+    headers = {"x-apisports-key": API_FOOTBALL_KEY}
     pairs = []
     seen = set()
+    now = datetime.now(timezone.utc)
 
-    def add(match_id, kickoff, league, home, away):
-        if not home or not away:
-            return
-        key = (str(home), str(away), str(kickoff or ""), str(league or ""))
-        if key in seen:
-            return
-        seen.add(key)
-        pairs.append({
-            "match_id": match_id,
-            "kickoff": kickoff,
-            "league": league or "",
-            "home_team": home,
-            "away_team": away,
-        })
-
-    queries = [
-        """
-        SELECT match_id, kickoff, league, home_team, away_team
-        FROM odds_history
-        WHERE home_team IS NOT NULL AND away_team IS NOT NULL
-        GROUP BY home_team, away_team, IFNULL(kickoff, ''), IFNULL(league, '')
-        ORDER BY MAX(id) DESC LIMIT ?
-        """,
-        """
-        SELECT match_id, processed_at, league, home_team, away_team
-        FROM match_results
-        ORDER BY id DESC LIMIT ?
-        """,
-        """
-        SELECT id, date, NULL, home_team, away_team
-        FROM historical_matches
-        ORDER BY date DESC LIMIT ?
-        """,
-    ]
-    for sql in queries:
-        if len(pairs) >= limit:
-            break
+    for day in range(max(1, days)):
+        target = (now + timedelta(days=day)).strftime("%Y-%m-%d")
+        url = (
+            "https://v3.football.api-sports.io/fixtures"
+            f"?date={target}&status=NS"
+        )
         try:
-            rows = conn.execute(sql, (limit,)).fetchall()
-            for row in rows:
-                add(row[0], row[1], row[2], row[3], row[4])
+            resp = requests.get(url, headers=headers, timeout=45)
+            if resp.status_code == 429:
+                time.sleep(8)
+                resp = requests.get(url, headers=headers, timeout=45)
+            resp.raise_for_status()
+            payload = resp.json().get("response") or []
         except Exception:
             continue
-    conn.close()
-    return pairs[:limit]
+
+        for fx in payload:
+            league_meta = fx.get("league") or {}
+            league_id = league_meta.get("id")
+            if league_id not in SUPPORTED_LEAGUE_IDS:
+                continue
+            teams = fx.get("teams") or {}
+            home_raw = (teams.get("home") or {}).get("name")
+            away_raw = (teams.get("away") or {}).get("name")
+            if not home_raw or not away_raw:
+                continue
+            home = normalize_team(home_raw)
+            away = normalize_team(away_raw)
+            fixture_meta = fx.get("fixture") or {}
+            match_id = str(fixture_meta.get("id") or "")
+            kickoff = fixture_meta.get("date") or target
+            league = SUPPORTED_LEAGUE_IDS[league_id]
+            key = (home, away, str(kickoff))
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append({
+                "match_id": match_id,
+                "kickoff": kickoff,
+                "league": league,
+                "home_team": home,
+                "away_team": away,
+            })
+        time.sleep(0.35)
+
+    pairs.sort(key=lambda p: p.get("kickoff") or "")
+    return pairs
 
 
-def fixtures_from_odds(limit=40):
+def upcoming_match_pairs(limit=60):
+    """Cached upcoming fixtures. Does NOT use odds_history."""
+    global _upcoming_cache
+    now = time.time()
+    if _upcoming_cache["pairs"] and (now - _upcoming_cache["ts"]) < FIXTURE_CACHE_SECONDS:
+        return _upcoming_cache["pairs"][:limit]
+
+    pairs = fetch_upcoming_from_api_football()
+    if pairs:
+        _upcoming_cache = {"ts": now, "pairs": pairs}
+        return pairs[:limit]
+
+    # Soft fallback: recent finished results only (still no odds_history)
     conn = get_db()
-    fixtures = []
+    fallback = []
     try:
         rows = conn.execute(
             """
-            SELECT match_id, kickoff, league, home_team, away_team,
-                   selection, bookmaker, back_odds, lay_odds
-            FROM odds_history
-            WHERE id IN (
-                SELECT MAX(id) FROM odds_history GROUP BY match_id, selection
-            )
-            ORDER BY kickoff DESC LIMIT ?
+            SELECT match_id, processed_at, league, home_team, away_team
+            FROM match_results
+            ORDER BY id DESC LIMIT ?
             """,
-            (limit * 2,),
+            (limit,),
         ).fetchall()
+        for row in rows:
+            fallback.append({
+                "match_id": row[0],
+                "kickoff": row[1],
+                "league": row[2] or "",
+                "home_team": row[3],
+                "away_team": row[4],
+            })
     except Exception:
-        conn.close()
-        return []
+        pass
     conn.close()
-    for row in rows:
-        match_id, kickoff, league, home, away, selection, book, back, lay = row
-        if back is None:
-            continue
-        fixtures.append({
-            "match_id": match_id,
-            "match": f"{home} vs {away}",
-            "kickoff": kickoff,
-            "league": league,
-            "home_team": home,
-            "away_team": away,
-            "team": selection,
-            "is_home": selection == home,
-            "bookmaker": book or "Book",
-            "back_odds": back,
-            "lay_odds": lay,
-            "odds_estimated": False,
-        })
-    return fixtures[:limit]
+    return fallback[:limit]
 
 
-def fixtures_without_odds(limit=40):
+def latest_match_pairs(limit=40):
+    """Used by early-goal + chaos. Upcoming first."""
+    return upcoming_match_pairs(limit=limit)
+
+
+def fixtures_from_upcoming(limit=40):
+    """Build opportunity fixtures from upcoming matches (estimated odds)."""
     fixtures = []
-    for pair in latest_match_pairs(limit=max(limit, 20)):
+    for pair in upcoming_match_pairs(limit=max(limit, 20)):
         home = pair["home_team"]
         away = pair["away_team"]
         base = {
@@ -239,19 +257,8 @@ def fixtures_without_odds(limit=40):
 
 
 def latest_fixtures(limit=40):
-    with_odds = fixtures_from_odds(limit=limit)
-    if len(with_odds) >= 3:
-        return with_odds
-    seen = {(f.get("match_id"), f.get("team")) for f in with_odds}
-    for f in fixtures_without_odds(limit=limit):
-        key = (f.get("match_id"), f.get("team"))
-        if key in seen:
-            continue
-        with_odds.append(f)
-        seen.add(key)
-        if len(with_odds) >= limit * 2:
-            break
-    return with_odds
+    """Opportunities pool: upcoming API fixtures only (no odds_history)."""
+    return fixtures_from_upcoming(limit=limit)
 
 
 def score_manual_fixture(body: TrackedCreate):
@@ -298,17 +305,19 @@ def health():
     return {
         "ok": db_ok,
         "time": datetime.now(timezone.utc).isoformat(),
-        "version": "0.5.2",
+        "version": "0.5.3",
         "model_present": model_ok,
         "model_path": model_path,
         "features": [
             "opportunities",
-            "opportunities_odds_bypass",
+            "upcoming_fixtures_api_football",
             "tracked",
             "early_goal_hunter",
             "chaos_index",
         ],
         "default_back_odds": DEFAULT_BACK_ODDS,
+        "upcoming_days": UPCOMING_DAYS,
+        "fixture_source": "api-football NS next days (no odds_history)",
     }
 
 
@@ -394,6 +403,7 @@ def opportunities(
             "auto_count": len(ranked),
             "manual_count": len(manual),
             "fixture_count": len(fixtures),
+            "fixture_source": "api-football-upcoming",
             "rank_errors": get_last_rank_errors(),
             "opportunities": combined[:limit],
         }
@@ -473,10 +483,12 @@ def early_goal_feature(
 ):
     require_pro(authorization)
     limit = max(1, min(limit, 50))
-    ranked = rank_early_goal_matches(latest_match_pairs(limit=max(limit, 30)))
+    pairs = latest_match_pairs(limit=max(limit, 40))
+    ranked = rank_early_goal_matches(pairs)
     return {
         "feature": "early_goal_hunter",
         "count": len(ranked[:limit]),
+        "fixture_source": "api-football-upcoming",
         "matches": ranked[:limit],
     }
 
@@ -488,10 +500,18 @@ def chaos_feature(
 ):
     require_pro(authorization)
     limit = max(1, min(limit, 50))
-    ranked = rank_chaos_matches(latest_match_pairs(limit=max(limit, 30)))
+    pairs = latest_match_pairs(limit=max(limit, 40))
+    ranked = rank_chaos_matches(pairs)
+    # Alias for monitor UI that looks for chaos_score
+    for row in ranked:
+        row["chaos_score"] = row.get("chaos_index")
+        comps = row.get("components") or {}
+        row["btts_pct"] = comps.get("btts")
+        row["over25_pct"] = comps.get("o2_5")
     return {
         "feature": "chaos_index",
         "count": len(ranked[:limit]),
+        "fixture_source": "api-football-upcoming",
         "matches": ranked[:limit],
     }
 

@@ -14,7 +14,7 @@ from constants import API_FOOTBALL_KEY, SUPPORTED_LEAGUE_IDS
 from team_normalizer import normalize_team
 
 DB_NAME = "two_up.db"
-LOOKBACK_DAYS = 2
+LOOKBACK_DAYS = 5
 REQUEST_DELAY = 3
 EARLY_GOAL_CUTOFF = 30
 HALF_CUTOFF = 45
@@ -143,11 +143,6 @@ def unmark_fixture_processed(fixture_id):
 
 
 def update_form_from_results():
-    """
-    Fields xg_collector used to write that we can rebuild from scores.
-    Does not write avg_xg / avg_xga / xg_edge — those need the xG API.
-    Same last-5 sum as xg_collector (values['goals'][-5:]).
-    """
     conn = get_db()
     conn.execute("CREATE TABLE IF NOT EXISTS team_stats (team TEXT PRIMARY KEY)")
     for col, typ in (
@@ -252,14 +247,15 @@ def get_fixture_events(fixture_id, max_retries=3):
 def _is_scoring_goal_event(event):
     """True only for events that change the scoreline.
 
-    API-Football often tags missed penalties as type=Goal with
-    detail containing 'Missed'. Those must not move the score or 2UP flags.
+    API-Football tags missed penalties as:
+      type="Goal", detail="Missed Penalty"
+    Those must never move the score or 2UP flags.
     """
     event_type = (event.get("type") or "").strip()
     detail = (event.get("detail") or "").strip().lower()
     comments = (event.get("comments") or "").strip().lower()
 
-    if event_type == "Missed Penalty":
+    if event_type.lower() in {"missed penalty", "missed_penalty"}:
         return False
     if event_type != "Goal":
         return False
@@ -270,7 +266,7 @@ def _is_scoring_goal_event(event):
     return True
 
 
-def analyze_match_events(home_team, away_team, events):
+def analyze_match_events(home_team, away_team, events, official_home=None, official_away=None):
     home_score = away_score = 0
     home_2up = away_2up = False
     home_lead_minute = away_lead_minute = 0
@@ -351,13 +347,21 @@ def analyze_match_events(home_team, away_team, events):
                 away_second_half_for += 1
                 home_second_half_against += 1
 
+    # Prefer official FT score from the fixtures endpoint (immune to missed pens)
+    if official_home is not None and official_away is not None:
+        final_home = int(official_home)
+        final_away = int(official_away)
+    else:
+        final_home = home_score
+        final_away = away_score
+
     return {
-        "final_home": home_score,
-        "final_away": away_score,
+        "final_home": final_home,
+        "final_away": final_away,
         "home_2up": int(home_2up),
         "away_2up": int(away_2up),
-        "home_turnaround": int(home_2up and home_score <= away_score),
-        "away_turnaround": int(away_2up and away_score <= home_score),
+        "home_turnaround": int(home_2up and final_home <= final_away),
+        "away_turnaround": int(away_2up and final_away <= final_home),
         "home_lead_minute": home_lead_minute,
         "away_lead_minute": away_lead_minute,
         "home_early_goal": int(home_early_goal),
@@ -458,11 +462,20 @@ def process_results():
             league = SUPPORTED_LEAGUE_IDS[league_id]
             home_team = fixture["teams"]["home"]["name"]
             away_team = fixture["teams"]["away"]["name"]
+            goals = fixture.get("goals") or {}
+            official_home = goals.get("home")
+            official_away = goals.get("away")
             events = get_fixture_events(fixture_id)
-            if not events:
+            if not events and official_home is None:
                 failed += 1
                 continue
-            analysis = analyze_match_events(home_team, away_team, events)
+            analysis = analyze_match_events(
+                home_team,
+                away_team,
+                events or [],
+                official_home=official_home,
+                official_away=official_away,
+            )
             save_result(
                 fixture_id,
                 league,

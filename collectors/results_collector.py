@@ -128,6 +128,20 @@ def mark_fixture_processed(fixture_id):
     conn.close()
 
 
+def unmark_fixture_processed(fixture_id):
+    conn = get_db()
+    conn.execute(
+        "DELETE FROM processed_fixtures WHERE fixture_id = ?",
+        (str(fixture_id),),
+    )
+    conn.execute(
+        "DELETE FROM match_results WHERE match_id = ?",
+        (str(fixture_id),),
+    )
+    conn.commit()
+    conn.close()
+
+
 def update_form_from_results():
     """
     Fields xg_collector used to write that we can rebuild from scores.
@@ -235,6 +249,27 @@ def get_fixture_events(fixture_id, max_retries=3):
     return []
 
 
+def _is_scoring_goal_event(event):
+    """True only for events that change the scoreline.
+
+    API-Football often tags missed penalties as type=Goal with
+    detail containing 'Missed'. Those must not move the score or 2UP flags.
+    """
+    event_type = (event.get("type") or "").strip()
+    detail = (event.get("detail") or "").strip().lower()
+    comments = (event.get("comments") or "").strip().lower()
+
+    if event_type == "Missed Penalty":
+        return False
+    if event_type != "Goal":
+        return False
+    if "missed" in detail or "missed" in comments:
+        return False
+    if detail in {"missed penalty", "penalty missed"}:
+        return False
+    return True
+
+
 def analyze_match_events(home_team, away_team, events):
     home_score = away_score = 0
     home_2up = away_2up = False
@@ -249,18 +284,35 @@ def analyze_match_events(home_team, away_team, events):
     away_second_half_for = away_second_half_against = 0
 
     for event in events:
-        if event.get("type") != "Goal":
+        if not _is_scoring_goal_event(event):
             continue
-        scoring_team = event["team"]["name"]
-        minute = event["time"]["elapsed"] or 0
-        is_home_goal = scoring_team == home_team
-        is_away_goal = scoring_team == away_team
+
+        detail = (event.get("detail") or "").strip().lower()
+        team_name = (event.get("team") or {}).get("name") or ""
+        minute = (event.get("time") or {}).get("elapsed") or 0
+
+        # Own goal: API attributes the event to the team that put it in
+        # their own net — credit the opposite side.
+        if "own" in detail:
+            if team_name == home_team:
+                is_home_goal = False
+                is_away_goal = True
+            elif team_name == away_team:
+                is_home_goal = True
+                is_away_goal = False
+            else:
+                continue
+        else:
+            is_home_goal = team_name == home_team
+            is_away_goal = team_name == away_team
+
         if is_home_goal:
             home_score += 1
         elif is_away_goal:
             away_score += 1
         else:
             continue
+
         if first_goal_side is None:
             first_goal_side = "home" if is_home_goal else "away"
         home_lead = home_score - away_score

@@ -261,7 +261,11 @@ def rank_opportunities(fixtures):
                     "error": f"{type(exc).__name__}: {exc}",
                 })
             continue
-    opportunities.sort(key=lambda x: x["ev_rating"], reverse=True)
+    # Primary rank: model FTA % (highest first)
+    opportunities.sort(
+        key=lambda x: (float(x.get("fta_pct") or 0), float(x.get("joint_pct") or 0)),
+        reverse=True,
+    )
     return opportunities
 
 

@@ -8,6 +8,8 @@ Saves a bundle to fta_model.pkl:
     "version": str,
     "base_rate": float,
   }
+
+Also writes model_runs + feature_importance rows for long-term tracking.
 """
 
 import sys
@@ -23,7 +25,8 @@ from xgboost import XGBClassifier
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from database import get_db, save_model_run
+from database import get_db
+from models.importance_store import save_model_run_with_importance
 from tests.feature_config import FEATURE_COLUMNS
 
 MODEL_FILE = Path(__file__).resolve().parent.parent / "fta_model.pkl"
@@ -155,6 +158,11 @@ def train_model():
         auc = float("nan")
         print("[WARN] ROC AUC undefined (one class in test)")
 
+    importance = {
+        feat: float(score)
+        for feat, score in zip(FEATURE_COLUMNS, model.feature_importances_)
+    }
+
     bundle = {
         "model": model,
         "calibrator": calibrator,
@@ -162,10 +170,11 @@ def train_model():
         "base_rate": base_rate,
         "scale_pos_weight": float(spw),
         "feature_columns": list(FEATURE_COLUMNS),
+        "feature_importance": importance,
     }
     joblib.dump(bundle, MODEL_FILE)
 
-    save_model_run(
+    run_id = save_model_run_with_importance(
         model_name="FTA_MODEL",
         version=MODEL_VERSION,
         training_rows=len(df),
@@ -173,18 +182,15 @@ def train_model():
         log_loss=float(loss),
         roc_auc=float(auc) if auc == auc else None,
         notes="scale_pos_weight + Platt calibration on logit(p)",
+        feature_importance=importance,
     )
 
     print(f"\nModel bundle saved: {MODEL_FILE}")
-    print(f"Version: {MODEL_VERSION}")
+    print(f"Version: {MODEL_VERSION}  run_id={run_id}")
     print(f"Base rate: {100 * base_rate:.2f}%")
     print(f"Brier: {brier:.4f}  LogLoss: {loss:.4f}  AUC: {auc:.4f}")
-    print("\nFeature importance")
-    for feature, score in sorted(
-        zip(FEATURE_COLUMNS, model.feature_importances_),
-        key=lambda x: x[1],
-        reverse=True,
-    ):
+    print("\nFeature importance (saved to feature_importance)")
+    for feature, score in sorted(importance.items(), key=lambda x: x[1], reverse=True):
         print(f"  {feature}: {score:.4f}")
 
 

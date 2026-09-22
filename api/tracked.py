@@ -3,6 +3,8 @@ Paper-trading tracker for FTA opportunities.
 
 No real money — records hypothetical bets, settles against match_results
 when available, and tracks virtual bankroll / ROI.
+
+Bets are categorised by model FTA% bands for performance analysis.
 """
 
 from datetime import datetime, timezone
@@ -49,6 +51,33 @@ CREATE TABLE IF NOT EXISTS paper_settings (
     updated_at TEXT
 )
 """
+
+# FTA% bands (model output as percent)
+FTA_BANDS = [
+    ("elite_12plus", 12.0, 100.0),
+    ("high_8_12", 8.0, 12.0),
+    ("mid_5_8", 5.0, 8.0),
+    ("low_3_5", 3.0, 5.0),
+    ("micro_under_3", 0.0, 3.0),
+]
+
+
+def fta_pct_as_percent(val) -> float:
+    try:
+        p = float(val or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if 0 < p <= 1.5:
+        return p * 100.0
+    return p
+
+
+def fta_band(val) -> str:
+    pct = fta_pct_as_percent(val)
+    for name, lo, hi in FTA_BANDS:
+        if lo <= pct < hi or (hi >= 100 and pct >= lo):
+            return name
+    return "micro_under_3"
 
 
 def ensure_tracked_tables():
@@ -135,7 +164,6 @@ def _row_to_dict(row):
         "status", "result", "actual_profit", "actual_fta", "paper",
         "expected_profit", "created_at", "settled_at",
     ]
-    # Tolerate older rows without paper/expected_profit
     vals = list(row)
     while len(vals) < len(keys):
         vals.append(None)
@@ -144,11 +172,12 @@ def _row_to_dict(row):
     d["estimated_lay"] = d.get("lay_odds") is None
     d["source"] = "paper" if d.get("paper") in (1, True, "1") else "manual"
     d["paper"] = bool(d.get("paper") in (1, True, "1", None))
+    d["fta_band"] = fta_band(d.get("fta_pct"))
+    d["fta_pct_display"] = round(fta_pct_as_percent(d.get("fta_pct")), 2)
     return d
 
 
 def _expected_profit(stake, back_odds, fta_pct, commission=2.0):
-    """Simple EV if backing FTA at back_odds with stake."""
     try:
         stake = float(stake or 0)
         odds = float(back_odds or 0)
@@ -165,13 +194,6 @@ def _expected_profit(stake, back_odds, fta_pct, commission=2.0):
 
 
 def compute_profit(result, stake, back_odds, commission=2.0, actual_profit=None):
-    """
-    Paper P&L model (back the FTA selection):
-      fta / won  → +stake*(odds-1)*(1-commission)
-      no_fta / lost → -stake
-      void → 0
-    If actual_profit provided, use it.
-    """
     if actual_profit is not None:
         return float(actual_profit)
     r = (result or "").lower().strip()
@@ -383,15 +405,64 @@ def summary(app_user_id):
         "default_stake": settings["default_stake"],
         "default_commission": settings["default_commission"],
         "mode": "paper",
+        "by_band": summary_by_fta_band(app_user_id),
     }
 
 
+def summary_by_fta_band(app_user_id):
+    """Performance broken down by model FTA% band."""
+    ensure_tracked_tables()
+    bets = list_tracked(app_user_id, limit=5000)
+    out = {}
+    for name, lo, hi in FTA_BANDS:
+        out[name] = {
+            "range": f"{lo}-{hi}%",
+            "n": 0,
+            "open": 0,
+            "settled": 0,
+            "fta_hits": 0,
+            "staked": 0.0,
+            "profit": 0.0,
+            "roi_pct": None,
+            "hit_rate": None,
+        }
+    for b in bets:
+        band = b.get("fta_band") or fta_band(b.get("fta_pct"))
+        if band not in out:
+            out[band] = {
+                "range": band,
+                "n": 0,
+                "open": 0,
+                "settled": 0,
+                "fta_hits": 0,
+                "staked": 0.0,
+                "profit": 0.0,
+                "roi_pct": None,
+                "hit_rate": None,
+            }
+        bucket = out[band]
+        bucket["n"] += 1
+        if b.get("status") == "open":
+            bucket["open"] += 1
+        if b.get("status") == "settled":
+            bucket["settled"] += 1
+            bucket["staked"] += float(b.get("stake") or 0)
+            bucket["profit"] += float(b.get("actual_profit") or 0)
+            if b.get("actual_fta") == 1:
+                bucket["fta_hits"] += 1
+    for bucket in out.values():
+        bucket["staked"] = round(bucket["staked"], 2)
+        bucket["profit"] = round(bucket["profit"], 2)
+        if bucket["staked"]:
+            bucket["roi_pct"] = round(100.0 * bucket["profit"] / bucket["staked"], 2)
+        if bucket["settled"]:
+            bucket["hit_rate"] = round(
+                100.0 * bucket["fta_hits"] / bucket["settled"], 1
+            )
+    return out
+
+
 def auto_settle_from_results(app_user_id=None):
-    """
-    Close open paper bets when match_results has a decisive 2UP/FTA flag
-    for the selected team.
-    Returns number settled.
-    """
     ensure_tracked_tables()
     conn = get_db()
     if app_user_id:
@@ -439,7 +510,6 @@ def auto_settle_from_results(app_user_id=None):
             continue
 
         home_2up, away_2up, home_ta, away_ta = mr
-        # Selected team side
         if is_home or (team and team == home):
             went_2up = int(home_2up or 0)
             fta = int(home_ta or 0)
@@ -448,7 +518,6 @@ def auto_settle_from_results(app_user_id=None):
             fta = int(away_ta or 0)
 
         if not went_2up:
-            # Match finished without selected team going 2-up → FTA market void/miss
             result = "no_fta"
             actual_fta = 0
         else:

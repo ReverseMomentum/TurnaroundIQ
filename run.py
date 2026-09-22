@@ -6,8 +6,9 @@ TurnaroundIQ pipelines.
     python -u run.py train
     python -u run.py live --skip-odds
     python -u run.py historical --fetch --league "Premier League" --season 2024
-    python -u run.py api          # restart API in tmux session "api"
-    python -u run.py api-restart  # same
+    python -u run.py api              # restart API in tmux session "api"
+    python -u run.py walk-forward     # chronological validation
+    python -u run.py walk-forward --folds 5 --min-train 800
 """
 
 import runpy
@@ -25,6 +26,7 @@ PIPELINES = {
 }
 
 API_COMMANDS = {"api", "api-restart", "restart-api"}
+WALK_COMMANDS = {"walk-forward", "walkforward", "wf"}
 
 
 def restart_api():
@@ -32,7 +34,6 @@ def restart_api():
     if not script.is_file():
         print(f"Missing {script}")
         sys.exit(1)
-    # Ensure executable bit for direct bash invoke
     try:
         script.chmod(script.stat().st_mode | 0o111)
     except OSError:
@@ -41,16 +42,33 @@ def restart_api():
     sys.exit(result.returncode)
 
 
+def run_walk_forward():
+    script = ROOT / "models" / "walk_forward.py"
+    if not script.is_file():
+        print(f"Missing {script}")
+        sys.exit(1)
+    # Pass through extra args after the command name
+    extra = sys.argv[2:]
+    result = subprocess.run(
+        [sys.executable, "-u", str(script), *extra],
+        cwd=str(ROOT),
+    )
+    sys.exit(result.returncode)
+
+
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python -u run.py [live|historical|train|api]")
+        print("Usage: python -u run.py [live|historical|train|api|walk-forward]")
         sys.exit(1)
     cmd = sys.argv[1]
     if cmd in API_COMMANDS:
         restart_api()
         return
+    if cmd in WALK_COMMANDS:
+        run_walk_forward()
+        return
     if cmd not in PIPELINES:
-        print("Usage: python -u run.py [live|historical|train|api]")
+        print("Usage: python -u run.py [live|historical|train|api|walk-forward]")
         sys.exit(1)
     target = PIPELINES[cmd]
     sys.argv = [str(target), *sys.argv[2:]]

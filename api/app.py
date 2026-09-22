@@ -57,7 +57,7 @@ CORS_ORIGINS = [
     o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
 ]
 
-app = FastAPI(title="TurnaroundIQ", version="0.5.3")
+app = FastAPI(title="TurnaroundIQ", version="0.5.4")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["*"],
@@ -85,7 +85,7 @@ class TrackedCreate(BaseModel):
     is_home: Optional[bool] = True
     league: Optional[str] = ""
     kickoff: Optional[str] = None
-    bookmaker: Optional[str] = "Manual"
+    bookmaker: Optional[str] = "Paper"
     back_odds: Optional[float] = None
     lay_odds: Optional[float] = None
     stake: Optional[float] = 40.0
@@ -94,12 +94,19 @@ class TrackedCreate(BaseModel):
     notes: Optional[str] = None
     match_id: Optional[str] = None
     score_with_model: bool = True
+    paper: bool = True
 
 
 class TrackedSettle(BaseModel):
     result: str = Field(description="won|lost|void|fta|no_fta")
     actual_profit: Optional[float] = None
     actual_fta: Optional[int] = None
+
+
+class PaperSettingsPatch(BaseModel):
+    starting_bankroll: Optional[float] = None
+    default_stake: Optional[float] = None
+    default_commission: Optional[float] = None
 
 
 @app.on_event("startup")
@@ -202,7 +209,6 @@ def upcoming_match_pairs(limit=60):
         _upcoming_cache = {"ts": now, "pairs": pairs}
         return pairs[:limit]
 
-    # Soft fallback: recent finished results only (still no odds_history)
     conn = get_db()
     fallback = []
     try:
@@ -229,12 +235,10 @@ def upcoming_match_pairs(limit=60):
 
 
 def latest_match_pairs(limit=40):
-    """Used by early-goal + chaos. Upcoming first."""
     return upcoming_match_pairs(limit=limit)
 
 
 def fixtures_from_upcoming(limit=40):
-    """Build opportunity fixtures from upcoming matches (estimated odds)."""
     fixtures = []
     for pair in upcoming_match_pairs(limit=max(limit, 20)):
         home = pair["home_team"]
@@ -257,7 +261,6 @@ def fixtures_from_upcoming(limit=40):
 
 
 def latest_fixtures(limit=40):
-    """Opportunities pool: upcoming API fixtures only (no odds_history)."""
     return fixtures_from_upcoming(limit=limit)
 
 
@@ -273,7 +276,7 @@ def score_manual_fixture(body: TrackedCreate):
         "away_team": body.away_team,
         "team": team,
         "is_home": body.is_home if body.is_home is not None else (team == body.home_team),
-        "bookmaker": body.bookmaker or "Manual",
+        "bookmaker": body.bookmaker or "Paper",
         "back_odds": back,
         "lay_odds": body.lay_odds,
         "odds_estimated": body.back_odds is None,
@@ -305,13 +308,14 @@ def health():
     return {
         "ok": db_ok,
         "time": datetime.now(timezone.utc).isoformat(),
-        "version": "0.5.3",
+        "version": "0.5.4",
         "model_present": model_ok,
         "model_path": model_path,
         "features": [
             "opportunities",
             "upcoming_fixtures_api_football",
             "tracked",
+            "paper_trading",
             "early_goal_hunter",
             "chaos_index",
         ],
@@ -327,6 +331,7 @@ def me(authorization: str | None = Header(default=None)):
     entitled = is_entitled(user_id, refresh=True)
     row = get_subscriber_row(user_id) or {}
     prefs = get_prefs(user_id)
+    paper = tracked_store.summary(user_id) if entitled else None
     return {
         "app_user_id": user_id,
         "entitled": entitled,
@@ -336,6 +341,7 @@ def me(authorization: str | None = Header(default=None)):
         "product_id": row.get("product_id"),
         "environment": row.get("environment"),
         "prefs": prefs,
+        "paper": paper,
     }
 
 
@@ -389,7 +395,8 @@ def opportunities(
                     "fta_pct": t["fta_pct"],
                     "lay_stake": t["lay_stake"],
                     "liability": t["liability"],
-                    "source": "manual",
+                    "expected_profit": t.get("expected_profit"),
+                    "source": "paper" if t.get("paper") else "manual",
                     "tracked_id": t["id"],
                     "status": t["status"],
                     "kickoff": t["kickoff"],
@@ -404,6 +411,7 @@ def opportunities(
             "manual_count": len(manual),
             "fixture_count": len(fixtures),
             "fixture_source": "api-football-upcoming",
+            "paper_summary": tracked_store.summary(user_id),
             "rank_errors": get_last_rank_errors(),
             "opportunities": combined[:limit],
         }
@@ -476,6 +484,39 @@ def tracked_settle(
     return bet
 
 
+@app.get("/paper")
+def paper_summary(authorization: str | None = Header(default=None)):
+    user_id = require_pro(authorization)
+    return {
+        "mode": "paper",
+        "summary": tracked_store.summary(user_id),
+        "settings": tracked_store.get_paper_settings(user_id),
+    }
+
+
+@app.patch("/paper/settings")
+def paper_settings(
+    body: PaperSettingsPatch,
+    authorization: str | None = Header(default=None),
+):
+    user_id = require_pro(authorization)
+    settings = tracked_store.save_paper_settings(
+        user_id,
+        starting_bankroll=body.starting_bankroll,
+        default_stake=body.default_stake,
+        default_commission=body.default_commission,
+    )
+    return {"settings": settings, "summary": tracked_store.summary(user_id)}
+
+
+@app.post("/paper/auto-settle")
+def paper_auto_settle(authorization: str | None = Header(default=None)):
+    """Settle open paper bets using match_results 2UP/FTA flags."""
+    user_id = require_pro(authorization)
+    n = tracked_store.auto_settle_from_results(user_id)
+    return {"settled": n, "summary": tracked_store.summary(user_id)}
+
+
 @app.get("/features/early-goal")
 def early_goal_feature(
     authorization: str | None = Header(default=None),
@@ -502,7 +543,6 @@ def chaos_feature(
     limit = max(1, min(limit, 50))
     pairs = latest_match_pairs(limit=max(limit, 40))
     ranked = rank_chaos_matches(pairs)
-    # Alias for monitor UI that looks for chaos_score
     for row in ranked:
         row["chaos_score"] = row.get("chaos_index")
         comps = row.get("components") or {}

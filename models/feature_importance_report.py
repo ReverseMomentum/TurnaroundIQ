@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from database import get_db, get_feature_importance_history, get_model_runs
+from models.importance_store import get_feature_importance_history, get_model_runs
 
 
 def main():
@@ -29,8 +29,6 @@ def main():
         print("No model_runs yet — train once first: python -u run.py train")
         return
 
-    # model_runs columns from SELECT *: id, model_name, version, trained_at,
-    # training_rows, brier_score, log_loss, roc_auc, notes
     print("Recent model runs")
     print("-" * 72)
     for r in runs:
@@ -40,19 +38,17 @@ def main():
             f"Brier={r[5]}  AUC={r[7]}"
         )
 
-    # Pivot: feature -> list of scores newest-first
     hist = get_feature_importance_history(limit_runs=args.runs)
     if not hist:
         print("\nNo feature_importance rows yet (retrain after this update).")
         return
 
-    by_feat: dict[str, list[tuple]] = {}
+    by_feat: dict[str, list] = {}
     for run_id, trained_at, version, feature, importance, rank in hist:
         by_feat.setdefault(feature, []).append(
             (run_id, trained_at, version, importance, rank)
         )
 
-    # Rank features by importance on the newest run
     newest_run_id = runs[0][0]
     newest_scores = []
     for feat, entries in by_feat.items():
@@ -64,12 +60,11 @@ def main():
 
     print(f"\nTop {args.top} features (latest run id={newest_run_id})")
     print("-" * 72)
-    print(f"{'feature':32} {'imp':>8}  history (newest → older)")
+    print(f"{'#':>3} {'feature':28} {'imp':>8}  history (newest → older)")
     for feat, imp, rank in newest_scores[: args.top]:
         series = by_feat.get(feat, [])
-        # already roughly newest first if query ordered DESC
         hist_str = " → ".join(f"{e[3]:.3f}" for e in series[: args.runs])
-        print(f"{rank:2d}. {feat:28} {imp:8.4f}  {hist_str}")
+        print(f"{rank:3d} {feat:28} {imp:8.4f}  {hist_str}")
 
     print("\nTip: rising/falling scores across runs signal drift or data shifts.")
 

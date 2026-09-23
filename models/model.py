@@ -56,9 +56,9 @@ def _to_frame(feature_data):
 
 def _calibrate_prob(raw_p, calibrator):
     if calibrator is None:
-        return float(raw_p)
+        return float(np.clip(raw_p, 0.0, 1.0))
     x = np.array([[_logit(raw_p)]])
-    return float(calibrator.predict_proba(x)[0, 1])
+    return float(np.clip(calibrator.predict_proba(x)[0, 1], 0.0, 1.0))
 
 
 def predict_fta(feature_data):
@@ -66,7 +66,7 @@ def predict_fta(feature_data):
     df = _to_frame(feature_data)
     raw = float(bundle["model"].predict_proba(df)[0][1])
     p = _calibrate_prob(raw, bundle.get("calibrator"))
-    return round(p * 100, 2)
+    return round(float(np.clip(p * 100, 0.0, 100.0)), 2)
 
 
 def predict_with_confidence(feature_data):
@@ -75,12 +75,13 @@ def predict_with_confidence(feature_data):
     probs = bundle["model"].predict_proba(df)[0]
     raw_fta = float(probs[1])
     fta_probability = _calibrate_prob(raw_fta, bundle.get("calibrator"))
-    # confidence from calibrated distance to 0.5
-    confidence = max(fta_probability, 1 - fta_probability) * 100
+    # Always return percent 0–100 (never a fraction)
+    fta_pct = float(np.clip(fta_probability * 100.0, 0.0, 100.0))
+    confidence = float(np.clip(max(fta_probability, 1 - fta_probability) * 100.0, 0.0, 100.0))
     return {
-        "fta_pct": float(round(fta_probability * 100, 2)),
+        "fta_pct": float(round(fta_pct, 2)),
         "confidence": float(round(confidence, 2)),
-        "raw_fta_pct": float(round(raw_fta * 100, 2)),
+        "raw_fta_pct": float(round(np.clip(raw_fta * 100.0, 0.0, 100.0), 2)),
         "model_version": bundle.get("version") or "unknown",
     }
 

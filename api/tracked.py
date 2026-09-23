@@ -1,10 +1,8 @@
 """
-Paper-trading tracker for FTA opportunities.
+Paper-trading tracker for FTA, Early Goal Hunter, and Chaos Factor.
 
 No real money — records hypothetical bets, settles against match_results
-when available, and tracks virtual bankroll / ROI.
-
-Bets are categorised by model FTA% bands for performance analysis.
+when available, and tracks virtual bankroll / ROI by product and FTA band.
 """
 
 from datetime import datetime, timezone
@@ -37,6 +35,7 @@ CREATE TABLE IF NOT EXISTS tracked_bets (
     actual_fta INTEGER,
     paper INTEGER DEFAULT 1,
     expected_profit REAL,
+    product TEXT DEFAULT 'fta',
     created_at TEXT,
     settled_at TEXT
 )
@@ -52,7 +51,6 @@ CREATE TABLE IF NOT EXISTS paper_settings (
 )
 """
 
-# FTA% bands (model output as percent)
 FTA_BANDS = [
     ("elite_12plus", 12.0, 100.0),
     ("high_8_12", 8.0, 12.0),
@@ -61,13 +59,22 @@ FTA_BANDS = [
     ("micro_under_3", 0.0, 3.0),
 ]
 
+SELECT_COLS = """
+    id, app_user_id, match_id, league, home_team, away_team,
+    team, is_home, kickoff, bookmaker, back_odds, lay_odds,
+    stake, commission, lay_stake, liability, fta_pct, notes,
+    status, result, actual_profit, actual_fta,
+    COALESCE(paper, 1), expected_profit,
+    COALESCE(product, 'fta'), created_at, settled_at
+"""
+
 
 def fta_pct_as_percent(val) -> float:
     try:
         p = float(val or 0)
     except (TypeError, ValueError):
         return 0.0
-    if 0 < p <= 1.5:
+    if 0 < p <= 1.0:
         return p * 100.0
     return p
 
@@ -96,6 +103,7 @@ def ensure_tracked_tables():
     for name, typ, default in (
         ("paper", "INTEGER", "1"),
         ("expected_profit", "REAL", "NULL"),
+        ("product", "TEXT", "'fta'"),
     ):
         if name not in cols:
             conn.execute(
@@ -162,7 +170,7 @@ def _row_to_dict(row):
         "team", "is_home", "kickoff", "bookmaker", "back_odds", "lay_odds",
         "stake", "commission", "lay_stake", "liability", "fta_pct", "notes",
         "status", "result", "actual_profit", "actual_fta", "paper",
-        "expected_profit", "created_at", "settled_at",
+        "expected_profit", "product", "created_at", "settled_at",
     ]
     vals = list(row)
     while len(vals) < len(keys):
@@ -170,6 +178,7 @@ def _row_to_dict(row):
     d = dict(zip(keys, vals[: len(keys)]))
     d["match"] = f"{d['home_team']} vs {d['away_team']}"
     d["estimated_lay"] = d.get("lay_odds") is None
+    d["product"] = d.get("product") or "fta"
     d["source"] = "paper" if d.get("paper") in (1, True, "1") else "manual"
     d["paper"] = bool(d.get("paper") in (1, True, "1", None))
     d["fta_band"] = fta_band(d.get("fta_pct"))
@@ -217,15 +226,7 @@ def compute_profit(result, stake, back_odds, commission=2.0, actual_profit=None)
 def list_tracked(app_user_id, status=None, limit=50):
     ensure_tracked_tables()
     conn = get_db()
-    base = """
-        SELECT id, app_user_id, match_id, league, home_team, away_team,
-               team, is_home, kickoff, bookmaker, back_odds, lay_odds,
-               stake, commission, lay_stake, liability, fta_pct, notes,
-               status, result, actual_profit, actual_fta,
-               COALESCE(paper, 1), expected_profit, created_at, settled_at
-        FROM tracked_bets
-        WHERE app_user_id = ?
-    """
+    base = f"SELECT {SELECT_COLS} FROM tracked_bets WHERE app_user_id = ?"
     if status:
         rows = conn.execute(
             base + " AND status = ? ORDER BY id DESC LIMIT ?",
@@ -262,6 +263,7 @@ def create_tracked(app_user_id, data):
     fta_pct = data.get("fta_pct")
     exp = _expected_profit(stake, back, fta_pct, commission)
     paper = 1 if data.get("paper", True) else 0
+    product = (data.get("product") or "fta").strip().lower()
 
     conn = get_db()
     cur = conn.execute(
@@ -270,8 +272,8 @@ def create_tracked(app_user_id, data):
             app_user_id, match_id, league, home_team, away_team, team, is_home,
             kickoff, bookmaker, back_odds, lay_odds, stake, commission,
             lay_stake, liability, fta_pct, notes, status, paper, expected_profit,
-            created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            product, created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             app_user_id,
@@ -294,20 +296,14 @@ def create_tracked(app_user_id, data):
             "open",
             paper,
             exp,
+            product,
             now,
         ),
     )
     bet_id = cur.lastrowid
     conn.commit()
     row = conn.execute(
-        """
-        SELECT id, app_user_id, match_id, league, home_team, away_team,
-               team, is_home, kickoff, bookmaker, back_odds, lay_odds,
-               stake, commission, lay_stake, liability, fta_pct, notes,
-               status, result, actual_profit, actual_fta,
-               COALESCE(paper, 1), expected_profit, created_at, settled_at
-        FROM tracked_bets WHERE id = ?
-        """,
+        f"SELECT {SELECT_COLS} FROM tracked_bets WHERE id = ?",
         (bet_id,),
     ).fetchone()
     conn.close()
@@ -353,14 +349,7 @@ def settle_tracked(app_user_id, bet_id, result, actual_profit=None, actual_fta=N
     )
     conn.commit()
     full = conn.execute(
-        """
-        SELECT id, app_user_id, match_id, league, home_team, away_team,
-               team, is_home, kickoff, bookmaker, back_odds, lay_odds,
-               stake, commission, lay_stake, liability, fta_pct, notes,
-               status, result, actual_profit, actual_fta,
-               COALESCE(paper, 1), expected_profit, created_at, settled_at
-        FROM tracked_bets WHERE id = ?
-        """,
+        f"SELECT {SELECT_COLS} FROM tracked_bets WHERE id = ?",
         (bet_id,),
     ).fetchone()
     conn.close()
@@ -406,39 +395,26 @@ def summary(app_user_id):
         "default_commission": settings["default_commission"],
         "mode": "paper",
         "by_band": summary_by_fta_band(app_user_id),
+        "by_product": summary_by_product(app_user_id),
     }
 
 
 def summary_by_fta_band(app_user_id):
-    """Performance broken down by model FTA% band."""
     ensure_tracked_tables()
-    bets = list_tracked(app_user_id, limit=5000)
+    bets = [b for b in list_tracked(app_user_id, limit=5000) if (b.get("product") or "fta") == "fta"]
     out = {}
     for name, lo, hi in FTA_BANDS:
         out[name] = {
             "range": f"{lo}-{hi}%",
-            "n": 0,
-            "open": 0,
-            "settled": 0,
-            "fta_hits": 0,
-            "staked": 0.0,
-            "profit": 0.0,
-            "roi_pct": None,
-            "hit_rate": None,
+            "n": 0, "open": 0, "settled": 0, "fta_hits": 0,
+            "staked": 0.0, "profit": 0.0, "roi_pct": None, "hit_rate": None,
         }
     for b in bets:
         band = b.get("fta_band") or fta_band(b.get("fta_pct"))
         if band not in out:
             out[band] = {
-                "range": band,
-                "n": 0,
-                "open": 0,
-                "settled": 0,
-                "fta_hits": 0,
-                "staked": 0.0,
-                "profit": 0.0,
-                "roi_pct": None,
-                "hit_rate": None,
+                "range": band, "n": 0, "open": 0, "settled": 0, "fta_hits": 0,
+                "staked": 0.0, "profit": 0.0, "roi_pct": None, "hit_rate": None,
             }
         bucket = out[band]
         bucket["n"] += 1
@@ -456,20 +432,82 @@ def summary_by_fta_band(app_user_id):
         if bucket["staked"]:
             bucket["roi_pct"] = round(100.0 * bucket["profit"] / bucket["staked"], 2)
         if bucket["settled"]:
-            bucket["hit_rate"] = round(
-                100.0 * bucket["fta_hits"] / bucket["settled"], 1
-            )
+            bucket["hit_rate"] = round(100.0 * bucket["fta_hits"] / bucket["settled"], 1)
     return out
 
 
+def summary_by_product(app_user_id):
+    ensure_tracked_tables()
+    bets = list_tracked(app_user_id, limit=5000)
+    out = {}
+    for b in bets:
+        prod = b.get("product") or "fta"
+        if prod not in out:
+            out[prod] = {
+                "n": 0, "open": 0, "settled": 0, "hits": 0,
+                "staked": 0.0, "profit": 0.0, "roi_pct": None, "hit_rate": None,
+            }
+        bucket = out[prod]
+        bucket["n"] += 1
+        if b.get("status") == "open":
+            bucket["open"] += 1
+        if b.get("status") == "settled":
+            bucket["settled"] += 1
+            bucket["staked"] += float(b.get("stake") or 0)
+            bucket["profit"] += float(b.get("actual_profit") or 0)
+            if b.get("actual_fta") == 1:
+                bucket["hits"] += 1
+    for bucket in out.values():
+        bucket["staked"] = round(bucket["staked"], 2)
+        bucket["profit"] = round(bucket["profit"], 2)
+        if bucket["staked"]:
+            bucket["roi_pct"] = round(100.0 * bucket["profit"] / bucket["staked"], 2)
+        if bucket["settled"]:
+            bucket["hit_rate"] = round(100.0 * bucket["hits"] / bucket["settled"], 1)
+    return out
+
+
+def _fetch_match_row(conn, mid, home, away):
+    mr = None
+    if mid:
+        mr = conn.execute(
+            """
+            SELECT home_2up, away_2up, home_turnaround, away_turnaround,
+                   home_early_goal, away_early_goal, final_home, final_away
+            FROM match_results WHERE match_id = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (str(mid),),
+        ).fetchone()
+    if not mr:
+        mr = conn.execute(
+            """
+            SELECT home_2up, away_2up, home_turnaround, away_turnaround,
+                   home_early_goal, away_early_goal, final_home, final_away
+            FROM match_results
+            WHERE home_team = ? AND away_team = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (home, away),
+        ).fetchone()
+    return mr
+
+
 def auto_settle_from_results(app_user_id=None):
+    """
+    Settle open paper bets:
+      fta        → 2UP then fail to win
+      early_goal → either side scored early (home_early_goal / away_early_goal)
+      chaos      → final score BTTS and O2.5 (high-chaos proxy hit)
+    """
     ensure_tracked_tables()
     conn = get_db()
     if app_user_id:
         opens = conn.execute(
             """
             SELECT id, app_user_id, home_team, away_team, team, is_home,
-                   stake, back_odds, commission, match_id
+                   stake, back_odds, commission, match_id,
+                   COALESCE(product, 'fta')
             FROM tracked_bets WHERE status = 'open' AND app_user_id = ?
             """,
             (app_user_id,),
@@ -478,51 +516,50 @@ def auto_settle_from_results(app_user_id=None):
         opens = conn.execute(
             """
             SELECT id, app_user_id, home_team, away_team, team, is_home,
-                   stake, back_odds, commission, match_id
+                   stake, back_odds, commission, match_id,
+                   COALESCE(product, 'fta')
             FROM tracked_bets WHERE status = 'open'
             """
         ).fetchall()
 
     settled = 0
     for row in opens:
-        bet_id, uid, home, away, team, is_home, stake, odds, comm, mid = row
-        mr = None
-        if mid:
-            mr = conn.execute(
-                """
-                SELECT home_2up, away_2up, home_turnaround, away_turnaround
-                FROM match_results WHERE match_id = ?
-                ORDER BY id DESC LIMIT 1
-                """,
-                (str(mid),),
-            ).fetchone()
-        if not mr:
-            mr = conn.execute(
-                """
-                SELECT home_2up, away_2up, home_turnaround, away_turnaround
-                FROM match_results
-                WHERE home_team = ? AND away_team = ?
-                ORDER BY id DESC LIMIT 1
-                """,
-                (home, away),
-            ).fetchone()
+        bet_id, uid, home, away, team, is_home, stake, odds, comm, mid, product = row
+        mr = _fetch_match_row(conn, mid, home, away)
         if not mr:
             continue
 
-        home_2up, away_2up, home_ta, away_ta = mr
-        if is_home or (team and team == home):
-            went_2up = int(home_2up or 0)
-            fta = int(home_ta or 0)
-        else:
-            went_2up = int(away_2up or 0)
-            fta = int(away_ta or 0)
+        home_2up, away_2up, home_ta, away_ta, home_eg, away_eg, fh, fa = mr
+        product = (product or "fta").lower()
 
-        if not went_2up:
-            result = "no_fta"
-            actual_fta = 0
+        if product == "early_goal":
+            hit = int(home_eg or 0) == 1 or int(away_eg or 0) == 1
+            result = "won" if hit else "lost"
+            actual_fta = 1 if hit else 0
+        elif product == "chaos":
+            try:
+                fh_i, fa_i = int(fh or 0), int(fa or 0)
+            except (TypeError, ValueError):
+                continue
+            btts = fh_i > 0 and fa_i > 0
+            o25 = (fh_i + fa_i) >= 3
+            hit = btts and o25
+            result = "won" if hit else "lost"
+            actual_fta = 1 if hit else 0
         else:
-            result = "fta" if fta else "no_fta"
-            actual_fta = 1 if fta else 0
+            # FTA default
+            if is_home or (team and team == home):
+                went_2up = int(home_2up or 0)
+                fta = int(home_ta or 0)
+            else:
+                went_2up = int(away_2up or 0)
+                fta = int(away_ta or 0)
+            if not went_2up:
+                result = "no_fta"
+                actual_fta = 0
+            else:
+                result = "fta" if fta else "no_fta"
+                actual_fta = 1 if fta else 0
 
         profit = compute_profit(result, stake, odds, comm)
         now = datetime.now(timezone.utc).isoformat()

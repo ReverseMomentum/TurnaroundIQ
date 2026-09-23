@@ -28,7 +28,6 @@ if str(ROOT) not in sys.path:
 from api import tracked as store
 from models.opportunities_engine import rank_opportunities
 
-# Same fixture source as API (no odds_history dependency)
 try:
     from api.app import latest_fixtures
 except Exception:
@@ -36,14 +35,23 @@ except Exception:
 
 
 def _fta_value(row) -> float:
-    p = row.get("fta_pct")
+    """
+    Normalise fta_pct to percent 0–100.
+
+    Model returns percent (e.g. 8.26). Only scale if value is a clear
+    probability fraction (0 < p <= 1.0). Do NOT use 1.5 as the cutoff —
+    that turned real 1.27% into 127%.
+    """
     try:
-        p = float(p or 0)
+        p = float(row.get("fta_pct") or 0)
     except (TypeError, ValueError):
         return 0.0
-    # Engine may return fraction or percent
-    if 0 < p <= 1.5:
-        return p * 100.0
+    if 0 < p <= 1.0:
+        p = p * 100.0
+    if p < 0:
+        p = 0.0
+    if p > 100:
+        p = 100.0
     return p
 
 
@@ -75,7 +83,6 @@ def fetch_ranked(limit: int = 40):
         raise RuntimeError("Could not import latest_fixtures from api.app")
     fixtures = latest_fixtures(limit=max(limit, 20))
     ranked = rank_opportunities(fixtures)
-    # Sort by FTA% descending
     ranked.sort(key=_fta_value, reverse=True)
     return ranked
 
@@ -104,7 +111,6 @@ def run_auto(
         if len(selected) >= limit:
             break
 
-    # Categorise selection
     buckets: dict[str, list] = {}
     for row in selected:
         pct = _fta_value(row)
@@ -136,15 +142,12 @@ def run_auto(
                 "lay_odds": row.get("lay_odds"),
                 "stake": settings["default_stake"],
                 "commission": settings["default_commission"],
-                "fta_pct": pct / 100.0 if pct > 1.5 else pct,
+                "fta_pct": round(pct, 4),  # store as percent 0–100
                 "notes": f"auto band={_band(pct)}",
                 "paper": True,
                 "lay_stake": row.get("lay_stake"),
                 "liability": row.get("liability"),
             }
-            # Store display % consistently as percent for readability in notes
-            if payload["fta_pct"] is not None and payload["fta_pct"] <= 1.5:
-                payload["fta_pct"] = round(float(payload["fta_pct"]) * 100, 4)
             bet = store.create_tracked(user_id, payload)
             opened.append(bet)
 

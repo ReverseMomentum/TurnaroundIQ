@@ -1,18 +1,10 @@
 #!/usr/bin/env python3
 """
-Chaos v2 backtest — high-ROI methodology upgrades vs v1 form average.
-
-Upgrades:
-  1. Matchup terms (attack vs opponent concede proxy) instead of plain average
-  2. League baseline residual (chaos relative to division base rates)
-  3. Calibration table: empirical P(event) by score decile
-  4. Top-tail selection (top pct of slate) vs fixed threshold
-
-Reuses CSVs from data/football_data (same as v1).
+Chaos v2 backtest — hit-rate + O2.5 P/L for v1 vs v2 vs league residual.
 
 Usage:
-  python3 -u scripts/backtest_chaos_v2.py --dir data/football_data
-  python3 -u scripts/backtest_chaos_v2.py --dir data/football_data --top-pct 15
+  python3 -u scripts/backtest_chaos_v2.py --dir data/football_data --min-score 70
+  python3 -u scripts/backtest_chaos_v2.py --dir data/football_data --top-pct 15 --stake 10
 """
 
 from __future__ import annotations
@@ -44,10 +36,33 @@ def _i(row, *keys):
     return int(v) if v is not None else None
 
 
+def _o25_odds(row) -> float | None:
+    odds = _f(
+        row,
+        "B365>2.5",
+        "P>2.5",
+        "PS>2.5",
+        "Avg>2.5",
+        "BbAv>2.5",
+        "Max>2.5",
+        "B365C>2.5",
+    )
+    if odds is not None and 1.01 < odds < 10:
+        return odds
+    for k, v in row.items():
+        if v and ">2.5" in k:
+            try:
+                cand = float(str(v).strip())
+                if 1.01 < cand < 10:
+                    return cand
+            except ValueError:
+                pass
+    return None
+
+
 def parse_rows(path: Path) -> list[dict]:
     text = path.read_text(encoding="utf-8", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
-    # league code from filename e.g. 2425_E0.csv
     stem = path.stem
     league = stem.split("_")[-1] if "_" in stem else stem
     out = []
@@ -76,6 +91,7 @@ def parse_rows(path: Path) -> list[dict]:
                 "o25": o25,
                 "o35": o35,
                 "btts_o25": int(btts and o25),
+                "o25_odds": _o25_odds(row),
                 "fh_goal": (
                     int((hth + hta) > 0)
                     if hth is not None and hta is not None
@@ -100,7 +116,6 @@ def _date_key(s: str):
 
 
 def form_side(history: deque) -> dict:
-    """Attack/defence style rates from prior games for one team."""
     n = len(history)
     if n == 0:
         return {
@@ -142,33 +157,20 @@ def chaos_v1_avg(h, a) -> float:
 
 
 def chaos_v2_matchup(h, a) -> float:
-    """
-    Matchup-aware:
-      - expected openness from attack vs opp defence
-      - BTTS proxy: both sides score rate × opp concede rate
-      - early average
-      - goal expectation volume
-    """
-    # Goal expectation proxies (scaled to ~0-100-ish contribution inputs)
     exp_home_goals = (h["gf"] + a["ga"]) / 2.0
     exp_away_goals = (a["gf"] + h["ga"]) / 2.0
-    exp_total = exp_home_goals + exp_away_goals  # ~2-3.5 typical
-
+    exp_total = exp_home_goals + exp_away_goals
     o25_proxy = min(100.0, max(0.0, (exp_total - 1.5) / 2.5 * 100.0))
-    # BTTS: chance both score ~ product-ish of score/concede tendencies
     btts_proxy = (
         0.5 * ((h["scored"] + a["conceded"]) / 2.0)
         + 0.5 * ((a["scored"] + h["conceded"]) / 2.0)
     )
     early = (h["early"] + a["early"]) / 2.0
     vol = min(100.0, exp_total * 28.0)
-
-    # slight blend with pure form o25/btts so we don't go pure theoretical
     o25_form = (h["o25"] + a["o25"]) / 2.0
     btts_form = (h["btts"] + a["btts"]) / 2.0
     o25 = 0.55 * o25_proxy + 0.45 * o25_form
     btts = 0.55 * btts_proxy + 0.45 * btts_form
-
     return 0.30 * o25 + 0.28 * btts + 0.20 * early + 0.22 * vol
 
 
@@ -195,9 +197,49 @@ def market_rates(rows):
     return out
 
 
+def o25_pnl(selected: list[dict], stake: float) -> dict:
+    """Flat-stake back Over 2.5 when odds present."""
+    trades = []
+    for r in selected:
+        odds = r.get("o25_odds")
+        if not odds or odds <= 1.01:
+            continue
+        profit = stake * (odds - 1.0) if r.get("o25") else -stake
+        trades.append(
+            {
+                "odds": odds,
+                "win": int(r.get("o25") == 1),
+                "profit": profit,
+            }
+        )
+    n = len(trades)
+    if not n:
+        return {
+            "trades": 0,
+            "wins": 0,
+            "hit_rate": None,
+            "avg_odds": None,
+            "staked": 0.0,
+            "profit": 0.0,
+            "roi_pct": None,
+        }
+    wins = sum(t["win"] for t in trades)
+    staked = stake * n
+    profit = sum(t["profit"] for t in trades)
+    avg_odds = sum(t["odds"] for t in trades) / n
+    return {
+        "trades": n,
+        "wins": wins,
+        "hit_rate": _rate(wins, n),
+        "avg_odds": round(avg_odds, 3),
+        "staked": round(staked, 2),
+        "profit": round(profit, 2),
+        "roi_pct": round(100.0 * profit / staked, 2),
+    }
+
+
 def run(matches, form_n: int):
     hist = defaultdict(lambda: deque(maxlen=form_n))
-    # rolling league base rates (prior matches in same league only)
     league_hist = defaultdict(lambda: deque(maxlen=400))
     rows = []
 
@@ -212,7 +254,6 @@ def run(matches, form_n: int):
         s1 = chaos_v1_avg(h, a)
         s2 = chaos_v2_matchup(h, a)
 
-        # league baseline residual: how hot is this league lately?
         lh = list(league_hist[m["league"]])
         if len(lh) >= 30:
             base_o25 = 100.0 * sum(x["o25"] for x in lh) / len(lh)
@@ -221,9 +262,7 @@ def run(matches, form_n: int):
         else:
             league_open = 50.0
 
-        # residual boost: matchup score relative to league climate
-        s2_resid = s2 - 0.35 * (league_open - 50.0)
-        s2_resid = max(0.0, min(100.0, s2_resid))
+        s2_resid = max(0.0, min(100.0, s2 - 0.35 * (league_open - 50.0)))
 
         rows.append(
             {
@@ -231,6 +270,7 @@ def run(matches, form_n: int):
                 "league": m["league"],
                 "date": m["date"],
                 "match": f'{m["home"]} vs {m["away"]}',
+                "o25_odds": m.get("o25_odds"),
                 "v1": round(s1, 2),
                 "v2": round(s2, 2),
                 "v2_resid": round(s2_resid, 2),
@@ -252,7 +292,7 @@ def band(score, edges=(40, 55, 70)):
     return "micro"
 
 
-def evaluate(rows, score_key: str, top_pct: float | None, min_score: float | None):
+def evaluate(rows, score_key: str, top_pct, min_score, stake: float):
     baseline = market_rates(rows)
 
     if top_pct is not None:
@@ -277,26 +317,7 @@ def evaluate(rows, score_key: str, top_pct: float | None, min_score: float | Non
         for k in MARKETS
     }
 
-    # calibration: deciles of score → empirical btts_o25
-    ranked = sorted(rows, key=lambda r: r[score_key])
-    deciles = []
-    chunk = max(1, len(ranked) // 10)
-    for i in range(10):
-        part = ranked[i * chunk : (i + 1) * chunk] if i < 9 else ranked[i * chunk :]
-        if not part:
-            continue
-        scores = [r[score_key] for r in part]
-        deciles.append(
-            {
-                "decile": i + 1,
-                "score_lo": round(min(scores), 1),
-                "score_hi": round(max(scores), 1),
-                "n": len(part),
-                "p_btts_o25": market_rates(part).get("btts_o25"),
-                "p_o25": market_rates(part).get("o25"),
-                "p_o35": market_rates(part).get("o35"),
-            }
-        )
+    pnl = o25_pnl(selected, stake)
 
     return {
         "score": score_key,
@@ -304,8 +325,7 @@ def evaluate(rows, score_key: str, top_pct: float | None, min_score: float | Non
         "baseline": baseline,
         "selected": sel,
         "lift_pp": lifts,
-        "by_band": band_stats,
-        "calibration_deciles": deciles,
+        "o25_pnl": pnl,
     }
 
 
@@ -314,7 +334,8 @@ def main():
     p.add_argument("--dir", default=str(ROOT / "data" / "football_data"))
     p.add_argument("--form", type=int, default=8)
     p.add_argument("--min-score", type=float, default=70.0)
-    p.add_argument("--top-pct", type=float, default=None, help="e.g. 15 = top 15% of scores")
+    p.add_argument("--top-pct", type=float, default=None)
+    p.add_argument("--stake", type=float, default=10.0)
     args = p.parse_args()
 
     files = sorted(Path(args.dir).glob("*.csv"))
@@ -333,27 +354,50 @@ def main():
 
     report = {
         "n": len(rows),
-        "v1_avg": evaluate(rows, "v1", args.top_pct, args.min_score),
-        "v2_matchup": evaluate(rows, "v2", args.top_pct, args.min_score),
-        "v2_matchup_league_resid": evaluate(rows, "v2_resid", args.top_pct, args.min_score),
+        "stake": args.stake,
+        "v1_avg": evaluate(rows, "v1", args.top_pct, args.min_score, args.stake),
+        "v2_matchup": evaluate(rows, "v2", args.top_pct, args.min_score, args.stake),
+        "v2_matchup_league_resid": evaluate(
+            rows, "v2_resid", args.top_pct, args.min_score, args.stake
+        ),
     }
 
-    # head-to-head summary of lifts on btts_o25
     summary = {}
-    for name, block in report.items():
-        if name == "n":
-            continue
+    for name in ("v1_avg", "v2_matchup", "v2_matchup_league_resid"):
+        block = report[name]
+        pnl = block["o25_pnl"]
         summary[name] = {
+            "selected_n": block["selected"].get("n"),
             "lift_btts_o25": block["lift_pp"].get("btts_o25"),
             "lift_o25": block["lift_pp"].get("o25"),
-            "lift_o35": block["lift_pp"].get("o35"),
-            "lift_btts": block["lift_pp"].get("btts"),
-            "selected_n": block["selected"].get("n"),
-            "selected_btts_o25": block["selected"].get("btts_o25"),
+            "o25_hit_selected": block["selected"].get("o25"),
+            "o25_trades": pnl["trades"],
+            "o25_hit_rate": pnl["hit_rate"],
+            "avg_odds": pnl["avg_odds"],
+            "staked": pnl["staked"],
+            "profit": pnl["profit"],
+            "roi_pct": pnl["roi_pct"],
         }
     report["comparison"] = summary
 
-    print(json.dumps(report, indent=2))
+    # Fair top-15% P/L head-to-head always printed in comparison_top15
+    t15 = {}
+    for key, label in (("v1", "v1_avg"), ("v2", "v2_matchup"), ("v2_resid", "v2_matchup_league_resid")):
+        block = evaluate(rows, key, 15.0, None, args.stake)
+        pnl = block["o25_pnl"]
+        t15[label] = {
+            "selected_n": block["selected"].get("n"),
+            "lift_o25": block["lift_pp"].get("o25"),
+            "lift_btts_o25": block["lift_pp"].get("btts_o25"),
+            "o25_trades": pnl["trades"],
+            "avg_odds": pnl["avg_odds"],
+            "profit": pnl["profit"],
+            "roi_pct": pnl["roi_pct"],
+            "hit_rate": pnl["hit_rate"],
+        }
+    report["comparison_top15pct"] = t15
+
+    print(json.dumps({"comparison": summary, "comparison_top15pct": t15}, indent=2))
 
 
 if __name__ == "__main__":

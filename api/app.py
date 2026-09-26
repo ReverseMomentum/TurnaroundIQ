@@ -37,6 +37,7 @@ from models.opportunities_engine import (
 )
 from models.early_goal_hunter import rank_early_goal_matches
 from models.chaos_index import rank_chaos_matches
+from models.mismatch_meter import rank_mismatch_matches
 from team_normalizer import normalize_team
 
 try:
@@ -57,7 +58,7 @@ CORS_ORIGINS = [
     o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
 ]
 
-app = FastAPI(title="TurnaroundIQ", version="0.5.4")
+app = FastAPI(title="TurnaroundIQ", version="0.5.5")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["*"],
@@ -308,7 +309,7 @@ def health():
     return {
         "ok": db_ok,
         "time": datetime.now(timezone.utc).isoformat(),
-        "version": "0.5.4",
+        "version": "0.5.5",
         "model_present": model_ok,
         "model_path": model_path,
         "features": [
@@ -318,6 +319,7 @@ def health():
             "paper_trading",
             "early_goal_hunter",
             "chaos_index",
+            "mismatch_meter",
         ],
         "default_back_odds": DEFAULT_BACK_ODDS,
         "upcoming_days": UPCOMING_DAYS,
@@ -550,6 +552,24 @@ def chaos_feature(
         row["over25_pct"] = comps.get("o2_5")
     return {
         "feature": "chaos_index",
+        "count": len(ranked[:limit]),
+        "fixture_source": "api-football-upcoming",
+        "matches": ranked[:limit],
+    }
+
+
+@app.get("/features/mismatch")
+def mismatch_feature(
+    authorization: str | None = Header(default=None),
+    limit: int = 20,
+):
+    """Mismatch Meter — underdog / strength-vs-hierarchy ranker."""
+    require_pro(authorization)
+    limit = max(1, min(limit, 50))
+    pairs = latest_match_pairs(limit=max(limit, 40))
+    ranked = rank_mismatch_matches(pairs)
+    return {
+        "feature": "mismatch_meter",
         "count": len(ranked[:limit]),
         "fixture_source": "api-football-upcoming",
         "matches": ranked[:limit],

@@ -40,11 +40,77 @@ TEAM_STATS_COLUMNS = [
     "abs_trigger_delta", "abs_retention_delta",
 ]
 
+# Display / paper bands (fta_pct as percent 0–100)
+FTA_BANDS = [
+    ("elite_12plus", 12.0, 100.0),
+    ("high_8_12", 8.0, 12.0),
+    ("mid_5_8", 5.0, 8.0),
+    ("low_3_5", 3.0, 5.0),
+    ("micro_under_3", 0.0, 3.0),
+]
+
+# Default edge gate: model FTA% must clear implied% + this buffer
+DEFAULT_EDGE_BUFFER_PP = 2.0
+
 _last_rank_errors = []
 
 
 def get_last_rank_errors():
     return list(_last_rank_errors)
+
+
+def fta_pct_as_percent(val) -> float:
+    try:
+        p = float(val or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if 0 < p <= 1.0:
+        return p * 100.0
+    return p
+
+
+def fta_band(val) -> str:
+    pct = fta_pct_as_percent(val)
+    for name, lo, hi in FTA_BANDS:
+        if lo <= pct < hi or (hi >= 100 and pct >= lo):
+            return name
+    return "micro_under_3"
+
+
+def implied_pct_from_odds(decimal_odds):
+    """Treat decimal odds as a crude fair price for the offered outcome."""
+    try:
+        o = float(decimal_odds)
+        if o <= 1.01:
+            return None
+        return round(100.0 / o, 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def edge_pp(fta_pct, back_odds):
+    """
+    Model FTA% minus implied% from back odds.
+    Positive => model is more bullish than the price.
+    Only meaningful when odds are real (not default estimated).
+    """
+    imp = implied_pct_from_odds(back_odds)
+    if imp is None:
+        return None
+    return round(fta_pct_as_percent(fta_pct) - imp, 2)
+
+
+def passes_edge_gate(fta_pct, back_odds, buffer_pp=DEFAULT_EDGE_BUFFER_PP, require_real_odds=False, odds_estimated=False):
+    """
+    True if model clears implied + buffer.
+    If require_real_odds and odds are estimated → fail the gate.
+    """
+    if require_real_odds and odds_estimated:
+        return False
+    e = edge_pp(fta_pct, back_odds)
+    if e is None:
+        return False
+    return e >= float(buffer_pp)
 
 
 def estimate_lay_odds(back_odds):
@@ -101,7 +167,6 @@ def get_team_stats(team):
         conn.close()
         if row:
             stats = dict(zip(TEAM_STATS_COLUMNS, row))
-            # Backfill empty live fields from historical so the model sees signal
             if not _rate(stats.get("two_up_trigger_rate")):
                 hist = _rate(stats.get("historical_trigger_rate"))
                 if hist:
@@ -126,6 +191,7 @@ def build_opportunity(fixture, stake=40, commission=2):
 
     stats = get_team_stats(team)
     back_odds = float(fixture.get("back_odds") or 2.1)
+    odds_estimated = bool(fixture.get("odds_estimated"))
 
     supplied_lay = fixture.get("lay_odds")
     if supplied_lay is None:
@@ -166,7 +232,6 @@ def build_opportunity(fixture, stake=40, commission=2):
 
     two_up_pct, two_up_source = resolve_two_up_pct(stats)
     turnaround_pct, turnaround_source = resolve_turnaround_pct(stats)
-    # Joint empirical rate: P(2UP) * P(fail|2UP) as percent
     joint_pct = (two_up_pct * turnaround_pct) / 100.0 if two_up_pct and turnaround_pct else 0.0
 
     lay_stake = calculate_lay_stake(back_odds, lay_odds, stake, commission)
@@ -181,6 +246,20 @@ def build_opportunity(fixture, stake=40, commission=2):
     ev_rating = calculate_ev_rating(fta_pct, qualifying_loss, stake)
     ranking_score = calculate_ranking_score(expected_profit, fta_pct)
 
+    fta_display = fta_pct_as_percent(fta_pct)
+    band = fta_band(fta_display)
+    implied = implied_pct_from_odds(back_odds)
+    e_pp = edge_pp(fta_display, back_odds)
+    # Soft gate for display (does not require real odds by default)
+    gate_soft = passes_edge_gate(
+        fta_display, back_odds, buffer_pp=DEFAULT_EDGE_BUFFER_PP,
+        require_real_odds=False, odds_estimated=odds_estimated,
+    )
+    gate_strict = passes_edge_gate(
+        fta_display, back_odds, buffer_pp=DEFAULT_EDGE_BUFFER_PP,
+        require_real_odds=True, odds_estimated=odds_estimated,
+    )
+
     return {
         "match": fixture.get("match") or f"{home_team} vs {away_team}",
         "team": team,
@@ -189,16 +268,25 @@ def build_opportunity(fixture, stake=40, commission=2):
         "back_odds": round(back_odds, 2),
         "lay_odds": round(lay_odds, 2),
         "estimated_lay": estimated_lay,
-        "odds_estimated": bool(fixture.get("odds_estimated")),
+        "odds_estimated": odds_estimated,
         "stake": stake,
         "commission": commission,
-        "fta_pct": round(fta_pct, 2),
+        "fta_pct": round(fta_display, 2),
+        "fta_band": band,
         "confidence": round(confidence, 2),
         "two_up_pct": round(two_up_pct, 2),
         "turnaround_pct": round(turnaround_pct, 2),
         "joint_pct": round(joint_pct, 2),
         "two_up_source": two_up_source,
         "turnaround_source": turnaround_source,
+        "implied_pct": implied,
+        "edge_pp": e_pp,
+        "passes_edge_gate": gate_soft,
+        "passes_strict_edge_gate": gate_strict,
+        "edge_note": (
+            "edge_pp = model FTA% − 100/odds. Meaningful only with real odds; "
+            "estimated default odds are not a true FTA market."
+        ),
         "lay_stake": round(lay_stake, 2),
         "liability": round(liability, 2),
         "qualifying_loss": round(qualifying_loss, 2),
@@ -211,6 +299,7 @@ def build_opportunity(fixture, stake=40, commission=2):
         "home_team": home_team,
         "away_team": away_team,
         "kickoff": fixture.get("kickoff"),
+        "product": "fta",
     }
 
 
@@ -233,6 +322,7 @@ def rebuild_opportunity(opportunity, lay_odds, commission):
     updated["lay_odds"] = round(lay_odds, 2)
     updated["commission"] = commission
     updated["estimated_lay"] = False
+    updated["odds_estimated"] = False
     updated["lay_stake"] = round(lay_stake, 2)
     updated["liability"] = round(liability, 2)
     updated["qualifying_loss"] = round(qualifying_loss, 2)
@@ -241,6 +331,17 @@ def rebuild_opportunity(opportunity, lay_odds, commission):
     updated["expected_profit"] = round(expected_profit, 2)
     updated["ev_percent"] = round(ev_percent, 2)
     updated["ev_rating"] = round(ev_rating, 2)
+    # refresh edge with real odds
+    fta = fta_pct_as_percent(updated.get("fta_pct"))
+    updated["implied_pct"] = implied_pct_from_odds(back_odds)
+    updated["edge_pp"] = edge_pp(fta, back_odds)
+    updated["passes_edge_gate"] = passes_edge_gate(
+        fta, back_odds, require_real_odds=False, odds_estimated=False
+    )
+    updated["passes_strict_edge_gate"] = passes_edge_gate(
+        fta, back_odds, require_real_odds=True, odds_estimated=False
+    )
+    updated["fta_band"] = fta_band(fta)
     return updated
 
 
@@ -261,12 +362,43 @@ def rank_opportunities(fixtures):
                     "error": f"{type(exc).__name__}: {exc}",
                 })
             continue
-    # Primary rank: model FTA % (highest first)
     opportunities.sort(
         key=lambda x: (float(x.get("fta_pct") or 0), float(x.get("joint_pct") or 0)),
         reverse=True,
     )
     return opportunities
+
+
+def filter_opportunities(
+    opportunities,
+    min_fta=None,
+    min_edge_pp=None,
+    band=None,
+    require_real_odds=False,
+    edge_gate_only=False,
+):
+    """Post-rank selectivity for hardened FTA surface."""
+    out = []
+    for o in opportunities:
+        fta = fta_pct_as_percent(o.get("fta_pct"))
+        if min_fta is not None and fta < float(min_fta):
+            continue
+        if band and (o.get("fta_band") or fta_band(fta)) != band:
+            continue
+        if require_real_odds and o.get("odds_estimated"):
+            continue
+        if min_edge_pp is not None:
+            e = o.get("edge_pp")
+            if e is None or float(e) < float(min_edge_pp):
+                continue
+        if edge_gate_only:
+            if require_real_odds:
+                if not o.get("passes_strict_edge_gate"):
+                    continue
+            elif not o.get("passes_edge_gate"):
+                continue
+        out.append(o)
+    return out
 
 
 def get_top_opportunities(fixtures, limit=20):

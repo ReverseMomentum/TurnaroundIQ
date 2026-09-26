@@ -34,6 +34,9 @@ from models.opportunities_engine import (
     rank_opportunities,
     build_opportunity,
     get_last_rank_errors,
+    filter_opportunities,
+    fta_band,
+    FTA_BANDS,
 )
 from models.early_goal_hunter import rank_early_goal_matches
 from models.chaos_index import rank_chaos_matches
@@ -58,7 +61,7 @@ CORS_ORIGINS = [
     o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
 ]
 
-app = FastAPI(title="TurnaroundIQ", version="0.5.5")
+app = FastAPI(title="TurnaroundIQ", version="0.5.6")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["*"],
@@ -96,6 +99,7 @@ class TrackedCreate(BaseModel):
     match_id: Optional[str] = None
     score_with_model: bool = True
     paper: bool = True
+    product: Optional[str] = "fta"
 
 
 class TrackedSettle(BaseModel):
@@ -309,11 +313,13 @@ def health():
     return {
         "ok": db_ok,
         "time": datetime.now(timezone.utc).isoformat(),
-        "version": "0.5.5",
+        "version": "0.5.6",
         "model_present": model_ok,
         "model_path": model_path,
         "features": [
             "opportunities",
+            "fta_bands",
+            "fta_edge_gate",
             "upcoming_fixtures_api_football",
             "tracked",
             "paper_trading",
@@ -321,6 +327,7 @@ def health():
             "chaos_index",
             "mismatch_meter",
         ],
+        "fta_bands": [{"name": n, "lo": lo, "hi": hi} for n, lo, hi in FTA_BANDS],
         "default_back_odds": DEFAULT_BACK_ODDS,
         "upcoming_days": UPCOMING_DAYS,
         "fixture_source": "api-football NS next days (no odds_history)",
@@ -369,7 +376,22 @@ def opportunities(
     authorization: str | None = Header(default=None),
     limit: int = 20,
     include_tracked: bool = True,
+    min_fta: Optional[float] = None,
+    min_edge_pp: Optional[float] = None,
+    band: Optional[str] = None,
+    edge_gate_only: bool = False,
+    require_real_odds: bool = False,
 ):
+    """
+    FTA opportunities ranked by model fta_pct.
+
+    Hardening filters (optional):
+      min_fta          — minimum model FTA % (e.g. 5)
+      band             — elite_12plus|high_8_12|mid_5_8|low_3_5|micro_under_3
+      min_edge_pp      — model − implied from odds
+      edge_gate_only   — only rows that clear default +2pp edge buffer
+      require_real_odds — drop estimated default odds
+    """
     user_id = require_pro(authorization)
     limit = max(1, min(limit, 100))
     try:
@@ -379,6 +401,17 @@ def opportunities(
             r["source"] = "auto"
             if r.get("estimated_lay") or r.get("bookmaker") == "Estimated":
                 r["odds_estimated"] = True
+            if "fta_band" not in r:
+                r["fta_band"] = fta_band(r.get("fta_pct"))
+
+        ranked = filter_opportunities(
+            ranked,
+            min_fta=min_fta,
+            min_edge_pp=min_edge_pp,
+            band=band,
+            require_real_odds=require_real_odds,
+            edge_gate_only=edge_gate_only,
+        )
 
         manual = []
         if include_tracked:
@@ -395,6 +428,7 @@ def opportunities(
                     "stake": t["stake"],
                     "commission": t["commission"],
                     "fta_pct": t["fta_pct"],
+                    "fta_band": t.get("fta_band") or fta_band(t.get("fta_pct")),
                     "lay_stake": t["lay_stake"],
                     "liability": t["liability"],
                     "expected_profit": t.get("expected_profit"),
@@ -404,6 +438,7 @@ def opportunities(
                     "kickoff": t["kickoff"],
                     "home_team": t["home_team"],
                     "away_team": t["away_team"],
+                    "product": t.get("product") or "fta",
                 })
 
         combined = manual + ranked
@@ -413,6 +448,13 @@ def opportunities(
             "manual_count": len(manual),
             "fixture_count": len(fixtures),
             "fixture_source": "api-football-upcoming",
+            "filters": {
+                "min_fta": min_fta,
+                "min_edge_pp": min_edge_pp,
+                "band": band,
+                "edge_gate_only": edge_gate_only,
+                "require_real_odds": require_real_odds,
+            },
             "paper_summary": tracked_store.summary(user_id),
             "rank_errors": get_last_rank_errors(),
             "opportunities": combined[:limit],

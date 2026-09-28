@@ -57,7 +57,10 @@ SUPPORTED_LEAGUE_IDS = {
 
 SUPPORTED_LEAGUES = list(SUPPORTED_LEAGUE_IDS.values())
 
-SAMPLE_WEIGHT_HALF_LIFE_YEARS = 2.0
+# Dixon–Coles inspired sample weights for training_data.
+# weight = 0.5 ** (years_ago / half_life). 1.5y half-life ≈ ξ ≈ 0.00127 / day
+# (recent seasons dominate; older path rates still present but soft).
+SAMPLE_WEIGHT_HALF_LIFE_YEARS = 1.5
 SAMPLE_WEIGHT_FLOOR = 0.05
 
 # API-Football — results_collector only.

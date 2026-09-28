@@ -4,21 +4,22 @@ Canonical feature list for the FTA model.
 This is imported by retrain_model.py (training), model.py
 (live prediction), and backtest.py (historical simulation).
 
-Do NOT maintain separate copies of this list in those files -
-that's exactly how max_lead/odds_movement ended up trained-on
-but never actually built into the live feature vector. One
-list, three importers.
+Do NOT maintain separate copies of this list in those files.
 """
 
 FEATURE_COLUMNS = [
 
-    # Team quality / form
+    # Team quality / form (Dixon–Coles inspired attack/defence)
     "avg_xg",
     "avg_xga",
     "xg_edge",
 
     "goals_last5",
     "conceded_last5",
+
+    "attack_rating",
+    "defence_rating",
+    "strength_edge",
 
     # Historical (all-time API-collected) turnaround signal
     "turnaround_pct",
@@ -40,6 +41,9 @@ FEATURE_COLUMNS = [
     "second_half_goal_diff",
 
     "burnout_index",
+
+    # Path fragility: P(2-up) * P(fail|2-up) style joint rate (percent scale)
+    "fta_path_rate",
 
     # Context
     "league_turnaround_rate",
@@ -83,5 +87,5 @@ FEATURE_COLUMNS = [
     "red_cards_against",
 
     "shots_for",
-    "shots_against"
+    "shots_against",
 ]

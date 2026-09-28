@@ -1,12 +1,19 @@
 """
-Age decay for training labels.
+Age decay for training labels (Dixon–Coles style).
 
-weight = 0.5 ** (years_ago / half_life_years)
+Original Dixon–Coles (1997) use continuous exponential decay on match
+likelihood contributions. We approximate the same idea for XGB rows:
 
-This season ~ 1.0
-2 years ago ~ 0.50
-4 years ago ~ 0.25
-8 years ago ~ 0.06
+    weight = 0.5 ** (years_ago / half_life_years)
+
+With SAMPLE_WEIGHT_HALF_LIFE_YEARS = 1.5:
+  this season ~ 1.0
+  ~1.5 years ago ~ 0.50
+  ~3 years ago ~ 0.25
+  ~6 years ago ~ 0.06 (floored)
+
+Missing dates keep weight 1.0 so live rows without kickoff are not
+accidentally down-weighted.
 """
 
 from datetime import datetime, timezone
@@ -29,6 +36,8 @@ def parse_match_date(value):
         "%Y-%m-%d",
         "%Y-%m-%d %H:%M:%S",
         "%Y/%m/%d",
+        "%d/%m/%Y",
+        "%d-%m-%Y",
     ):
         try:
             return datetime.strptime(text[:19], fmt).replace(
@@ -52,11 +61,7 @@ def sample_weight_from_date(
     half_life_years=SAMPLE_WEIGHT_HALF_LIFE_YEARS,
     floor=SAMPLE_WEIGHT_FLOOR,
 ):
-    """
-    Return XGBoost sample_weight for a labelled match.
-    Missing / unparsable dates keep weight 1.0 so a live
-    API result without a kickoff date is not down-weighted.
-    """
+    """Return XGBoost sample_weight for a labelled match."""
     parsed = parse_match_date(match_date) if not isinstance(
         match_date, datetime
     ) else match_date

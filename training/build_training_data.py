@@ -2,9 +2,6 @@
 Build training_data from:
   1) live match_results (all sides)
   2) historical_matches + historical_events (sides that went 2-up only)
-
-Historical full_turnaround matches results_collector:
-  went 2-up AND finished level or behind.
 """
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -20,7 +17,7 @@ from database import get_db
 from team_normalizer import load_team_stats_names, normalize_team, resolve_team_stats_name
 from training.recency import sample_weight_from_date
 
-STATS_LENGTH = 38
+STATS_LENGTH = 42
 
 TRAINING_COLUMNS = {
     "match_id": "TEXT",
@@ -34,6 +31,9 @@ TRAINING_COLUMNS = {
     "xg_edge": "REAL",
     "goals_last5": "INTEGER",
     "conceded_last5": "INTEGER",
+    "attack_rating": "REAL",
+    "defence_rating": "REAL",
+    "strength_edge": "REAL",
     "turnaround_pct": "REAL",
     "two_up_trigger_rate": "REAL",
     "historical_turnaround_rate": "REAL",
@@ -47,6 +47,7 @@ TRAINING_COLUMNS = {
     "first_half_goal_diff": "REAL",
     "second_half_goal_diff": "REAL",
     "burnout_index": "REAL",
+    "fta_path_rate": "REAL",
     "league_turnaround_rate": "REAL",
     "opponent_turnaround_rate": "REAL",
     "live_trigger_rate": "REAL",
@@ -100,7 +101,8 @@ TEAM_STATS_SELECT = """
         trigger_rate_delta, early_goal_delta, early_concede_delta,
         first_lead_delta, first_concede_delta, comeback_delta,
         lead_retention_delta, burnout_delta,
-        abs_trigger_delta, abs_retention_delta
+        abs_trigger_delta, abs_retention_delta,
+        attack_rating, defence_rating, strength_edge, fta_path_rate
     FROM team_stats WHERE team = ?
 """
 
@@ -110,13 +112,14 @@ INSERT_SQL = """
         back_odds, lay_odds,
         avg_xg, avg_xga, xg_edge,
         goals_last5, conceded_last5,
+        attack_rating, defence_rating, strength_edge,
         turnaround_pct, two_up_trigger_rate,
         historical_turnaround_rate, historical_trigger_rate,
         early_goal_rate, early_concede_rate,
         first_lead_rate, first_concede_rate,
         comeback_rate, lead_retention_rate,
         first_half_goal_diff, second_half_goal_diff,
-        burnout_index,
+        burnout_index, fta_path_rate,
         league_turnaround_rate, opponent_turnaround_rate,
         live_trigger_rate, live_early_goal_rate,
         live_early_concede_rate, live_first_lead_rate,
@@ -139,7 +142,8 @@ INSERT_SQL = """
         ?,?,?,?,?,?,?,?,?,?,
         ?,?,?,?,?,?,?,?,?,?,
         ?,?,?,?,?,?,?,?,?,?,
-        ?,?,?,?,?,?,?
+        ?,?,?,?,?,?,?,?,?,?,
+        ?
     )
 """
 
@@ -170,7 +174,6 @@ def get_league_turnaround_rate(conn, league):
 
 
 def odds_on_conn(conn, home_team, away_team, selection):
-    """Same-connection odds lookup to avoid database is locked."""
     try:
         rows = conn.execute(
             """
@@ -201,7 +204,10 @@ def empty_stats():
 def as_stats(row):
     if not row:
         return empty_stats()
-    return [v for v in row]
+    vals = list(row)
+    while len(vals) < STATS_LENGTH:
+        vals.append(None)
+    return vals[:STATS_LENGTH]
 
 
 def safe_sub(left, right):
@@ -249,13 +255,33 @@ def _build_row(
     sample_weight, full_turnaround,
 ):
     ts = team_stats
+    attack = ts[38]
+    defence = ts[39]
+    strength = ts[40]
+    fta_path = ts[41]
+    if fta_path is None:
+        trig = ts[5] if ts[5] is not None else ts[7]
+        turn = ts[4] if ts[4] is not None else ts[6]
+        try:
+            if trig is not None and turn is not None:
+                fta_path = float(trig) * float(turn) / 100.0
+        except (TypeError, ValueError):
+            fta_path = None
+    if strength is None and attack is not None and defence is not None:
+        try:
+            strength = float(attack) - float(defence)
+        except (TypeError, ValueError):
+            strength = None
+
     return (
         match_id, league, team, is_home,
         None, None,
         ts[0], ts[1], xg_edge,
-        ts[2], ts[3], ts[4], ts[5], ts[6], ts[7],
+        ts[2], ts[3],
+        attack, defence, strength,
+        ts[4], ts[5], ts[6], ts[7],
         ts[8], ts[9], ts[10], ts[11], ts[12], ts[13],
-        ts[14], ts[15], ts[16],
+        ts[14], ts[15], ts[16], fta_path,
         league_turnaround_rate, opponent_turnaround_rate,
         ts[18], ts[19], ts[20], ts[21], ts[22], ts[23],
         ts[24], ts[25], ts[26], ts[27],
@@ -348,7 +374,6 @@ def add_live_rows(conn, known_teams):
 
 
 def add_historical_rows(conn, known_teams):
-    """One row per side that went 2-up. No per-row odds (avoids lock + mostly empty)."""
     try:
         matches = conn.execute(
             """

@@ -1,6 +1,6 @@
 """
-One live team_stats pass: trigger rates + last-5 goals from match_results.
-Does not touch historical_* columns.
+One live team_stats pass: trigger rates + last-5 goals + attack/defence ratings.
+Does not wipe historical_* columns.
 """
 
 from datetime import datetime, timezone
@@ -46,6 +46,8 @@ TEAM_STATS_COLUMNS = {
     "momentum_score": "REAL",
     "attack_rating": "REAL",
     "defence_rating": "REAL",
+    "strength_edge": "REAL",
+    "fta_path_rate": "REAL",
     "model_weight": "REAL",
     "updated_at": "TEXT",
 }
@@ -79,6 +81,26 @@ def last5_goals(conn, team):
         goals += scored or 0
         conceded += against or 0
     return goals, conceded
+
+
+def season_goal_rates(conn, team):
+    """Simple λ proxies from all live results for this team."""
+    rows = conn.execute(
+        """
+        SELECT final_home, final_away, 1 FROM match_results WHERE home_team = ?
+        UNION ALL
+        SELECT final_away, final_home, 0 FROM match_results WHERE away_team = ?
+        """,
+        (team, team),
+    ).fetchall()
+    if not rows:
+        return 0.0, 0.0, 0.0
+    gf = sum((r[0] or 0) for r in rows)
+    ga = sum((r[1] or 0) for r in rows)
+    n = len(rows)
+    attack = round(gf / n, 3)
+    defence = round(ga / n, 3)
+    return attack, defence, round(attack - defence, 3)
 
 
 def update_team_stats():
@@ -132,6 +154,8 @@ def update_team_stats():
         home_pct = round(home_fail / home_leads * 100, 2) if home_leads else 0
         away_pct = round(away_fail / away_leads * 100, 2) if away_leads else 0
         goals_last5, conceded_last5 = last5_goals(conn, team)
+        attack_rating, defence_rating, strength_edge = season_goal_rates(conn, team)
+        fta_path_rate = round(trigger_rate * turnaround_pct / 100.0, 2)
         rates[team] = turnaround_pct
 
         conn.execute("INSERT OR IGNORE INTO team_stats (team) VALUES (?)", (team,))
@@ -147,6 +171,10 @@ def update_team_stats():
                 away_turnaround_pct = ?,
                 goals_last5 = ?,
                 conceded_last5 = ?,
+                attack_rating = COALESCE(?, attack_rating),
+                defence_rating = COALESCE(?, defence_rating),
+                strength_edge = COALESCE(?, strength_edge),
+                fta_path_rate = ?,
                 updated_at = ?
             WHERE team = ?
             """,
@@ -154,7 +182,12 @@ def update_team_stats():
                 matches_played, two_up_leads, failed_leads,
                 trigger_rate, turnaround_pct,
                 home_pct, away_pct,
-                goals_last5, conceded_last5, now, team,
+                goals_last5, conceded_last5,
+                attack_rating if matches_played else None,
+                defence_rating if matches_played else None,
+                strength_edge if matches_played else None,
+                fta_path_rate,
+                now, team,
             ),
         )
         updated += 1
@@ -171,7 +204,7 @@ def update_team_stats():
 
     conn.commit()
     conn.close()
-    print(f"{updated} live team_stats rows updated")
+    print(f"{updated} live team_stats rows updated (attack/defence + fta_path_rate)")
 
 
 if __name__ == "__main__":

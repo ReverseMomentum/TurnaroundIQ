@@ -1,6 +1,6 @@
 """
 Replay historical_events into team_stats.
-Merges build_historical_team_intelligence + build_historical_advanced_features.
+Merges path rates + Dixon–Coles style attack/defence ratings.
 """
 
 from collections import defaultdict
@@ -17,6 +17,18 @@ from team_normalizer import normalize_team
 
 def build():
     conn = get_db()
+    # Ensure new columns exist
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(team_stats)").fetchall()}
+    for col, typ in (
+        ("attack_rating", "REAL"),
+        ("defence_rating", "REAL"),
+        ("fta_path_rate", "REAL"),
+        ("strength_edge", "REAL"),
+    ):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE team_stats ADD COLUMN {col} {typ}")
+    conn.commit()
+
     matches = conn.execute(
         """
         SELECT match_id, home_team, away_team, final_home, final_away, league
@@ -52,6 +64,7 @@ def build():
         lead_games = retained_leads = 0
         first_half_for = first_half_against = 0
         second_half_for = second_half_against = 0
+        goals_for = goals_against = 0
         match_count = 0
 
         for match_id, home, away, final_home, final_away, league in matches:
@@ -60,6 +73,15 @@ def build():
             if team not in {home, away}:
                 continue
             match_count += 1
+            fh = int(final_home or 0)
+            fa = int(final_away or 0)
+            if team == home:
+                goals_for += fh
+                goals_against += fa
+            else:
+                goals_for += fa
+                goals_against += fh
+
             goals = events_by_match.get(match_id, [])
             home_score = away_score = 0
             team_went_two_up = False
@@ -103,8 +125,8 @@ def build():
             if team_went_two_up:
                 two_up_count += 1
                 dropped = (
-                    (team == home and (final_home or 0) <= (final_away or 0))
-                    or (team == away and (final_away or 0) <= (final_home or 0))
+                    (team == home and fh <= fa)
+                    or (team == away and fa <= fh)
                 )
                 if dropped:
                     comeback_count += 1
@@ -124,15 +146,15 @@ def build():
                 else:
                     first_concedes += 1
                     comeback_attempts += 1
-                    if team == home and (final_home or 0) >= (final_away or 0):
+                    if team == home and fh >= fa:
                         successful_comebacks += 1
-                    if team == away and (final_away or 0) >= (final_home or 0):
+                    if team == away and fa >= fh:
                         successful_comebacks += 1
             if team_led:
                 lead_games += 1
-                if team == home and (final_home or 0) > (final_away or 0):
+                if team == home and fh > fa:
                     retained_leads += 1
-                if team == away and (final_away or 0) > (final_home or 0):
+                if team == away and fa > fh:
                     retained_leads += 1
 
         turnaround_rate = round(comeback_count / two_up_count * 100, 2) if two_up_count else 0
@@ -156,6 +178,12 @@ def build():
         burnout_index = round(
             early_goal_rate * (100 - lead_retention_rate) * trigger_rate / 10000, 2
         )
+        # Dixon–Coles style λ proxies (goals per match)
+        attack_rating = round(goals_for / match_count, 3) if match_count else 0.0
+        defence_rating = round(goals_against / match_count, 3) if match_count else 0.0
+        strength_edge = round(attack_rating - defence_rating, 3)
+        # Joint path rate: P(2up)*P(fail|2up) on percent scale
+        fta_path_rate = round(trigger_rate * turnaround_rate / 100.0, 2)
 
         conn.execute("INSERT OR IGNORE INTO team_stats (team) VALUES (?)", (team,))
         conn.execute(
@@ -174,7 +202,11 @@ def build():
                 first_half_goal_diff = ?,
                 second_half_goal_diff = ?,
                 lead_retention_rate = ?,
-                burnout_index = ?
+                burnout_index = ?,
+                attack_rating = ?,
+                defence_rating = ?,
+                strength_edge = ?,
+                fta_path_rate = ?
             WHERE team = ?
             """,
             (
@@ -183,7 +215,9 @@ def build():
                 early_goal_rate, early_concede_rate,
                 first_lead_rate, first_concede_rate,
                 comeback_rate, first_half_goal_diff, second_half_goal_diff,
-                lead_retention_rate, burnout_index, team,
+                lead_retention_rate, burnout_index,
+                attack_rating, defence_rating, strength_edge, fta_path_rate,
+                team,
             ),
         )
 
@@ -195,7 +229,7 @@ def build():
         save_league_stats(league, acc["matches"], acc["two_up"], acc["comeback"], trigger, turn)
 
     conn.close()
-    print(f"{len(teams)} historical profiles built")
+    print(f"{len(teams)} historical profiles built (with attack/defence + fta_path_rate)")
 
 
 if __name__ == "__main__":

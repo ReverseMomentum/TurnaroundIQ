@@ -75,7 +75,6 @@ def predict_with_confidence(feature_data):
     probs = bundle["model"].predict_proba(df)[0]
     raw_fta = float(probs[1])
     fta_probability = _calibrate_prob(raw_fta, bundle.get("calibrator"))
-    # Always return percent 0–100 (never a fraction)
     fta_pct = float(np.clip(fta_probability * 100.0, 0.0, 100.0))
     confidence = float(np.clip(max(fta_probability, 1 - fta_probability) * 100.0, 0.0, 100.0))
     return {
@@ -118,12 +117,35 @@ def build_feature_vector(
     if avg_xg is not None and avg_xga is not None:
         xg_edge = avg_xg - avg_xga
 
+    attack = team_stats.get("attack_rating")
+    defence = team_stats.get("defence_rating")
+    strength_edge = team_stats.get("strength_edge")
+    if strength_edge is None and attack is not None and defence is not None:
+        try:
+            strength_edge = float(attack) - float(defence)
+        except (TypeError, ValueError):
+            strength_edge = None
+
+    # Joint path rate if not precomputed
+    fta_path = team_stats.get("fta_path_rate")
+    if fta_path is None:
+        trig = team_stats.get("two_up_trigger_rate") or team_stats.get("historical_trigger_rate")
+        turn = team_stats.get("turnaround_pct") or team_stats.get("historical_turnaround_rate")
+        try:
+            if trig is not None and turn is not None:
+                fta_path = float(trig) * float(turn) / 100.0
+        except (TypeError, ValueError):
+            fta_path = None
+
     return {
         "avg_xg": avg_xg,
         "avg_xga": avg_xga,
         "xg_edge": xg_edge,
         "goals_last5": team_stats.get("goals_last5"),
         "conceded_last5": team_stats.get("conceded_last5"),
+        "attack_rating": attack,
+        "defence_rating": defence,
+        "strength_edge": strength_edge,
         "turnaround_pct": team_stats.get("turnaround_pct"),
         "two_up_trigger_rate": team_stats.get("two_up_trigger_rate"),
         "historical_turnaround_rate": team_stats.get("historical_turnaround_rate"),
@@ -137,6 +159,7 @@ def build_feature_vector(
         "first_half_goal_diff": team_stats.get("first_half_goal_diff"),
         "second_half_goal_diff": team_stats.get("second_half_goal_diff"),
         "burnout_index": team_stats.get("burnout_index"),
+        "fta_path_rate": fta_path,
         "league_turnaround_rate": team_stats.get("league_turnaround_rate"),
         "opponent_turnaround_rate": team_stats.get("opponent_turnaround_rate"),
         "live_trigger_rate": team_stats.get("live_trigger_rate"),
@@ -173,6 +196,6 @@ def build_feature_vector(
 
 def model_version():
     try:
-        return load_bundle().get("version") or "V4.1-calibrated"
+        return load_bundle().get("version") or "V4.2-dc"
     except Exception:
-        return "V4.1-calibrated"
+        return "V4.2-dc"

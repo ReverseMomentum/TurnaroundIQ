@@ -4,12 +4,10 @@ Train FTA classifier with imbalance handling + Platt calibration.
 Saves a bundle to fta_model.pkl:
   {
     "model": XGBClassifier,
-    "calibrator": LogisticRegression | None,  # Platt on logit(p)
+    "calibrator": LogisticRegression | None,
     "version": str,
     "base_rate": float,
   }
-
-Also writes model_runs + feature_importance rows for long-term tracking.
 """
 
 import sys
@@ -30,7 +28,7 @@ from models.importance_store import save_model_run_with_importance
 from tests.feature_config import FEATURE_COLUMNS
 
 MODEL_FILE = Path(__file__).resolve().parent.parent / "fta_model.pkl"
-MODEL_VERSION = "V4.1-calibrated"
+MODEL_VERSION = "V4.2-dc"  # Dixon–Coles decay + attack/defence features
 MIN_TRAINING_ROWS = 100
 
 
@@ -108,6 +106,8 @@ def train_model():
     else:
         weights = pd.Series(1.0, index=df.index)
 
+    print(f"sample_weight mean={weights.mean():.3f} min={weights.min():.3f} max={weights.max():.3f}")
+
     stratify_arg = y if y.nunique() >= 2 and y.value_counts().min() >= 2 else None
     if stratify_arg is None:
         print("[WARN] Cannot stratify split")
@@ -181,7 +181,7 @@ def train_model():
         brier_score=float(brier),
         log_loss=float(loss),
         roc_auc=float(auc) if auc == auc else None,
-        notes="scale_pos_weight + Platt calibration on logit(p)",
+        notes="V4.2 Dixon-Coles decay + attack/defence + fta_path_rate",
         feature_importance=importance,
     )
 

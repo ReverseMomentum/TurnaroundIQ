@@ -80,7 +80,31 @@ const c = {
   red: "#FF5252",
   text: "#F5F7FA",
   textSecondary: "#A0A8C0",
+  textMuted: "#6B7592",
 };
+
+// Surfaces: soft top-lit gradient + depth, so cards read as layers not flat boxes.
+const card = {
+  background: "linear-gradient(180deg, #0E1731 0%, #0A1122 100%)",
+  border: "1px solid " + c.border,
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 30px rgba(0,0,0,0.25)",
+};
+const heroCard = {
+  background: "radial-gradient(120% 140% at 0% 0%, rgba(54,233,143,0.16) 0%, rgba(75,199,255,0.06) 45%, rgba(11,18,36,0) 70%), linear-gradient(180deg, #0F1A33 0%, #0A1122 100%)",
+  border: "1px solid rgba(54,233,143,0.25)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), 0 16px 40px rgba(0,0,0,0.35)",
+};
+// FTA% vs the ~2% base rate: colour + "x average" label
+function ftaTone(v) {
+  if (v == null) return c.textSecondary;
+  if (v >= 3) return c.green;
+  if (v >= 2) return c.cyan;
+  return c.textSecondary;
+}
+function vsAverage(v) {
+  if (v == null || !isFinite(v)) return null;
+  return (v / 2).toFixed(1) + "× avg";
+}
 
 // ============================================================
 // SHARED CALCULATIONS -- ported 1:1 from calculations.py.
@@ -156,11 +180,14 @@ function formatKickoff(iso) {
   const d = dateOnly ? new Date(iso + "T12:00:00") : new Date(iso);
   if (isNaN(d.getTime())) return iso;
   const day = d.getDate();
-  const month = d.toLocaleString("en-GB", { month: "long" });
-  if (dateOnly) return day + ordinalSuffix(day) + " " + month;
-  const hours = d.getHours() % 12 || 12;
-  const minutes = String(d.getMinutes()).padStart(2, "0");
-  return day + ordinalSuffix(day) + " " + month + " - " + hours + ":" + minutes;
+  const month = d.toLocaleString("en-GB", { month: "short" });
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const label = sameDay(d, today) ? "Today" : sameDay(d, tomorrow) ? "Tomorrow"
+    : d.toLocaleString("en-GB", { weekday: "short" }) + " " + day + ordinalSuffix(day) + " " + month;
+  if (dateOnly) return label;
+  return label + " · " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 const pct = (v, dp = 1) => (v == null || isNaN(v) ? "—" : Number(v).toFixed(dp) + "%");
 const money = (v) => (v == null || isNaN(v) ? "—" : (v >= 0 ? "£" : "-£") + Math.abs(v).toFixed(2));
@@ -191,7 +218,7 @@ function PageHeader({ onNavigate, entitled }) {
     <div className="flex items-center justify-between mb-6">
       <button onClick={() => onNavigate("dashboard")} className="flex items-center gap-2">
         <img src={LOGO_SRC} alt="TurnaroundIQ logo" className="h-6 w-auto" />
-        <span className="text-base font-medium">
+        <span className="text-base font-semibold tracking-tight">
           <span style={{ color: c.text }}>Turnaround</span>
           <span style={{ color: c.green }}>IQ</span>
         </span>
@@ -213,10 +240,10 @@ function PageHeader({ onNavigate, entitled }) {
 function BottomNav({ activeTab, onNavigate }) {
   const [open, setOpen] = useState(false);
   const navItems = [
-    { key: "dashboard", icon: Home },
-    { key: "opportunities", icon: Rocket },
-    { key: "live", icon: RadioTower },
-    { key: "bets", icon: Wallet },
+    { key: "dashboard", icon: Home, label: "Home" },
+    { key: "opportunities", icon: Rocket, label: "Picks" },
+    { key: "live", icon: RadioTower, label: "Live" },
+    { key: "bets", icon: Wallet, label: "Bets" },
   ];
   const flyoutItems = [
     ...(SHOW_DEV_TOOLS ? [{ key: "model-testing", icon: FlaskConical, label: "Model Testing (dev)", tone: c.cyan }] : []),
@@ -233,7 +260,7 @@ function BottomNav({ activeTab, onNavigate }) {
     <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-4 px-4" style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
       <div className="w-full max-w-[420px]">
         {open && (
-          <div style={{ background: c.cardAlt, border: "1px solid " + c.border }} className="rounded-2xl p-2 mb-2">
+          <div style={{ background: "rgba(11,16,32,0.92)", border: "1px solid " + c.border, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", boxShadow: "0 16px 40px rgba(0,0,0,0.5)" }} className="rounded-2xl p-2 mb-2">
             {flyoutItems.map(({ key, icon: Icon, label, tone }) => (
               <button key={key} onClick={() => go(key)} className="w-full flex items-center gap-3 px-3 py-3 text-left">
                 <Icon size={20} style={{ color: tone }} />
@@ -242,14 +269,19 @@ function BottomNav({ activeTab, onNavigate }) {
             ))}
           </div>
         )}
-        <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-2xl flex items-center justify-between px-7 py-4">
-          {navItems.map(({ key, icon: Icon }) => (
-            <button key={key} aria-label={key} onClick={() => go(key)}>
-              <Icon size={22} style={{ color: !open && key === activeTab ? c.green : c.textSecondary }} />
-            </button>
-          ))}
-          <button aria-label={open ? "Close menu" : "Open menu"} onClick={() => setOpen(!open)}>
-            {open ? <X size={22} style={{ color: c.green }} /> : <Menu size={22} style={{ color: activeTab === "menu" ? c.green : c.textSecondary }} />}
+        <div style={{ background: "rgba(11,18,36,0.82)", border: "1px solid " + c.border, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", boxShadow: "0 12px 32px rgba(0,0,0,0.45)" }} className="rounded-2xl flex items-center justify-between px-2 py-2">
+          {navItems.map(({ key, icon: Icon, label }) => {
+            const active = !open && key === activeTab;
+            return (
+              <button key={key} aria-label={key} onClick={() => go(key)} style={{ background: active ? "rgba(54,233,143,0.12)" : "transparent" }} className="flex-1 flex flex-col items-center gap-1 rounded-xl py-2">
+                <Icon size={20} style={{ color: active ? c.green : c.textSecondary }} />
+                <span style={{ color: active ? c.green : c.textMuted }} className="text-[10px] font-medium">{label}</span>
+              </button>
+            );
+          })}
+          <button aria-label={open ? "Close menu" : "Open menu"} onClick={() => setOpen(!open)} style={{ background: open ? "rgba(54,233,143,0.12)" : "transparent" }} className="flex-1 flex flex-col items-center gap-1 rounded-xl py-2">
+            {open ? <X size={20} style={{ color: c.green }} /> : <Menu size={20} style={{ color: c.textSecondary }} />}
+            <span style={{ color: open ? c.green : c.textMuted }} className="text-[10px] font-medium">More</span>
           </button>
         </div>
       </div>
@@ -259,7 +291,7 @@ function BottomNav({ activeTab, onNavigate }) {
 
 function PageShell({ children, activeTab, onNavigate, entitled }) {
   return (
-    <div style={{ background: c.bg, minHeight: "100vh" }} className="pb-32">
+    <div style={{ background: "radial-gradient(900px 380px at 50% -160px, rgba(54,233,143,0.10), rgba(75,199,255,0.04) 40%, transparent 70%), " + c.bg, minHeight: "100vh" }} className="pb-36">
       <div className="max-w-[420px] mx-auto px-4 pt-6">
         <PageHeader onNavigate={onNavigate} entitled={entitled} />
         {children}
@@ -306,9 +338,9 @@ function Empty({ children }) {
 
 function KpiCard({ label, value, tone }) {
   return (
-    <div style={{ background: c.card, border: "1px solid " + c.border }} className="flex-shrink-0 rounded-xl px-4 py-3 min-w-[110px]">
+    <div style={card} className="flex-shrink-0 rounded-xl px-4 py-3 min-w-[110px]">
       <p style={{ color: c.textSecondary }} className="text-xs mb-1">{label}</p>
-      <p style={{ color: tone }} className="text-lg font-medium">{value}</p>
+      <p style={{ color: tone }} className="num text-xl font-semibold">{value}</p>
     </div>
   );
 }
@@ -317,7 +349,7 @@ function StatBox({ label, value, tone }) {
   return (
     <div>
       <p style={{ color: c.textSecondary }} className="text-xs">{label}</p>
-      <p style={{ color: tone || c.text }} className="text-sm font-medium">{value}</p>
+      <p style={{ color: tone || c.text }} className="num text-base font-semibold">{value}</p>
     </div>
   );
 }
@@ -366,7 +398,7 @@ function Paywall({ title, onPurchased }) {
   };
 
   return (
-    <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-2xl p-6 text-center mt-4">
+    <div style={card} className="rounded-2xl p-6 text-center mt-4">
       <div style={{ background: c.greenDark }} className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
         <Lock size={20} style={{ color: c.green }} />
       </div>
@@ -456,16 +488,19 @@ function SignInPage({ onSignedIn }) {
   const inputStyle = { background: c.cardAlt, color: c.text, border: "1px solid " + c.border };
 
   return (
-    <div style={{ background: c.bg, minHeight: "100vh" }} className="flex flex-col justify-center px-6">
+    <div style={{ background: "radial-gradient(700px 420px at 50% 18%, rgba(54,233,143,0.14), rgba(75,199,255,0.05) 45%, transparent 70%), " + c.bg, minHeight: "100vh" }} className="flex flex-col justify-center px-6">
       <div className="max-w-[380px] w-full mx-auto">
-        <div className="flex items-center gap-2 mb-8 justify-center">
-          <img src={LOGO_SRC} alt="" className="h-8 w-auto" />
-          <span className="text-xl font-medium"><span style={{ color: c.text }}>Turnaround</span><span style={{ color: c.green }}>IQ</span></span>
+        <div className="flex flex-col items-center mb-8 text-center">
+          <div style={{ background: "rgba(54,233,143,0.10)", border: "1px solid rgba(54,233,143,0.25)", boxShadow: "0 0 40px rgba(54,233,143,0.25)" }} className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4">
+            <img src={LOGO_SRC} alt="" className="h-9 w-auto" />
+          </div>
+          <span className="text-2xl font-bold tracking-tight"><span style={{ color: c.text }}>Turnaround</span><span style={{ color: c.green }}>IQ</span></span>
+          <p style={{ color: c.textSecondary }} className="text-sm mt-2">Football intelligence for 2-up offers</p>
         </div>
-        <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-2xl p-6">
+        <div style={card} className="rounded-2xl p-6">
           {step === "email" ? (
             <form onSubmit={send} className="flex flex-col gap-3">
-              <p style={{ color: c.text }} className="text-base font-medium">Sign in</p>
+              <p style={{ color: c.text }} className="text-lg font-semibold">Sign in</p>
               <p style={{ color: c.textSecondary }} className="text-sm">We'll email you a 6-digit code. No password needed.</p>
               <input type="email" autoComplete="email" inputMode="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} className="rounded-xl px-4 py-3 text-base" />
               <button type="submit" disabled={busy || !email} style={{ background: c.green, color: c.greenDark, opacity: busy || !email ? 0.6 : 1 }} className="rounded-xl py-3 text-sm font-medium flex items-center justify-center gap-2">
@@ -499,43 +534,74 @@ function SignInPage({ onSignedIn }) {
 // OPPORTUNITIES (FTA)
 // fta_pct = chance the team goes 2 up AND fails to win (full event)
 // ============================================================
+function Metric({ label, value, tone }) {
+  return (
+    <div>
+      <p style={{ color: c.textMuted }} className="text-[11px] mb-0.5">{label}</p>
+      <p style={{ color: tone || c.text }} className="num text-sm font-semibold">{value}</p>
+    </div>
+  );
+}
+
 function OpportunityCard({ o, onClick, wide }) {
   const depth = depthLabel(o.confidence);
+  const tone = ftaTone(o.fta_pct);
+  const fill = Math.max(4, Math.min(100, ((o.fta_pct || 0) / 5) * 100));
   return (
     <button
       onClick={() => onClick(o)}
-      style={{ background: c.card, border: "1px solid " + c.border, textAlign: "left" }}
-      className={"rounded-xl p-4 flex flex-col gap-3 " + (wide ? "w-full" : "w-[260px] flex-shrink-0")}
+      style={{ ...card, textAlign: "left" }}
+      className={"rounded-2xl p-4 flex flex-col gap-3 " + (wide ? "w-full" : "w-[272px] flex-shrink-0")}
     >
+      <div className="flex items-center justify-between gap-2">
+        <span style={{ background: "rgba(75,199,255,0.10)", color: c.cyan }} className="text-[11px] font-medium px-2 py-1 rounded-full truncate">
+          {formatKickoff(o.kickoff)}
+        </span>
+        <span style={{ color: c.textMuted }} className="text-[11px] truncate">{o.league}</span>
+      </div>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p style={{ color: c.textSecondary }} className="text-xs mb-1 truncate">
-            {formatKickoff(o.kickoff)}{wide ? " · " + o.league : ""}
-          </p>
-          <p style={{ color: c.text }} className="text-sm font-medium leading-snug truncate">{o.home_team}</p>
+          <p style={{ color: c.text }} className="text-[15px] font-semibold leading-snug truncate">{o.home_team}</p>
           <p style={{ color: c.textSecondary }} className="text-sm leading-snug truncate">vs {o.away_team}</p>
-          <p style={{ color: c.cyan }} className="text-xs mt-1 truncate">Team: {o.team}</p>
+          <p style={{ color: c.textSecondary }} className="text-xs mt-1.5 truncate">
+            2-up team <span style={{ color: c.text }} className="font-medium">{o.team}</span>
+          </p>
         </div>
         <div className="text-right flex-shrink-0">
-          <p style={{ color: c.green }} className="text-lg font-medium">{pct(o.fta_pct, 2)}</p>
-          <p style={{ color: c.textSecondary }} className="text-xs">FTA chance</p>
+          <p style={{ color: tone }} className="num text-2xl font-bold leading-none">{pct(o.fta_pct, 2)}</p>
+          <p style={{ color: c.textMuted }} className="text-[11px] mt-1">FTA chance</p>
+          {vsAverage(o.fta_pct) && (
+            <span style={{ background: tone === c.textSecondary ? "rgba(160,168,192,0.12)" : tone === c.green ? "rgba(54,233,143,0.12)" : "rgba(75,199,255,0.12)", color: tone }} className="num inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-md mt-1">
+              {vsAverage(o.fta_pct)}
+            </span>
+          )}
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div><p style={{ color: c.textSecondary }} className="text-xs">Goes 2 up</p><p style={{ color: c.text }} className="text-sm font-medium">{pct(o.two_up_pct, 0)}</p></div>
-        <div><p style={{ color: c.textSecondary }} className="text-xs">Then fails</p><p style={{ color: c.text }} className="text-sm font-medium">{pct(o.fail_given_2up_pct ?? o.turnaround_pct, 1)}</p></div>
-        <div><p style={{ color: c.textSecondary }} className="text-xs">Usual 2-up</p><p style={{ color: c.text }} className="text-sm font-medium">{o.usual_2up_minute ? Math.round(o.usual_2up_minute) + "'" : "—"}</p></div>
+      <div style={{ background: "rgba(255,255,255,0.06)" }} className="h-1 rounded-full overflow-hidden">
+        <div style={{ width: fill + "%", background: "linear-gradient(90deg, " + c.cyan + ", " + tone + ")" }} className="h-full rounded-full" />
+      </div>
+      <div style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.04)" }} className="grid grid-cols-3 gap-2 text-center rounded-xl py-2">
+        <Metric label="Goes 2 up" value={pct(o.two_up_pct, 0)} />
+        <Metric label="Then fails" value={pct(o.fail_given_2up_pct ?? o.turnaround_pct, 1)} />
+        <Metric label="Usual 2-up" value={o.usual_2up_minute ? Math.round(o.usual_2up_minute) + "'" : "—"} />
       </div>
       {o.not_at_my_books && (
         <p style={{ color: c.orange }} className="text-xs truncate">Not priced at your bookmakers yet</p>
       )}
       {!o.odds_estimated && o.back_odds && (
-        <p style={{ color: c.textSecondary }} className="text-xs truncate">
-          Back {Number(o.back_odds).toFixed(2)} {o.bookmaker} · Lay {o.estimated_lay ? "est. " : ""}{Number(o.lay_odds).toFixed(2)}
-        </p>
+        <div className="flex items-center gap-2 text-xs min-w-0">
+          <span style={{ color: c.textMuted }}>Back</span>
+          <span style={{ color: c.green }} className="num font-semibold">{Number(o.back_odds).toFixed(2)}</span>
+          <span style={{ color: c.textSecondary }} className="truncate">{o.bookmaker}</span>
+          <span style={{ color: c.border }}>|</span>
+          <span style={{ color: c.textMuted }}>Lay{o.estimated_lay ? " est." : ""}</span>
+          <span style={{ color: c.cyan }} className="num font-semibold">{Number(o.lay_odds).toFixed(2)}</span>
+        </div>
       )}
-      <div className="flex items-center justify-between">
-        <span style={{ color: depth.tone }} className="text-xs font-medium">{depth.label}</span>
+      <div style={{ borderTop: "1px solid " + c.border }} className="flex items-center justify-between pt-3">
+        <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: depth.tone }}>
+          <span style={{ background: depth.tone }} className="w-1.5 h-1.5 rounded-full" />{depth.label}
+        </span>
         <span style={{ color: c.cyan }} className="flex items-center gap-1 text-xs font-medium">Analysis <ChevronRight size={14} /></span>
       </div>
     </button>
@@ -595,11 +661,11 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
   };
 
   return (
-    <div style={{ background: "rgba(0,0,0,0.6)" }} className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: c.bg, border: "1px solid " + c.border }} className="w-full max-w-[420px] max-h-[85vh] overflow-y-auto rounded-t-2xl p-5">
+    <div style={{ background: "rgba(2,6,16,0.7)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }} className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "linear-gradient(180deg, #0C1427 0%, " + c.bg + " 40%)", border: "1px solid " + c.border, boxShadow: "0 -20px 60px rgba(0,0,0,0.5)" }} className="w-full max-w-[420px] max-h-[88vh] overflow-y-auto rounded-t-3xl p-5">
         <div className="flex justify-between items-center mb-3">
           <div style={{ background: c.border }} className="w-10 h-1 rounded-full mx-auto" />
-          <button aria-label="Close" onClick={onClose} style={{ background: c.card, border: "1px solid " + c.border }} className="w-8 h-8 rounded-full flex items-center justify-center">
+          <button aria-label="Close" onClick={onClose} style={card} className="w-8 h-8 rounded-full flex items-center justify-center">
             <X size={16} style={{ color: c.textSecondary }} />
           </button>
         </div>
@@ -608,14 +674,14 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
           <span style={{ color: c.textSecondary }} className="text-sm">{formatKickoff(o.kickoff)}</span>
           <span style={{ color: c.textSecondary }} className="text-sm">{o.league}</span>
         </div>
-        <p style={{ color: c.text }} className="text-sm font-medium">{o.home_team} <span style={{ color: c.textSecondary }}>vs</span> {o.away_team}</p>
+        <p style={{ color: c.text }} className="text-lg font-semibold tracking-tight">{o.home_team} <span style={{ color: c.textSecondary }} className="font-normal">vs</span> {o.away_team}</p>
         <p style={{ color: c.cyan }} className="text-xs mb-4">Team to go 2 up: {o.team}</p>
 
-        <p style={{ color: c.textSecondary }} className="text-xs uppercase tracking-wide mb-2">Model probabilities</p>
-        <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-3 grid grid-cols-3 gap-2 text-center mb-2">
-          <div><p style={{ color: c.textSecondary }} className="text-xs mb-1">Goes 2 up</p><p style={{ color: c.text }} className="text-base font-medium">{pct(o.two_up_pct)}</p></div>
-          <div><p style={{ color: c.textSecondary }} className="text-xs mb-1">Then fails to win</p><p style={{ color: c.text }} className="text-base font-medium">{pct(o.fail_given_2up_pct ?? o.turnaround_pct)}</p></div>
-          <div><p style={{ color: c.textSecondary }} className="text-xs mb-1">FTA (both)</p><p style={{ color: c.green }} className="text-base font-medium">{pct(o.fta_pct, 2)}</p></div>
+        <p style={{ color: c.textSecondary }} className="text-[11px] font-semibold uppercase tracking-wider mb-2">Model probabilities</p>
+        <div style={card} className="rounded-xl p-3 grid grid-cols-3 gap-2 text-center mb-2">
+          <div><p style={{ color: c.textSecondary }} className="text-xs mb-1">Goes 2 up</p><p style={{ color: c.text }} className="num text-lg font-semibold">{pct(o.two_up_pct)}</p></div>
+          <div><p style={{ color: c.textSecondary }} className="text-xs mb-1">Then fails to win</p><p style={{ color: c.text }} className="num text-lg font-semibold">{pct(o.fail_given_2up_pct ?? o.turnaround_pct)}</p></div>
+          <div><p style={{ color: c.textSecondary }} className="text-xs mb-1">FTA (both)</p><p style={{ color: c.green }} className="num text-lg font-bold">{pct(o.fta_pct, 2)}</p></div>
         </div>
         <p style={{ color: depth.tone }} className="text-xs mb-4">{depth.label} — how much match history backs these numbers</p>
 
@@ -656,7 +722,7 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
           </div>
         )}
 
-        <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-3 flex items-center justify-between mb-4">
+        <div style={card} className="rounded-xl p-3 flex items-center justify-between mb-4">
           <span style={{ color: c.textSecondary }} className="text-xs">Stake</span>
           <div className="flex items-center gap-2">
             <span style={{ color: c.text }} className="text-base font-medium">£</span>
@@ -669,8 +735,8 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
           <div><p style={{ color: c.textSecondary }} className="text-xs mb-1">Liability</p><p style={{ color: c.orange }} className="text-base font-medium">£{calcLiability(layNum, layStake).toFixed(2)}</p></div>
         </div>
 
-        <p style={{ color: c.textSecondary }} className="text-xs uppercase tracking-wide mb-2">Outcomes</p>
-        <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-3 mb-4 flex flex-col gap-3">
+        <p style={{ color: c.textSecondary }} className="text-[11px] font-semibold uppercase tracking-wider mb-2">Outcomes</p>
+        <div style={card} className="rounded-xl p-3 mb-4 flex flex-col gap-3">
           <div className="flex items-center justify-between"><span style={{ color: c.textSecondary }} className="text-sm">Goes 2 up, then fails to win</span><span style={{ color: c.green }} className="text-sm font-medium">{money(ftaProfit)}</span></div>
           <div className="flex items-center justify-between"><span style={{ color: c.textSecondary }} className="text-sm">Any other result</span><span style={{ color: ql >= 0 ? c.green : c.red }} className="text-sm font-medium">{money(ql)}</span></div>
           <div style={{ borderTop: "1px solid " + c.border }} />
@@ -717,7 +783,7 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
   if (!entitled) {
     return (
       <PageShell activeTab="dashboard" onNavigate={nav} entitled={entitled}>
-        <p style={{ color: c.text }} className="text-xl font-medium mb-1">Welcome to TurnaroundIQ</p>
+        <p style={{ color: c.text }} className="text-2xl font-semibold tracking-tight mb-1">Welcome to TurnaroundIQ</p>
         <p style={{ color: c.textSecondary }} className="text-sm">
           Football intelligence for 2-up offers: the chance a team goes two goals up and still fails to win,
           plus early-goal and chaos signals across 25 leagues.
@@ -730,9 +796,9 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
 
   return (
     <PageShell activeTab="dashboard" onNavigate={nav} entitled={entitled}>
-      <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-2xl p-5 mb-6">
-        <p style={{ color: c.textSecondary }} className="text-xs mb-1">Paper profit (tracked bets)</p>
-        <p style={{ color: (paper?.total_profit || 0) >= 0 ? c.text : c.red }} className="text-3xl font-medium mb-4">{money(paper?.total_profit || 0)}</p>
+      <div style={heroCard} className="rounded-3xl p-5 mb-6">
+        <p style={{ color: c.textSecondary }} className="text-xs uppercase tracking-wider mb-2">Paper profit · tracked bets</p>
+        <p style={{ color: (paper?.total_profit || 0) >= 0 ? c.text : c.red }} className="num text-4xl font-bold tracking-tight mb-5">{money(paper?.total_profit || 0)}</p>
         <div className="grid grid-cols-3 gap-3">
           <StatBox label="Open" value={String(paper?.open ?? 0)} />
           <StatBox label="Settled" value={String(paper?.settled ?? 0)} />
@@ -747,7 +813,7 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
       </div>
 
       <div className="flex items-center justify-between mb-3">
-        <p style={{ color: c.text }} className="text-base font-medium">Top opportunities</p>
+        <p style={{ color: c.text }} className="text-base font-semibold">Top opportunities</p>
         <button onClick={() => nav("opportunities")} style={{ color: c.cyan }} className="text-xs font-medium">View all</button>
       </div>
       {opps.loading && <Loading />}
@@ -757,7 +823,7 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
         {list.slice(0, 4).map((o) => <OpportunityCard key={oppKey(o)} o={o} onClick={onOpen} />)}
       </div>
 
-      <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-2xl p-5">
+      <div style={card} className="rounded-2xl p-5">
         <p style={{ color: c.text }} className="text-sm font-medium mb-4">Snapshot</p>
         <div className="grid grid-cols-2 gap-4">
           <StatBox label="Highest-rated league" value={topLeague ? topLeague[0] : "—"} />
@@ -878,7 +944,7 @@ function BookmakerFilter({ opps }) {
         <ChevronDown size={16} style={{ color: c.textSecondary, transform: open ? "rotate(180deg)" : "none" }} />
       </button>
       {open && (
-        <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-3 mt-2">
+        <div style={card} className="rounded-xl p-3 mt-2">
           <p style={{ color: c.textSecondary }} className="text-xs mb-2">Tick the bookmakers you have accounts with. Leave all unticked to use any UK bookmaker.</p>
           {available === null && !error && <p style={{ color: c.textSecondary }} className="text-xs py-2">Loading…</p>}
           <div className="grid grid-cols-2 gap-2">
@@ -911,7 +977,7 @@ function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
 
   return (
     <PageShell activeTab="opportunities" onNavigate={nav} entitled={entitled}>
-      <p style={{ color: c.text }} className="text-xl font-medium mb-1">Opportunities</p>
+      <p style={{ color: c.text }} className="text-2xl font-semibold tracking-tight mb-1">Opportunities</p>
       <p style={{ color: c.textSecondary }} className="text-sm mb-4">
         Games in the next 24 hours, ranked by FTA chance: the team goes 2 goals up <i>and</i> fails to win. Average is about 2%.
       </p>
@@ -954,7 +1020,7 @@ function EarlyGoalHunterPage({ nav, entitled, onPurchased }) {
   const ranked = [...(q.data?.matches || [])].sort((a, b) => b.hunter_score - a.hunter_score);
   return (
     <PageShell activeTab="menu" onNavigate={nav} entitled={entitled}>
-      <p style={{ color: c.text }} className="text-xl font-medium mb-1">Early Goal Hunter</p>
+      <p style={{ color: c.text }} className="text-2xl font-semibold tracking-tight mb-1">Early Goal Hunter</p>
       <p style={{ color: c.textSecondary }} className="text-sm mb-4">Fixtures most likely to see an early goal. A separate signal from FTA.</p>
       {q.needsPro && <Paywall onPurchased={onPurchased} />}
       {q.loading && <Loading />}
@@ -962,7 +1028,7 @@ function EarlyGoalHunterPage({ nav, entitled, onPurchased }) {
       {q.data && ranked.length === 0 && <Empty>No fixtures right now.</Empty>}
       <div className="flex flex-col gap-3">
         {ranked.map((f) => (
-          <div key={f.match_id || f.match} style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-4 flex flex-col gap-3">
+          <div key={f.match_id || f.match} style={card} className="rounded-xl p-4 flex flex-col gap-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p style={{ color: c.textSecondary }} className="text-xs mb-1 truncate">{formatKickoff(f.kickoff)} · {f.league}</p>
@@ -970,7 +1036,7 @@ function EarlyGoalHunterPage({ nav, entitled, onPurchased }) {
                 <p style={{ color: c.textSecondary }} className="text-sm truncate">vs {f.away_team}</p>
               </div>
               <div className="text-right flex-shrink-0">
-                <p style={{ color: hunterTone(f.hunter_score) }} className="text-lg font-medium">{Number(f.hunter_score).toFixed(0)}</p>
+                <p style={{ color: hunterTone(f.hunter_score) }} className="num text-2xl font-bold leading-none mb-1">{Number(f.hunter_score).toFixed(0)}</p>
                 <p style={{ color: c.textSecondary }} className="text-xs">Hunter score</p>
               </div>
             </div>
@@ -1000,7 +1066,7 @@ function ChaosFactorPage({ nav, entitled, onPurchased }) {
   const ranked = [...(q.data?.matches || [])].sort((a, b) => b.chaos_index - a.chaos_index);
   return (
     <PageShell activeTab="menu" onNavigate={nav} entitled={entitled}>
-      <p style={{ color: c.text }} className="text-xl font-medium mb-1">Chaos Factor</p>
+      <p style={{ color: c.text }} className="text-2xl font-semibold tracking-tight mb-1">Chaos Factor</p>
       <p style={{ color: c.textSecondary }} className="text-sm mb-4">Unpredictability: O2.5, BTTS, early goals and instability combined.</p>
       {q.needsPro && <Paywall onPurchased={onPurchased} />}
       {q.loading && <Loading />}
@@ -1010,7 +1076,7 @@ function ChaosFactorPage({ nav, entitled, onPurchased }) {
         {ranked.map((f) => {
           const pieData = Object.entries(f.pie || f.components || {}).map(([key, value]) => ({ name: CHAOS_LABELS[key] || key, value, key }));
           return (
-            <div key={f.match_id || f.match} style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-4 flex flex-col gap-3">
+            <div key={f.match_id || f.match} style={card} className="rounded-xl p-4 flex flex-col gap-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p style={{ color: c.textSecondary }} className="text-xs mb-1 truncate">{formatKickoff(f.kickoff)} · {f.league}</p>
@@ -1018,7 +1084,7 @@ function ChaosFactorPage({ nav, entitled, onPurchased }) {
                   <p style={{ color: c.textSecondary }} className="text-sm truncate">vs {f.away_team}</p>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p style={{ color: chaosLabelTone(f.chaos_label) }} className="text-lg font-medium">{Number(f.chaos_index).toFixed(0)}</p>
+                  <p style={{ color: chaosLabelTone(f.chaos_label) }} className="num text-2xl font-bold leading-none mb-1">{Number(f.chaos_index).toFixed(0)}</p>
                   <p style={{ color: chaosLabelTone(f.chaos_label) }} className="text-xs uppercase font-medium">{f.chaos_label}</p>
                 </div>
               </div>
@@ -1057,7 +1123,7 @@ function LiveMonitorPage({ nav, entitled }) {
   return (
     <PageShell activeTab="live" onNavigate={nav} entitled={entitled}>
       <p style={{ color: c.text }} className="text-xl font-medium mb-4">Live monitoring</p>
-      <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-2xl p-6 text-center">
+      <div style={card} className="rounded-2xl p-6 text-center">
         <RadioTower size={28} style={{ color: c.cyan }} className="mx-auto mb-3" />
         <p style={{ color: c.text }} className="text-base font-medium mb-2">Coming soon</p>
         <p style={{ color: c.textSecondary }} className="text-sm">
@@ -1121,12 +1187,12 @@ function MyBetsPage({ nav, entitled, onPurchased, reloadMe }) {
             <KpiCard label="Bets" value={String(summary.total ?? bets.length)} tone={c.text} />
             <KpiCard label="FTA hits" value={String(summary.fta_hits ?? 0)} tone={c.green} />
           </div>
-          <button onClick={() => setShowGraph(!showGraph)} style={{ background: c.card, border: "1px solid " + c.border }} className="w-full rounded-xl px-4 py-3 flex items-center justify-between mb-3">
+          <button onClick={() => setShowGraph(!showGraph)} style={card} className="w-full rounded-xl px-4 py-3 flex items-center justify-between mb-3">
             <span style={{ color: c.text }} className="text-sm font-medium">Profit graph</span>
             <ChevronRight size={18} style={{ color: c.textSecondary, transform: showGraph ? "rotate(90deg)" : "none" }} />
           </button>
           {showGraph && (
-            <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-3 mb-3">
+            <div style={card} className="rounded-xl p-3 mb-3">
               {chartData.length === 0 ? (
                 <Empty>No settled bets yet.</Empty>
               ) : (
@@ -1145,7 +1211,7 @@ function MyBetsPage({ nav, entitled, onPurchased, reloadMe }) {
             </div>
           )}
 
-          <div style={{ background: c.card, border: "1px solid " + c.border }} className="flex rounded-xl p-1 mb-5">
+          <div style={card} className="flex rounded-xl p-1 mb-5">
             <button onClick={() => setTab("open")} style={{ background: tab === "open" ? c.cardAlt : "transparent", color: tab === "open" ? c.text : c.textSecondary }} className="flex-1 text-sm font-medium py-2 rounded-lg">Open ({open.length})</button>
             <button onClick={() => setTab("settled")} style={{ background: tab === "settled" ? c.cardAlt : "transparent", color: tab === "settled" ? c.text : c.textSecondary }} className="flex-1 text-sm font-medium py-2 rounded-lg">Settled ({settled.length})</button>
           </div>
@@ -1167,7 +1233,7 @@ function BetRow({ b }) {
   const tone = isOpen ? c.cyan : resultTone(b.result);
   const dateStr = (iso) => (iso ? new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");
   return (
-    <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-4 flex flex-col gap-2">
+    <div style={card} className="rounded-xl p-4 flex flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p style={{ color: c.textSecondary }} className="text-xs mb-1 truncate">{b.league || "—"} · {b.product === "fta" ? "FTA" : b.product}</p>
@@ -1195,7 +1261,7 @@ const CALC_MODES = [
 
 function CalcField({ label, value, onChange, tone, prefix }) {
   return (
-    <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-3">
+    <div style={card} className="rounded-xl p-3">
       <p style={{ color: c.textSecondary }} className="text-xs mb-1">{label}</p>
       <div className="flex items-center gap-1">
         {prefix && <span style={{ color: tone || c.text }} className="text-lg font-medium">{prefix}</span>}
@@ -1243,12 +1309,12 @@ function CalculatorPage({ nav, entitled, prefs }) {
           <CalcField label="Commission %" value={commission} onChange={setCommission} />
           <CalcField label="FTA chance %" value={ftaPct} onChange={setFtaPct} />
         </div>
-        <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-4 mb-4">
+        <div style={card} className="rounded-xl p-4 mb-4">
           <OutputRow label="Lay stake" value={"£" + ls.toFixed(2)} tone={c.cyan} />
           <OutputRow label="Liability" value={"£" + calcLiability(l, ls).toFixed(2)} tone={c.orange} />
           <OutputRow label="Qualifying loss" value={money(ql)} tone={ql >= 0 ? c.green : c.red} />
         </div>
-        <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-4">
+        <div style={card} className="rounded-xl p-4">
           <OutputRow label="FTA profit (2 up, then fails)" value={money(fp)} tone={c.green} />
           <OutputRow label="Expected profit" value={money(ep)} tone={ep >= 0 ? c.green : c.red} />
           <OutputRow label="Expected value (of risk)" value={calcEvPercent(ep, ql).toFixed(1) + "%"} tone={ep >= 0 ? c.green : c.red} />
@@ -1261,7 +1327,7 @@ function CalculatorPage({ nav, entitled, prefs }) {
     const ifBack = (mode === "snr" ? (b - 1) * s : b * s) - liab;
     const ifLay = ls * (1 - cm / 100);
     content = (
-      <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-4">
+      <div style={card} className="rounded-xl p-4">
         <OutputRow label="Lay stake" value={"£" + ls.toFixed(2)} tone={c.cyan} />
         <OutputRow label="Liability" value={"£" + liab.toFixed(2)} tone={c.orange} />
         <OutputRow label="If back bet wins" value={money(ifBack)} tone={ifBack >= 0 ? c.green : c.red} />
@@ -1363,7 +1429,7 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
     <PageShell activeTab="menu" onNavigate={nav} entitled={entitled}>
       <p style={{ color: c.text }} className="text-xl font-medium mb-5">Settings</p>
 
-      <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-2xl p-4 mb-5 flex items-center gap-3">
+      <div style={card} className="rounded-2xl p-4 mb-5 flex items-center gap-3">
         <div style={{ background: c.cardAlt, border: "1px solid " + c.border }} className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0">
           <User size={18} style={{ color: c.textSecondary }} />
         </div>
@@ -1373,8 +1439,8 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
         </div>
       </div>
 
-      <p style={{ color: c.textSecondary }} className="text-xs uppercase tracking-wide mb-2">Subscription</p>
-      <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl px-4 mb-5">
+      <p style={{ color: c.textSecondary }} className="text-[11px] font-semibold uppercase tracking-wider mb-2">Subscription</p>
+      <div style={card} className="rounded-xl px-4 mb-5">
         {entitled && (isNative || me?.management_url) ? (
           <button onClick={() => manageSubscription(me?.management_url)} style={{ borderBottom: "1px solid " + c.border }} className="w-full flex items-center gap-3 py-3 text-left">
             <CreditCard size={18} style={{ color: c.green }} />
@@ -1407,8 +1473,8 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
         )}
       </div>
 
-      <p style={{ color: c.textSecondary }} className="text-xs uppercase tracking-wide mb-2">Trading preferences</p>
-      <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-4 mb-5 flex flex-col gap-4">
+      <p style={{ color: c.textSecondary }} className="text-[11px] font-semibold uppercase tracking-wider mb-2">Trading preferences</p>
+      <div style={card} className="rounded-xl p-4 mb-5 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <span style={{ color: c.text }} className="text-sm">Default stake</span>
           <div className="flex items-center gap-1"><span style={{ color: c.textSecondary }} className="text-sm">£</span>
@@ -1430,8 +1496,8 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
         {saved && <p style={{ color: saved === "Saved" ? c.green : c.red }} className="text-xs text-center">{saved}</p>}
       </div>
 
-      <p style={{ color: c.textSecondary }} className="text-xs uppercase tracking-wide mb-2">About</p>
-      <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-4 mb-5 flex flex-col gap-2">
+      <p style={{ color: c.textSecondary }} className="text-[11px] font-semibold uppercase tracking-wider mb-2">About</p>
+      <div style={card} className="rounded-xl p-4 mb-5 flex flex-col gap-2">
         <p style={{ color: c.text }} className="text-sm flex items-center gap-2"><Info size={14} /> How FTA% works</p>
         <p style={{ color: c.textSecondary }} className="text-xs">
           FTA% is the chance the team goes two goals up and then fails to win, from a model trained on
@@ -1460,14 +1526,14 @@ function ModelTestingPage({ nav, entitled }) {
   const chartData = runs.slice().reverse().map((r, i) => ({ index: i + 1, brier: r.brier_score, roc_auc: r.roc_auc }));
   return (
     <PageShell activeTab="menu" onNavigate={nav} entitled={entitled}>
-      <p style={{ color: c.text }} className="text-xl font-medium mb-1">Model testing (dev)</p>
+      <p style={{ color: c.text }} className="text-2xl font-semibold tracking-tight mb-1">Model testing (dev)</p>
       <p style={{ color: c.textSecondary }} className="text-sm mb-4">Training runs from {API_BASE}. Only ADMIN_USER_IDS can see this.</p>
       {q.loading && <Loading />}
       {(q.error || q.needsPro) && <ErrorBox error={q.error || "Not authorised — add your Support ID to ADMIN_USER_IDS on the server."} onRetry={q.reload} />}
       {q.data && runs.length === 0 && <Empty>No training runs logged yet.</Empty>}
       {runs.length > 0 && (
         <>
-          <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-3 mb-4">
+          <div style={card} className="rounded-xl p-3 mb-4">
             <div style={{ height: 180 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 5, right: 8, left: -20, bottom: 0 }}>
@@ -1484,7 +1550,7 @@ function ModelTestingPage({ nav, entitled }) {
           </div>
           <div className="flex flex-col gap-3">
             {runs.map((r) => (
-              <div key={r.id} style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-4">
+              <div key={r.id} style={card} className="rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
                   <p style={{ color: c.text }} className="text-sm font-medium">{r.model_name} {r.version}</p>
                   <p style={{ color: c.textSecondary }} className="text-xs">{r.trained_at}</p>

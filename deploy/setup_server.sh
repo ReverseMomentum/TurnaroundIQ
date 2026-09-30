@@ -55,6 +55,12 @@ if ! command -v caddy >/dev/null; then
   $SUDO apt-get install -y -qq caddy
 fi
 $SUDO mkdir -p /var/log/caddy && $SUDO chown caddy:caddy /var/log/caddy 2>/dev/null || true
+# Something else on 80/443 (often a preinstalled apache2/nginx) stops Caddy.
+blockers="$($SUDO ss -ltnpH '( sport = :80 or sport = :443 )' 2>/dev/null | grep -v caddy | grep -oE '"[^"]+"' | sort -u | tr -d '"' | tr '\n' ' ')"
+if [ -n "$blockers" ]; then
+  echo "Ports 80/443 are taken by: $blockers"
+  echo "If you don't need it: sudo systemctl disable --now <name>   then rerun this script"
+fi
 $SUDO cp deploy/Caddyfile /etc/caddy/Caddyfile
 $SUDO systemctl enable caddy >/dev/null 2>&1
 $SUDO systemctl restart caddy && echo "ok" || { echo "caddy failed — journalctl -u caddy -n 50"; fail=1; failed="$failed caddy"; }

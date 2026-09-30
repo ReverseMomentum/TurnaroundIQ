@@ -94,6 +94,7 @@ class PrefsPatch(BaseModel):
     notify_fixture_starting: Optional[bool] = None
     notify_live_trigger: Optional[bool] = None
     notify_exchange_entry: Optional[bool] = None
+    bookmakers: Optional[list[str]] = None  # [] = any UK bookmaker
 
 
 class TrackedCreate(BaseModel):
@@ -350,12 +351,16 @@ def latest_match_pairs(limit=40):
     return upcoming_match_pairs(limit=limit)
 
 
-def _with_prices(base, row, is_home):
-    """Real UK back price + estimated exchange lay from collectors/odds_apisports, if fresh."""
-    prices = odds_store.side_prices(row, is_home)
+def _with_prices(base, row, is_home, bookmakers=None):
+    """Best back price (from the user's bookmakers if they've chosen some) + estimated
+    exchange lay from collectors/odds_apisports, if fresh."""
+    prices = odds_store.side_prices(row, is_home, bookmakers)
     if not prices:
+        if row and bookmakers:
+            return {**base, "not_at_my_books": True}
         return base
     back, book, lay_est, updated = prices
+    others = odds_store.book_prices(row, is_home, bookmakers)[:6]
     return {
         **base,
         "bookmaker": book or "Bookmaker",
@@ -364,6 +369,7 @@ def _with_prices(base, row, is_home):
         "lay_estimated": True,
         "odds_estimated": False,
         "odds_updated_at": updated,
+        "back_prices": [{"bookmaker": n, "back": p} for n, p in others],
     }
 
 
@@ -378,7 +384,7 @@ def _kicks_off_within(pair, hours, now=None):
     return now < ko <= now + timedelta(hours=hours)
 
 
-def fixtures_from_upcoming(limit=40, hours=None):
+def fixtures_from_upcoming(limit=40, hours=None, bookmakers=None):
     fixtures = []
     if hours:
         # every game in the window (a Saturday can have 100+), not just the first few
@@ -403,13 +409,13 @@ def fixtures_from_upcoming(limit=40, hours=None):
             "lay_odds": None,
             "odds_estimated": True,
         }
-        fixtures.append(_with_prices({**base, "team": home, "is_home": True}, row, True))
-        fixtures.append(_with_prices({**base, "team": away, "is_home": False}, row, False))
+        fixtures.append(_with_prices({**base, "team": home, "is_home": True}, row, True, bookmakers))
+        fixtures.append(_with_prices({**base, "team": away, "is_home": False}, row, False, bookmakers))
     return fixtures[: limit * 2]
 
 
-def latest_fixtures(limit=40, hours=None):
-    return fixtures_from_upcoming(limit=limit, hours=hours)
+def latest_fixtures(limit=40, hours=None, bookmakers=None):
+    return fixtures_from_upcoming(limit=limit, hours=hours, bookmakers=bookmakers)
 
 
 def score_manual_fixture(body: TrackedCreate):
@@ -443,6 +449,16 @@ def refresh_odds(authorization: str | None = Header(default=None)):
     require_pro(authorization)
     started, st = odds_refresh.start()
     return {"started": started, **st}
+
+
+@app.get("/odds/bookmakers")
+def odds_bookmakers(authorization: str | None = Header(default=None)):
+    """UK bookmakers we have prices from, plus the user's saved selection."""
+    user_id = user_from_auth(authorization)
+    return {
+        "available": odds_store.available_bookmakers(),
+        "selected": get_prefs(user_id).get("bookmakers") or [],
+    }
 
 
 @app.get("/odds/refresh")
@@ -564,7 +580,8 @@ def opportunities(
     limit = max(1, min(limit, 100))
     try:
         hours = max(1, min(hours, 168)) if hours else None
-        fixtures = latest_fixtures(limit=max(limit, 20), hours=hours)
+        my_books = get_prefs(user_id).get("bookmakers") or None
+        fixtures = latest_fixtures(limit=max(limit, 20), hours=hours, bookmakers=my_books)
         ranked = rank_opportunities(fixtures)
         for r in ranked:
             r["source"] = "auto"
@@ -627,6 +644,7 @@ def opportunities(
             "paper_summary": tracked_store.summary(user_id),
             "rank_errors": get_last_rank_errors(),
             "window_hours": hours,
+            "bookmakers": my_books or [],
             "odds_updated_at": max(
                 (r["odds_updated_at"] for r in ranked if r.get("odds_updated_at")), default=None
             ),

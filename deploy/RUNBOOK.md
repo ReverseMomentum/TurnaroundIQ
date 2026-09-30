@@ -198,5 +198,8 @@ Log: `logs/odds.log`. The Opportunities page only lists the next 24h and has a
 "Refresh odds" button (POST /odds/refresh): one shared refresh at a time, 15-min cooldown
 (`ODDS_REFRESH_COOLDOWN_S`), max 1500 api-sports calls/day from the button
 (`ODDS_REFRESH_DAILY_CALLS`). Paper FTA picks use the same 24h window and prices.
+Users choose "Best price from" bookmakers on Opportunities (saved as prefs.bookmakers;
+empty = any UK book); each pick then shows the best back among only those, and the
+pick's detail lists every price at their books. GET /odds/bookmakers lists what's quoted.
 Upgrade path: The Odds API (~$30/mo) for real exchange lays.
 

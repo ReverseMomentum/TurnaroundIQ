@@ -267,6 +267,8 @@ def build_opportunity(fixture, stake=40, commission=2):
         "estimated_lay": estimated_lay,
         "odds_estimated": odds_estimated,
         "odds_updated_at": fixture.get("odds_updated_at"),
+        "back_prices": fixture.get("back_prices") or [],
+        "not_at_my_books": bool(fixture.get("not_at_my_books")),
         "stake": stake,
         "commission": commission,
         "fta_pct": round(fta_display, 2),

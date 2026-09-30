@@ -207,3 +207,53 @@ def test_refresh_endpoint_requires_pro(monkeypatch):
     from api import app as app_module
     with TestClient(app_module.app) as c:
         assert c.post("/odds/refresh").status_code in (401, 402)
+
+
+def test_best_price_respects_my_bookmakers(fresh_table):
+    conn = fresh_table
+    oa.save(conn, "777", None, oa.parse_bookmakers(BOOKS))
+    conn.commit()
+    conn.close()
+    row = oa.load_odds(["777"])["777"]
+    # any UK book: William Hill 2.15 is best for home
+    assert oa.side_prices(row, True)[:2] == (2.15, "William Hill")
+    # banned from William Hill -> best of the rest
+    assert oa.side_prices(row, True, ["Bet365", "Paddy Power"])[:2] == (2.10, "Bet365")
+    # case/spacing-insensitive names; non-UK books never count
+    assert oa.side_prices(row, True, ["bet 365"])[:2] == (2.10, "Bet365")
+    assert oa.side_prices(row, True, ["1xBet"]) is None
+    assert [b for b, _ in oa.book_prices(row, True)] == ["William Hill", "Bet365"]
+
+
+def test_available_bookmakers_lists_uk_books_seen(fresh_table):
+    conn = fresh_table
+    oa.save(conn, "888", None, oa.parse_bookmakers(BOOKS))
+    conn.commit()
+    conn.close()
+    assert oa.available_bookmakers() == ["Bet365", "William Hill"]
+
+
+def test_opportunities_use_saved_bookmakers(fresh_table, monkeypatch):
+    from api import app as app_module
+    from billing import revenuecat as rc
+
+    conn = fresh_table
+    oa.save(conn, "999", None, oa.parse_bookmakers(BOOKS))
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(app_module, "upcoming_match_pairs", lambda limit=60: [
+        {"match_id": "999", "kickoff": (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat(),
+         "league": "Premier League", "home_team": "Arsenal", "away_team": "Chelsea"},
+    ])
+    saved = rc.save_prefs("u_books", {"bookmakers": ["Bet365", "  ", 123]})
+    assert saved["bookmakers"] == ["Bet365", "123"]
+
+    fx = app_module.fixtures_from_upcoming(hours=24, bookmakers=saved["bookmakers"])
+    home = next(f for f in fx if f["team"] == "Arsenal")
+    assert (home["bookmaker"], home["back_odds"]) == ("Bet365", 2.10)
+    assert [p["bookmaker"] for p in home["back_prices"]] == ["Bet365"]
+
+    # none of my books price it -> placeholder odds, clearly flagged
+    fx = app_module.fixtures_from_upcoming(hours=24, bookmakers=["Betfred"])
+    home = next(f for f in fx if f["team"] == "Arsenal")
+    assert home["odds_estimated"] is True and home["not_at_my_books"] is True

@@ -38,6 +38,7 @@ DEFAULT_PREFS = {
     "notify_fixture_starting": True,
     "notify_live_trigger": True,
     "notify_exchange_entry": True,
+    "bookmakers": [],  # bookmakers the user can bet with; [] = any UK bookmaker
 }
 
 
@@ -178,6 +179,8 @@ def save_prefs(app_user_id, patch):
     ensure_tables()
     current = get_prefs(app_user_id)
     for key, value in (patch or {}).items():
+        if key == "bookmakers":
+            value = [str(b).strip()[:40] for b in (value or []) if str(b).strip()][:30]
         if key in DEFAULT_PREFS:
             current[key] = value
     conn = get_db()

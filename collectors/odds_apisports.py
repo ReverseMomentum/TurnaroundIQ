@@ -176,7 +176,7 @@ def load_odds(match_ids, max_age_hours=MAX_AGE_HOURS) -> dict:
         q = ",".join("?" * len(ids))
         cur = conn.execute(
             f"""SELECT match_id, home_back, home_book, home_lay_est, away_back, away_book,
-                       away_lay_est, fair_source, updated_at
+                       away_lay_est, fair_source, updated_at, books_json
                 FROM fixture_odds WHERE match_id IN ({q}) AND updated_at >= ?""",
             (*ids, cutoff),
         )
@@ -188,15 +188,70 @@ def load_odds(match_ids, max_age_hours=MAX_AGE_HOURS) -> dict:
         return {}
 
 
-def side_prices(row, is_home: bool):
-    """(back, bookmaker, lay_est, updated_at) for one side, or None if no UK back price."""
+def _books(row):
+    try:
+        return json.loads(row.get("books_json") or "{}")
+    except (TypeError, ValueError):
+        return {}
+
+
+def book_prices(row, is_home: bool, allowed=None):
+    """[(bookmaker, back)] for one side from UK books (optionally only `allowed`), best first."""
+    side = "home" if is_home else "away"
+    allowed_keys = {_key(b) for b in allowed} if allowed else None
+    out = []
+    for name, prices in _books(row).items():
+        k = _key(name)
+        if k not in UK_BACK_BOOKS or (allowed_keys is not None and k not in allowed_keys):
+            continue
+        if prices.get(side):
+            out.append((name, prices[side]))
+    return sorted(out, key=lambda x: -x[1])
+
+
+def side_prices(row, is_home: bool, allowed=None):
+    """(back, bookmaker, lay_est, updated_at) for one side, or None if no usable back price.
+
+    `allowed` = the bookmakers this user has accounts with (None/empty = any UK book)."""
     if not row:
         return None
     s = "home" if is_home else "away"
+    lay_est, updated = row.get(f"{s}_lay_est"), row.get("updated_at")
+    if allowed:
+        prices = book_prices(row, is_home, allowed)
+        if not prices:
+            return None
+        return prices[0][1], prices[0][0], lay_est, updated
     back = row.get(f"{s}_back")
     if not back:
         return None
-    return back, row.get(f"{s}_book"), row.get(f"{s}_lay_est"), row.get("updated_at")
+    return back, row.get(f"{s}_book"), lay_est, updated
+
+
+# Shown in the bookmaker picker before any odds have been collected.
+DEFAULT_BOOK_NAMES = ["Bet365", "William Hill", "Paddy Power", "Sky Bet", "Betfred",
+                      "BetVictor", "Ladbrokes", "Coral", "Unibet", "888Sport", "Betway", "10Bet"]
+
+
+def available_bookmakers(days=3):
+    """UK bookmakers api-sports has actually quoted recently (display names)."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    names = {}
+    try:
+        conn = get_db()
+        for (raw,) in conn.execute(
+            "SELECT books_json FROM fixture_odds WHERE updated_at >= ?", (cutoff,)
+        ):
+            try:
+                for name in json.loads(raw or "{}"):
+                    if _key(name) in UK_BACK_BOOKS:
+                        names.setdefault(_key(name), name)
+            except ValueError:
+                continue
+        conn.close()
+    except Exception:
+        pass
+    return sorted(names.values(), key=str.lower) or DEFAULT_BOOK_NAMES
 
 
 def _parse_time(value):

@@ -66,6 +66,7 @@ export const api = {
   opportunities: (limit = 100) => request(`/opportunities?limit=${limit}&include_tracked=false&hours=24`),
   refreshOdds: () => request("/odds/refresh", { method: "POST" }),
   oddsRefreshStatus: () => request("/odds/refresh"),
+  oddsBookmakers: () => request("/odds/bookmakers"),
   earlyGoal: (limit = 30) => request(`/features/early-goal?limit=${limit}`),
   chaos: (limit = 30) => request(`/features/chaos?limit=${limit}`),
   tracked: (status) => request(status ? `/tracked?status=${status}&limit=200` : "/tracked?limit=200"),

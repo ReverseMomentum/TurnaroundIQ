@@ -37,6 +37,8 @@ import {
   Info,
   LogOut,
   Mail,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 
 import { LOGO_SRC } from "./logo";
@@ -524,6 +526,9 @@ function OpportunityCard({ o, onClick, wide }) {
         <div><p style={{ color: c.textSecondary }} className="text-xs">Then fails</p><p style={{ color: c.text }} className="text-sm font-medium">{pct(o.fail_given_2up_pct ?? o.turnaround_pct, 1)}</p></div>
         <div><p style={{ color: c.textSecondary }} className="text-xs">Usual 2-up</p><p style={{ color: c.text }} className="text-sm font-medium">{o.usual_2up_minute ? Math.round(o.usual_2up_minute) + "'" : "—"}</p></div>
       </div>
+      {o.not_at_my_books && (
+        <p style={{ color: c.orange }} className="text-xs truncate">Not priced at your bookmakers yet</p>
+      )}
       {!o.odds_estimated && o.back_odds && (
         <p style={{ color: c.textSecondary }} className="text-xs truncate">
           Back {Number(o.back_odds).toFixed(2)} {o.bookmaker} · Lay {o.estimated_lay ? "est. " : ""}{Number(o.lay_odds).toFixed(2)}
@@ -569,6 +574,8 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
   const pricesEdited = String(o.back_odds) !== backOdds || String(o.lay_odds) !== layOdds;
   const estimated = o.odds_estimated && !pricesEdited;
   const layEstimated = o.estimated_lay && !o.odds_estimated && String(o.lay_odds) === layOdds;
+  const pickedBook = (o.back_prices || []).find((bp) => String(bp.back) === backOdds)?.bookmaker
+    || (!o.odds_estimated && String(o.back_odds) === backOdds ? o.bookmaker : null);
 
   const track = async () => {
     setTrackState("saving");
@@ -620,7 +627,7 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
         </div>
         <div style={{ background: c.card, border: "1px solid " + (estimated ? c.orange : c.border) }} className="rounded-xl p-3 grid grid-cols-3 gap-2 text-center mb-4">
           <div>
-            <p style={{ color: c.textSecondary }} className="text-xs mb-1 truncate">{!o.odds_estimated && o.bookmaker ? "Back · " + o.bookmaker : "Back (bookie)"}</p>
+            <p style={{ color: c.textSecondary }} className="text-xs mb-1 truncate">{pickedBook ? "Back · " + pickedBook : "Back (bookie)"}</p>
             <input type="number" inputMode="decimal" step="0.01" value={backOdds} onChange={(e) => setBackOdds(e.target.value)} style={{ background: "transparent", color: c.green, width: "100%" }} className="text-base font-medium text-center" />
           </div>
           <div>
@@ -632,6 +639,22 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
             <input type="number" inputMode="decimal" step="0.1" value={commission} onChange={(e) => setCommission(e.target.value)} style={{ background: "transparent", color: c.text, width: "100%" }} className="text-base font-medium text-center" />
           </div>
         </div>
+
+        {(o.back_prices || []).length > 1 && (
+          <div className="mb-4">
+            <p style={{ color: c.textSecondary }} className="text-xs mb-2">Back prices at your bookmakers — tap to use</p>
+            <div className="flex flex-wrap gap-2">
+              {o.back_prices.map((bp) => {
+                const on = String(bp.back) === backOdds;
+                return (
+                  <button key={bp.bookmaker} onClick={() => setBackOdds(String(bp.back))} style={{ background: on ? c.greenDark : c.card, border: "1px solid " + (on ? c.green : c.border), color: on ? c.green : c.text }} className="rounded-full px-3 py-1 text-xs">
+                    {bp.bookmaker} {Number(bp.back).toFixed(2)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-3 flex items-center justify-between mb-4">
           <span style={{ color: c.textSecondary }} className="text-xs">Stake</span>
@@ -805,6 +828,81 @@ function RefreshOddsButton({ opps }) {
   );
 }
 
+// Pick the bookmakers you can bet with; every pick then shows the best back price
+// among only those. Saved to the account (prefs.bookmakers), [] = any UK bookmaker.
+function BookmakerFilter({ opps }) {
+  const { reloadMe } = useContext(Account);
+  const [open, setOpen] = useState(false);
+  const [available, setAvailable] = useState(null);
+  const [selected, setSelected] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const current = opps.data?.bookmakers || [];
+
+  const toggleOpen = async () => {
+    if (open) return setOpen(false);
+    setOpen(true);
+    setError(null);
+    try {
+      const r = await api.oddsBookmakers();
+      setAvailable(r.available || []);
+      setSelected(r.selected || []);
+    } catch (e) {
+      setError(e.message || "Couldn't load bookmakers");
+    }
+  };
+  const flip = (name) =>
+    setSelected((sel) => (sel.includes(name) ? sel.filter((b) => b !== name) : [...sel, name]));
+  const save = async (list) => {
+    setSaving(true);
+    try {
+      await api.patchPrefs({ bookmakers: list });
+      setOpen(false);
+      opps.reload();
+      reloadMe && reloadMe();
+    } catch (e) {
+      setError(e.message || "Couldn't save");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const label = current.length === 0 ? "All bookmakers" : current.length === 1 ? current[0] : `${current.length} bookmakers`;
+
+  return (
+    <div className="mb-4">
+      <button onClick={toggleOpen} style={{ background: c.card, border: "1px solid " + (open ? c.cyan : c.border) }} className="w-full flex items-center justify-between rounded-xl px-4 py-3">
+        <span className="text-left">
+          <span style={{ color: c.textSecondary }} className="block text-xs">Best price from</span>
+          <span style={{ color: c.text }} className="text-sm font-medium">{label}</span>
+        </span>
+        <ChevronDown size={16} style={{ color: c.textSecondary, transform: open ? "rotate(180deg)" : "none" }} />
+      </button>
+      {open && (
+        <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl p-3 mt-2">
+          <p style={{ color: c.textSecondary }} className="text-xs mb-2">Tick the bookmakers you have accounts with. Leave all unticked to use any UK bookmaker.</p>
+          {available === null && !error && <p style={{ color: c.textSecondary }} className="text-xs py-2">Loading…</p>}
+          <div className="grid grid-cols-2 gap-2">
+            {(available || []).map((name) => {
+              const on = selected.includes(name);
+              return (
+                <button key={name} onClick={() => flip(name)} style={{ background: on ? c.greenDark : c.cardAlt, border: "1px solid " + (on ? c.green : c.border), color: on ? c.green : c.text }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-left">
+                  <span style={{ border: "1px solid " + (on ? c.green : c.textSecondary) }} className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0">{on && <Check size={12} />}</span>
+                  <span className="truncate">{name}</span>
+                </button>
+              );
+            })}
+          </div>
+          {error && <p style={{ color: c.red }} className="text-xs mt-2">{error}</p>}
+          <div className="flex gap-2 mt-3">
+            <button onClick={() => save([])} disabled={saving} style={{ border: "1px solid " + c.border, color: c.textSecondary }} className="flex-1 rounded-lg py-2 text-xs font-medium">Any bookmaker</button>
+            <button onClick={() => save(selected)} disabled={saving || available === null} style={{ background: c.green, color: c.greenDark }} className="flex-1 rounded-lg py-2 text-xs font-medium">{saving ? "Saving…" : "Save"}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
   const [league, setLeague] = useState("All leagues");
   const list = opps.data?.opportunities || [];
@@ -818,6 +916,7 @@ function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
         Games in the next 24 hours, ranked by FTA chance: the team goes 2 goals up <i>and</i> fails to win. Average is about 2%.
       </p>
       {entitled && !opps.needsPro && <RefreshOddsButton opps={opps} />}
+      {entitled && !opps.needsPro && <BookmakerFilter opps={opps} />}
       {(opps.needsPro || !entitled) && <Paywall title="Opportunities is a Pro feature" onPurchased={onPurchased} />}
       {entitled && opps.loading && <Loading />}
       {entitled && opps.error && <ErrorBox error={opps.error} onRetry={opps.reload} />}

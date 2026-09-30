@@ -2,7 +2,11 @@
  * RevenueCat bootstrap for the React Native app.
  *
  *   import { initPurchases } from "./lib/revenuecat";
- *   useEffect(() => initPurchases({ onChange: reloadMe }), []);
+ *   useEffect(() => {
+ *     let cleanup;
+ *     initPurchases({ onChange: reloadMe }).then((fn) => { cleanup = fn; });
+ *     return () => cleanup && cleanup();
+ *   }, []);
  *
  * - Configures Purchases with the platform key.
  * - Hands Purchases.getAppUserID() to the API client, so every request

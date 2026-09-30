@@ -61,8 +61,8 @@ import {
 const Account = createContext({ me: null, reloadMe: async () => {} });
 
 const SHOW_DEV_TOOLS = import.meta.env.VITE_SHOW_DEV_TOOLS === "true";
-const TERMS_URL = import.meta.env.VITE_TERMS_URL || "";
-const PRIVACY_URL = import.meta.env.VITE_PRIVACY_URL || "";
+const TERMS_URL = import.meta.env.VITE_TERMS_URL || "terms.html";
+const PRIVACY_URL = import.meta.env.VITE_PRIVACY_URL || "privacy.html";
 
 // ---- Brand tokens (locked palette) ----
 const c = {
@@ -388,6 +388,10 @@ function Paywall({ title, onPurchased }) {
         </>
       ) : me?.purchase_url ? (
         <>
+          <p style={{ color: c.textSecondary }} className="text-[11px] mb-3">
+            By subscribing you agree to the <a href={TERMS_URL} style={{ color: c.cyan }}>Terms</a> and ask us to
+            start Pro immediately, so the 14-day cancellation right ends once access begins. Cancel any time.
+          </p>
           <button disabled={busy} onClick={() => openWebCheckout(me.purchase_url)} style={{ background: c.green, color: c.greenDark }} className="w-full rounded-xl py-3 text-sm font-medium mb-2">
             Subscribe to Pro
           </button>
@@ -479,6 +483,10 @@ function SignInPage({ onSignedIn }) {
           )}
           {error && <p style={{ color: c.red }} className="text-xs mt-3">{error}</p>}
         </div>
+        <p style={{ color: c.textSecondary }} className="text-[11px] text-center mt-4">
+          By continuing you agree to our <a href={TERMS_URL} style={{ color: c.cyan }}>Terms</a> and{" "}
+          <a href={PRIVACY_URL} style={{ color: c.cyan }}>Privacy Policy</a>. 18+ only.
+        </p>
         <Disclaimer />
       </div>
     </div>
@@ -1168,6 +1176,19 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
       setBusy(false);
     }
   };
+  const deleteAccount = async () => {
+    const warn = entitled
+      ? "Cancel your subscription first (Manage subscription) — deleting your account does not stop payments.\n\n"
+      : "";
+    if (!window.confirm(warn + "Delete your account and all its data? This can't be undone.")) return;
+    try {
+      await api.deleteMe();
+      await signOut();
+      onSignedOut();
+    } catch (e) {
+      window.alert(e.message || "Couldn't delete the account");
+    }
+  };
 
   return (
     <PageShell activeTab="menu" onNavigate={nav} entitled={entitled}>
@@ -1207,6 +1228,12 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
           <button onClick={async () => { await signOut(); onSignedOut(); }} className="w-full flex items-center gap-3 py-3 text-left">
             <LogOut size={18} style={{ color: c.red }} />
             <span style={{ color: c.text }} className="text-sm flex-1">Sign out</span>
+          </button>
+        )}
+        {!isNative && (
+          <button onClick={deleteAccount} className="w-full flex items-center gap-3 py-3 text-left" style={{ borderTop: "1px solid " + c.border }}>
+            <X size={18} style={{ color: c.red }} />
+            <span style={{ color: c.red }} className="text-sm flex-1">Delete account</span>
           </button>
         )}
       </div>

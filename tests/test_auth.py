@@ -98,3 +98,20 @@ def test_native_rc_ids_still_work(client):
     c, _ = client
     r = c.get("/me", headers={"Authorization": "Bearer $RCAnonymousID:abc123"})
     assert r.status_code == 200 and r.json()["purchase_url"] is None
+
+
+def test_delete_account_erases_data(client):
+    c, sent = client
+    s = sign_in(c, sent)
+    h = {"Authorization": "Bearer " + s["token"]}
+    c.patch("/me/prefs", headers=h, json={"default_stake": 25})
+    assert c.request("DELETE", "/me", headers=h).json() == {"deleted": True}
+    assert c.get("/me", headers=h).status_code == 401
+    from database import get_db
+    conn = get_db()
+    assert conn.execute("SELECT COUNT(*) FROM users WHERE id = ?", (s["user_id"],)).fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM user_prefs WHERE app_user_id = ?", (s["user_id"],)).fetchone()[0] == 0
+    conn.close()
+    # signing in again with the same email creates a fresh, empty account
+    again = sign_in(c, sent)
+    assert again["user_id"] != s["user_id"]

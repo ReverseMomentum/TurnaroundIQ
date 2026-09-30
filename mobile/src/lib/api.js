@@ -60,6 +60,7 @@ export const api = {
   authVerify: (email, code) => request("/auth/verify", { method: "POST", body: { email, code } }),
   authLogout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/me"),
+  deleteMe: () => request("/me", { method: "DELETE" }),
   patchPrefs: (prefs) => request("/me/prefs", { method: "PATCH", body: prefs }),
   opportunities: (limit = 40) => request(`/opportunities?limit=${limit}&include_tracked=false`),
   earlyGoal: (limit = 30) => request(`/features/early-goal?limit=${limit}`),

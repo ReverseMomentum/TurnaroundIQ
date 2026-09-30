@@ -200,6 +200,18 @@ def auth_verify(body: AuthVerify):
         raise HTTPException(exc.status, exc.message) from exc
 
 
+@app.delete("/me")
+def delete_me(authorization: str | None = Header(default=None)):
+    """Delete this web account and its data (UK GDPR erasure). Subscriptions
+    must be cancelled separately with the payment provider."""
+    token = (authorization or "").replace("Bearer ", "").strip()
+    if not token.startswith("s_"):
+        raise HTTPException(400, "Only web accounts can be deleted here")
+    user_id = user_from_auth(authorization)
+    auth.delete_account(user_id)
+    return {"deleted": True}
+
+
 @app.post("/auth/logout")
 def auth_logout(authorization: str | None = Header(default=None)):
     token = (authorization or "").replace("Bearer ", "").strip()

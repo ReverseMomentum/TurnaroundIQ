@@ -129,11 +129,42 @@ def send_code_email(email: str, code: str):
 
 # --- flow ------------------------------------------------------------------
 
+def purge_expired(conn):
+    """Housekeeping promised in the privacy policy: codes kept 24h, dead sessions dropped."""
+    day_ago = (_now() - timedelta(days=1)).isoformat()
+    conn.execute("DELETE FROM login_codes WHERE created_at < ?", (day_ago,))
+    conn.execute("DELETE FROM sessions WHERE expires_at < ?", (_now().isoformat(),))
+
+
+def delete_account(user_id: str):
+    """Erase a web account and everything stored against it."""
+    ensure_auth_tables()
+    conn = get_db()
+    email = conn.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
+    for sql in (
+        "DELETE FROM sessions WHERE user_id = ?",
+        "DELETE FROM tracked_bets WHERE app_user_id = ?",
+        "DELETE FROM paper_settings WHERE app_user_id = ?",
+        "DELETE FROM user_prefs WHERE app_user_id = ?",
+        "DELETE FROM subscribers WHERE app_user_id = ?",
+        "DELETE FROM users WHERE id = ?",
+    ):
+        try:
+            conn.execute(sql, (user_id,))
+        except Exception:
+            pass  # table not created yet
+    if email:
+        conn.execute("DELETE FROM login_codes WHERE email = ?", (email[0],))
+    conn.commit()
+    conn.close()
+
+
 def start(email: str, ip: str = ""):
     email = normalize_email(email)
     _secret()
     ensure_auth_tables()
     conn = get_db()
+    purge_expired(conn)
     hour_ago = (_now() - timedelta(hours=1)).isoformat()
     by_email = conn.execute(
         "SELECT COUNT(*) FROM login_codes WHERE email = ? AND created_at > ?", (email, hour_ago)

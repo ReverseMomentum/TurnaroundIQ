@@ -413,6 +413,10 @@ def main(argv=None):
         stopped = f"daily quota ({exc})"
     except af.NetworkError as exc:
         stopped = f"api-sports unreachable after retries ({exc})"
+    except Exception as exc:  # keep progress + import; the traceback says what broke
+        import traceback
+        traceback.print_exc()
+        stopped = f"unexpected error {type(exc).__name__}: {exc}"
     except af.AuthError as exc:
         print(f"api-sports refused the request: {exc}")
         print("Check the key and that your plan covers these seasons.")

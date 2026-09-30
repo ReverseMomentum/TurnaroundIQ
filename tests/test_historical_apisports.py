@@ -249,10 +249,16 @@ def test_network_drop_retries_then_succeeds(monkeypatch):
         def json(self):
             return {"response": [], "errors": []}
 
+    class Garbled(Resp):
+        def json(self):
+            raise ValueError("Expecting value: line 1 column 1")
+
     def flaky(*a, **k):
         calls["n"] += 1
-        if calls["n"] < 3:
+        if calls["n"] == 1:
             raise requests.ConnectionError("reset by peer")
+        if calls["n"] == 2:
+            return Garbled()
         return Resp()
 
     monkeypatch.setattr(af.requests, "get", flaky)
@@ -269,4 +275,12 @@ def test_network_down_stops_cleanly_and_keeps_progress(api, monkeypatch):
         return FakeAPI.__call__(api, path, params)
 
     monkeypatch.setattr(af, "api_get", down)
+    assert run() == bf.EXIT_PARTIAL
+
+
+def test_unexpected_error_stops_cleanly(api, monkeypatch):
+    def boom(*a, **k):
+        raise KeyError("fixture")
+
+    monkeypatch.setattr(bf, "process_batch", boom)
     assert run() == bf.EXIT_PARTIAL

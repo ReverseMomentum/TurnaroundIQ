@@ -42,7 +42,11 @@ NETWORK_RETRIES = 6  # waits 5, 10, 20, 40, 80s between attempts (~2.5 min)
 
 
 def _get(url, params):
-    """requests.get with retries on connection drops / timeouts / 5xx."""
+    """
+    requests.get with retries on connection drops, timeouts, 5xx and
+    truncated/garbled bodies. Returns (response, payload); payload is the
+    parsed JSON for a 200, else None.
+    """
     wait = 5
     last = None
     for attempt in range(NETWORK_RETRIES):
@@ -53,9 +57,15 @@ def _get(url, params):
                 params=params,
                 timeout=60,
             )
-            if resp.status_code < 500:
-                return resp
-            last = f"HTTP {resp.status_code}"
+            if resp.status_code != 200 and resp.status_code < 500:
+                return resp, None
+            if resp.status_code == 200:
+                try:
+                    return resp, resp.json()
+                except ValueError as exc:
+                    last = f"unreadable response body ({exc})"
+            else:
+                last = f"HTTP {resp.status_code}"
         except requests.RequestException as exc:
             last = f"{type(exc).__name__}: {exc}"
         if attempt < NETWORK_RETRIES - 1:
@@ -95,7 +105,7 @@ def api_get(path, params=None):
         raise QuotaExhausted(f"{remaining} calls left today (reserve {RESERVE})")
 
     for attempt in range(4):
-        resp = _get(f"{BASE_URL}{path}", params or {})
+        resp, payload = _get(f"{BASE_URL}{path}", params or {})
         _state["calls"] += 1
         day_left = resp.headers.get("x-ratelimit-requests-remaining")
         if day_left is not None:
@@ -111,7 +121,8 @@ def api_get(path, params=None):
         if resp.status_code in (401, 403):
             raise AuthError(f"HTTP {resp.status_code}: {resp.text[:200]}")
         resp.raise_for_status()
-        payload = resp.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"{path}: unexpected response {str(payload)[:200]}")
 
         errors = payload.get("errors")
         if errors:

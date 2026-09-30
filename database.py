@@ -14,11 +14,30 @@ DB_NAME = os.environ.get(
 )
 
 
+_schema_checked = False
+
+
+def _ensure_match_date(conn):
+    """match_results.match_date (kick-off date) — added once per process."""
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(match_results)")}
+        if cols and "match_date" not in cols:
+            conn.execute("ALTER TABLE match_results ADD COLUMN match_date TEXT")
+            conn.commit()
+    except sqlite3.Error:
+        pass
+
+
 def get_db():
-    return sqlite3.connect(
+    global _schema_checked
+    conn = sqlite3.connect(
         DB_NAME,
         check_same_thread=False
     )
+    if not _schema_checked:
+        _schema_checked = True
+        _ensure_match_date(conn)
+    return conn
 
 
 def create_tables():
@@ -176,6 +195,7 @@ def create_tables():
         processed_at TEXT
     )
     """)
+    _ensure_match_date(conn)
 
     conn.execute("""
     CREATE TABLE IF NOT EXISTS historical_matches (
@@ -1094,7 +1114,7 @@ def get_match_result(
         FROM match_results
         WHERE home_team = ?
         AND away_team = ?
-        ORDER BY processed_at DESC
+        ORDER BY COALESCE(match_date, processed_at) DESC
         LIMIT 1
         """,
         (

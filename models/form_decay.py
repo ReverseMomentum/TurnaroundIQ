@@ -39,14 +39,14 @@ def recent_score_form(team, n=DEFAULT_N):
     try:
         rows = conn.execute(
             """
-            SELECT processed_at,
+            SELECT COALESCE(match_date, processed_at) AS processed_at,
                    home_team, away_team, final_home, final_away,
                    home_early_goal, away_early_goal,
                    home_early_concede, away_early_concede,
                    home_first_lead, away_first_lead
             FROM match_results
             WHERE home_team = ? OR away_team = ?
-            ORDER BY processed_at DESC, id DESC
+            ORDER BY COALESCE(match_date, processed_at) DESC, id DESC
             LIMIT ?
             """,
             (team, team, n),

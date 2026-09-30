@@ -332,7 +332,8 @@ def add_live_rows(conn, known_teams):
         """
         SELECT match_id, league, home_team, away_team,
                home_turnaround, away_turnaround,
-               home_lead_minute, away_lead_minute, processed_at
+               home_lead_minute, away_lead_minute,
+               COALESCE(match_date, processed_at)
         FROM match_results
         """
     ).fetchall()

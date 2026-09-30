@@ -16,6 +16,17 @@ python -u run.py health
 | `backup` | dated copy of `two_up.db` in `backups/` |
 | `health` | row counts, freshness, backup age; exit 0/1/2 |
 
+### Current season (live results)
+
+```bash
+python -u collectors/results_collector.py --season-to-date   # fill the season so far, all leagues
+python -u run.py live                                         # daily: last RESULTS_LOOKBACK_DAYS days
+```
+
+Both fetch match events 20 fixtures per call and skip fixtures already
+processed. Each result stores its kick-off date (`match_results.match_date`),
+which form and training use for ordering.
+
 ### Historical data (api-sports.io)
 
 ```bash

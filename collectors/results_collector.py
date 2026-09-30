@@ -1,9 +1,7 @@
 import argparse
 import os
-import time
 from datetime import datetime, timedelta, timezone
 import sqlite3
-import requests
 
 import sys
 from pathlib import Path
@@ -15,14 +13,19 @@ if str(PROJECT_ROOT) not in sys.path:
 from constants import API_FOOTBALL_KEY, SUPPORTED_LEAGUE_IDS
 from team_normalizer import normalize_team
 from database import DB_NAME
+from collectors import apisports as af
+from collectors.backfill_apisports import BATCH, fixtures_with_events
+
+# The live collector may use the quota down to this (the historical backfill
+# stops much earlier, at APISPORTS_RESERVE).
+af.RESERVE = int(os.environ.get("LIVE_RESERVE", "100"))
+EXIT_PARTIAL = 3
 # Cover ~full season so far from a mid-season date (Aug → now).
 # Override: RESULTS_LOOKBACK_DAYS=90 python3 collectors/results_collector.py
 LOOKBACK_DAYS = int(os.environ.get("RESULTS_LOOKBACK_DAYS", "75"))
-REQUEST_DELAY = float(os.environ.get("RESULTS_REQUEST_DELAY", "3"))
 EARLY_GOAL_CUTOFF = 30
 HALF_CUTOFF = 45
 
-HEADERS = {"x-apisports-key": API_FOOTBALL_KEY}
 
 MATCH_RESULT_COLUMNS = {
     "match_id": "TEXT",
@@ -56,6 +59,7 @@ MATCH_RESULT_COLUMNS = {
     "away_second_half_for": "INTEGER",
     "away_second_half_against": "INTEGER",
     "processed_at": "TEXT",
+    "match_date": "TEXT",
 }
 
 
@@ -189,10 +193,12 @@ def update_form_from_results():
             continue
         rows = conn.execute(
             """
-            SELECT processed_at, final_home, final_away FROM match_results
+            SELECT COALESCE(match_date, processed_at) AS processed_at,
+                   final_home, final_away FROM match_results
             WHERE home_team = ?
             UNION ALL
-            SELECT processed_at, final_away, final_home FROM match_results
+            SELECT COALESCE(match_date, processed_at), final_away, final_home
+            FROM match_results
             WHERE away_team = ?
             ORDER BY processed_at DESC
             """,
@@ -221,53 +227,45 @@ def update_form_from_results():
 
 
 def get_completed_fixtures(lookback_days):
+    """Finished fixtures (all competitions) for the last N days: 1 call per day."""
     fixtures = []
     for day in range(lookback_days):
         target_date = (
             datetime.now(timezone.utc) - timedelta(days=day)
         ).strftime("%Y-%m-%d")
-        url = (
-            "https://v3.football.api-sports.io/"
-            f"fixtures?date={target_date}&status=FT"
-        )
-        try:
-            response = requests.get(url, headers=HEADERS, timeout=60)
-            if response.status_code == 429:
-                print(f"[RATE LIMIT] fixtures {target_date} — sleep 20s")
-                time.sleep(20)
-                response = requests.get(url, headers=HEADERS, timeout=60)
-            response.raise_for_status()
-        except Exception as exc:
-            print(f"API request failed: {exc}")
-            continue
-        day_fixtures = response.json().get("response", [])
+        payload = af.api_get("/fixtures", {"date": target_date, "status": "FT"})
+        day_fixtures = payload.get("response") or []
         print(f"{target_date}: {len(day_fixtures)} fixtures")
         fixtures.extend(day_fixtures)
-        time.sleep(0.4)
     print(f"Fixtures found: {len(fixtures)}")
     return fixtures
 
 
-def get_fixture_events(fixture_id, max_retries=3):
-    url = (
-        "https://v3.football.api-sports.io/"
-        f"fixtures/events?fixture={fixture_id}"
-    )
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(url, headers=HEADERS, timeout=20)
-            if response.status_code == 429:
-                wait = 30 * (attempt + 1)
-                print(f"[RATE LIMIT] fixture {fixture_id} - sleeping {wait}s")
-                time.sleep(wait)
-                continue
-            response.raise_for_status()
-            return response.json().get("response", [])
-        except Exception as exc:
-            print(f"[EVENTS ERROR] fixture {fixture_id}: {exc}")
-            time.sleep(2)
-    print(f"[EVENTS FAILED] fixture {fixture_id}")
-    return []
+def get_season_fixtures():
+    """
+    Finished fixtures of the current season for every supported league:
+    1 call per league (+ season lists, cached 7 days). Used to fill the season
+    so far; the daily run then only needs a few days of lookback.
+    """
+    from collectors.backfill_apisports import league_seasons
+
+    fixtures = []
+    for league_id, league in SUPPORTED_LEAGUE_IDS.items():
+        current = next((s for s in league_seasons(league_id) if s["current"]), None)
+        if not current:
+            print(f"{league}: no current season on api-sports")
+            continue
+        payload = af.api_get(
+            "/fixtures",
+            {"league": league_id, "season": current["year"], "status": "FT"},
+        )
+        rows = payload.get("response") or []
+        for row in rows:  # listed by league, so the league is known
+            row.setdefault("league", {}).setdefault("id", league_id)
+        print(f"{league} {current['year']}: {len(rows)} finished")
+        fixtures.extend(rows)
+    print(f"Fixtures found: {len(fixtures)}")
+    return fixtures
 
 
 def _is_scoring_goal_event(event):
@@ -408,7 +406,7 @@ def analyze_match_events(home_team, away_team, events, official_home=None, offic
     }
 
 
-def save_result(fixture_id, league, home_team, away_team, analysis):
+def save_result(fixture_id, league, home_team, away_team, analysis, match_date=None):
     conn = get_db()
     conn.execute(
         """
@@ -427,7 +425,7 @@ def save_result(fixture_id, league, home_team, away_team, analysis):
             home_second_half_for, home_second_half_against,
             away_first_half_for, away_first_half_against,
             away_second_half_for, away_second_half_against,
-            processed_at
+            processed_at, match_date
         ) VALUES (
             ?,?,?,?,?,?,
             ?,?,?,?,?,?,
@@ -436,7 +434,7 @@ def save_result(fixture_id, league, home_team, away_team, analysis):
             ?,?,
             ?,?,?,?,
             ?,?,?,?,
-            ?
+            ?,?
         )
         """,
         (
@@ -455,18 +453,24 @@ def save_result(fixture_id, league, home_team, away_team, analysis):
             analysis["away_first_half_for"], analysis["away_first_half_against"],
             analysis["away_second_half_for"], analysis["away_second_half_against"],
             datetime.now(timezone.utc).isoformat(),
+            match_date,
         ),
     )
     conn.commit()
     conn.close()
 
 
-def process_results(lookback_days=None, force=False):
+def process_results(lookback_days=None, force=False, season_to_date=False):
+    """Returns 0 when complete, EXIT_PARTIAL when stopped by quota/network."""
     lookback_days = lookback_days if lookback_days is not None else LOOKBACK_DAYS
     migrate_match_results()
     create_processed_fixtures_table()
 
-    fixtures = get_completed_fixtures(lookback_days)
+    try:
+        fixtures = get_season_fixtures() if season_to_date else get_completed_fixtures(lookback_days)
+    except (af.QuotaExhausted, af.NetworkError) as exc:
+        print(f"Could not list fixtures: {exc}")
+        return EXIT_PARTIAL
 
     if force:
         if not fixtures:
@@ -483,65 +487,86 @@ def process_results(lookback_days=None, force=False):
     processed = skipped = unsupported = failed = 0
     unmatched_leagues = set()
 
+    todo = []
+    queued = set()
     for fixture in fixtures:
         fixture_id = fixture["fixture"]["id"]
-        try:
-            if not force and fixture_already_processed(fixture_id):
-                skipped += 1
-                continue
-            if force:
-                unmark_fixture_processed(fixture_id)
-            league_meta = fixture.get("league", {})
-            league_id = league_meta.get("id")
-            league_name = league_meta.get("name", "")
-            country = league_meta.get("country", "")
-            if league_id not in SUPPORTED_LEAGUE_IDS:
-                unsupported += 1
-                unmatched_leagues.add(f"{country} | {league_name} | id={league_id}")
-                continue
-            league = SUPPORTED_LEAGUE_IDS[league_id]
-            home_team = fixture["teams"]["home"]["name"]
-            away_team = fixture["teams"]["away"]["name"]
-            goals = fixture.get("goals") or {}
-            official_home = goals.get("home")
-            official_away = goals.get("away")
-            events = get_fixture_events(fixture_id)
-            if not events and official_home is None:
-                failed += 1
-                continue
-            analysis = analyze_match_events(
-                home_team,
-                away_team,
-                events or [],
-                official_home=official_home,
-                official_away=official_away,
-            )
-            save_result(
-                fixture_id,
-                league,
-                normalize_team(home_team),
-                normalize_team(away_team),
-                analysis,
-            )
-            mark_fixture_processed(fixture_id)
-            processed += 1
-            if processed % 25 == 0:
-                print(f"… {processed} processed so far")
-            time.sleep(REQUEST_DELAY)
-        except Exception as exc:
-            failed += 1
-            print(f"[FIXTURE ERROR] {fixture_id}: {exc}")
+        if fixture_id in queued:
             continue
+        queued.add(fixture_id)
+        if not force and fixture_already_processed(fixture_id):
+            skipped += 1
+            continue
+        league_meta = fixture.get("league", {})
+        league_id = league_meta.get("id")
+        if league_id not in SUPPORTED_LEAGUE_IDS:
+            unsupported += 1
+            unmatched_leagues.add(
+                f"{league_meta.get('country', '')} | {league_meta.get('name', '')} | id={league_id}"
+            )
+            continue
+        todo.append(fixture)
+    print(f"{len(todo)} new fixtures in supported leagues "
+          f"(~{(len(todo) + BATCH - 1) // BATCH} event calls)")
+
+    stopped = None
+    for start in range(0, len(todo), BATCH):
+        batch = todo[start:start + BATCH]
+        try:
+            events_by_id = fixtures_with_events([f["fixture"]["id"] for f in batch])
+        except (af.QuotaExhausted, af.NetworkError) as exc:
+            stopped = str(exc)
+            break
+        for fixture in batch:
+            fixture_id = fixture["fixture"]["id"]
+            try:
+                if force:
+                    unmark_fixture_processed(fixture_id)
+                league = SUPPORTED_LEAGUE_IDS[fixture["league"]["id"]]
+                home_team = fixture["teams"]["home"]["name"]
+                away_team = fixture["teams"]["away"]["name"]
+                goals = fixture.get("goals") or {}
+                official_home = goals.get("home")
+                official_away = goals.get("away")
+                events = events_by_id.get(fixture_id) or []
+                if not events and official_home is None:
+                    failed += 1
+                    continue
+                analysis = analyze_match_events(
+                    home_team,
+                    away_team,
+                    events,
+                    official_home=official_home,
+                    official_away=official_away,
+                )
+                save_result(
+                    fixture_id,
+                    league,
+                    normalize_team(home_team),
+                    normalize_team(away_team),
+                    analysis,
+                    match_date=(fixture["fixture"].get("date") or "") or None,
+                )
+                mark_fixture_processed(fixture_id)
+                processed += 1
+            except Exception as exc:
+                failed += 1
+                print(f"[FIXTURE ERROR] {fixture_id}: {exc}")
+        if processed and processed % 100 < BATCH:
+            print(f"… {processed} processed so far")
 
     print(f"{processed} fixtures processed")
     print(f"{skipped} fixtures skipped (already processed)")
     print(f"{unsupported} unsupported leagues ignored")
     print(f"{failed} fixtures failed (will retry next run)")
+    if stopped:
+        print(f"Stopped early: {stopped} — rerun to continue")
     if unmatched_leagues:
         print("\nLeague id/name/country seen but NOT in SUPPORTED_LEAGUE_IDS:")
         for name in sorted(unmatched_leagues):
             print(f"  - {name}")
     update_form_from_results()
+    return EXIT_PARTIAL if stopped else 0
 
 
 if __name__ == "__main__":
@@ -557,8 +582,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Clear existing results in window and reprocess (fixes missed-pen rows)",
     )
+    parser.add_argument(
+        "--season-to-date",
+        action="store_true",
+        help="Fill the current season so far for every supported league (~1 call per league)",
+    )
     args = parser.parse_args()
     if not API_FOOTBALL_KEY:
         print("[results] API_FOOTBALL_KEY is not set (see deploy/env.example)")
         sys.exit(2)
-    process_results(lookback_days=args.days, force=args.force)
+    if args.force and args.season_to_date:
+        print("--force cannot be combined with --season-to-date")
+        sys.exit(2)
+    sys.exit(process_results(
+        lookback_days=args.days, force=args.force, season_to_date=args.season_to_date,
+    ))

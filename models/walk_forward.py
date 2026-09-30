@@ -78,7 +78,8 @@ def _load_dated_training() -> pd.DataFrame:
         hist = pd.DataFrame(columns=["match_id", "match_date"])
     try:
         live = pd.read_sql_query(
-            "SELECT match_id, processed_at AS match_date FROM match_results",
+            "SELECT match_id, COALESCE(match_date, processed_at) AS match_date "
+            "FROM match_results",
             conn,
         )
     except Exception:

@@ -104,6 +104,18 @@ python -u run.py train           # backs up first; refuses to retrain on empty t
 After any major job, report: `python -u run.py health` (row counts) and
 `python -u run.py backup --list` (dated backup exists).
 
+### Fill the current season (once)
+
+```bash
+cd ~/TurnaroundIQ && tmux new -d -s season 'venv/bin/python -u collectors/results_collector.py --season-to-date > logs/season.log 2>&1'
+```
+```bash
+tail -n 15 ~/TurnaroundIQ/logs/season.log
+```
+
+About 25 calls to list fixtures + 1 per 20 matches. Safe to re-run: processed
+fixtures are skipped. After that the cron `live` job keeps it current.
+
 ### Historical backfill (api-sports.io)
 
 Check the key and parser first (one league, ~4 calls):

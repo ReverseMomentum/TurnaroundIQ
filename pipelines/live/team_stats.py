@@ -66,10 +66,11 @@ def migrate_team_stats(conn):
 def last5_goals(conn, team):
     rows = conn.execute(
         """
-        SELECT processed_at, final_home, final_away, 1 AS is_home
+        SELECT COALESCE(match_date, processed_at) AS processed_at,
+               final_home, final_away, 1 AS is_home
         FROM match_results WHERE home_team = ?
         UNION ALL
-        SELECT processed_at, final_away, final_home, 0 AS is_home
+        SELECT COALESCE(match_date, processed_at), final_away, final_home, 0 AS is_home
         FROM match_results WHERE away_team = ?
         ORDER BY processed_at DESC
         LIMIT 5

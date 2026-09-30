@@ -201,7 +201,8 @@ def load_matches(conn=None):
             if key in matches:
                 continue
             timeline = live_goals.get(str(mid), [])
-            if timeline and len(timeline) == int(fh) + int(fa):
+            # 0-0 has an empty timeline that is still complete
+            if (timeline or int(fh) + int(fa) == 0) and len(timeline) == int(fh) + int(fa):
                 sides = _side_outcomes(timeline, fh, fa)
             else:  # summary only: behaviour features that need goal minutes skip it
                 sides = {

@@ -307,3 +307,17 @@ def test_over_under_parsed_prefers_pinnacle_and_is_stored(fresh_table):
     fresh_table.close()
     row = oa.load_odds(["ou1"])["ou1"]
     assert (row["over25"], row["under25"]) == (1.85, 2.02)
+
+
+def test_next_kickoff_after_window(monkeypatch):
+    from api import app as app_module
+    now = datetime.now(timezone.utc)
+    soon, later, latest = (now + timedelta(hours=h) for h in (2, 30, 50))
+    monkeypatch.setattr(app_module, "upcoming_match_pairs", lambda limit=60: [
+        {"match_id": "a", "kickoff": soon.isoformat()},
+        {"match_id": "c", "kickoff": latest.isoformat()},
+        {"match_id": "b", "kickoff": later.isoformat()},
+    ])
+    assert app_module._next_kickoff_after(24) == later.isoformat()
+    monkeypatch.setattr(app_module, "upcoming_match_pairs", lambda limit=60: [])
+    assert app_module._next_kickoff_after(24) is None

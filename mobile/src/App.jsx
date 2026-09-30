@@ -1098,7 +1098,7 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
 
       {opps.loading && <Loading />}
       {opps.error && <ErrorBox error={opps.error} onRetry={opps.reload} />}
-      {!opps.loading && !opps.error && list.length === 0 && <Empty>{`No picks at ${MIN_FTA}% FTA or above kick off in the next 24 hours.`}</Empty>}
+      {!opps.loading && !opps.error && list.length === 0 && <Empty>{emptyPicksMessage(opps.data)}</Empty>}
 
       <div className="lg:grid lg:grid-cols-[1.35fr_1fr] lg:gap-6">
         <div>
@@ -1276,6 +1276,18 @@ function BookmakerFilter({ opps }) {
   );
 }
 
+// Why the 24h list is empty: no games at all, or games that don't reach the floor.
+function emptyPicksMessage(data) {
+  const games = data?.games_in_window || 0;
+  if (games > 0) {
+    const best = data?.best_fta_in_window;
+    return `${games} game${games === 1 ? "" : "s"} kick off in the next 24 hours, but none reach ${MIN_FTA}% FTA` +
+      (best ? ` (best is ${Number(best).toFixed(2)}%).` : ".");
+  }
+  const next = data?.next_kickoff ? formatKickoff(data.next_kickoff) : null;
+  return "No games in our leagues kick off in the next 24 hours." + (next ? ` Next kick-off: ${next}.` : "");
+}
+
 function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
   const [league, setLeague] = useState("All leagues");
   const list = opps.data?.opportunities || [];
@@ -1312,7 +1324,7 @@ function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
           <div className="flex flex-col gap-3 lg:hidden">
             {filtered.map((o, i) => <OpportunityCard key={oppKey(o)} o={o} onClick={onOpen} highlight={i === 0 && league === "All leagues"} />)}
           </div>
-          {filtered.length === 0 && <Empty>{list.length === 0 ? `No picks at ${MIN_FTA}% FTA or above kick off in the next 24 hours.` : "No opportunities match this filter right now."}</Empty>}
+          {filtered.length === 0 && <Empty>{list.length === 0 ? emptyPicksMessage(opps.data) : "No opportunities match this filter right now."}</Empty>}
         </>
       )}
       <Disclaimer />

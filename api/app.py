@@ -393,6 +393,13 @@ def _kicks_off_within(pair, hours, now=None):
     return now < ko <= now + timedelta(hours=hours)
 
 
+def _next_kickoff_after(hours):
+    """First supported-league kick-off after the window (for 'nothing in the next 24h' messages)."""
+    later = [p for p in upcoming_match_pairs(limit=400)
+             if _not_kicked_off(p) and not _kicks_off_within(p, hours)]
+    return min((str(p.get("kickoff")) for p in later), default=None)
+
+
 def fixtures_from_upcoming(limit=40, hours=None, bookmakers=None):
     fixtures = []
     if hours:
@@ -602,6 +609,8 @@ def opportunities(
             if "fta_band" not in r:
                 r["fta_band"] = fta_band(r.get("fta_pct"))
 
+        games_in_window = len({r.get("match_id") or r.get("match") for r in ranked})
+        best_below_floor = max((r.get("fta_pct") or 0 for r in ranked), default=None)
         ranked = filter_opportunities(
             ranked,
             min_fta=min_fta,
@@ -656,6 +665,9 @@ def opportunities(
             "paper_summary": tracked_store.summary(user_id),
             "rank_errors": get_last_rank_errors(),
             "window_hours": hours,
+            "games_in_window": games_in_window,
+            "best_fta_in_window": best_below_floor,
+            "next_kickoff": _next_kickoff_after(hours) if hours else None,
             "bookmakers": my_books or [],
             "odds_updated_at": max(
                 (r["odds_updated_at"] for r in ranked if r.get("odds_updated_at")), default=None

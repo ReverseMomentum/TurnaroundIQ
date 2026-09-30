@@ -16,11 +16,12 @@ DOMAIN="$(awk '/^[a-z0-9.-]+ *\{/{print $1; exit}' deploy/Caddyfile)"
 ENV_FILE=/etc/turnaroundiq.env
 say() { echo; echo "=== $* ==="; }
 fail=0
+failed=""
 
 say "1/6 env file"
 if [ ! -f "$ENV_FILE" ]; then
   echo "MISSING $ENV_FILE — run: bash deploy/set_env.sh API_FOOTBALL_KEY <key>"
-  fail=1
+  fail=1; failed="$failed env"
 elif ! $SUDO grep -qE '^API_FOOTBALL_KEY=.+' "$ENV_FILE"; then
   echo "WARNING API_FOOTBALL_KEY empty in $ENV_FILE (collectors will stop)"
 else
@@ -29,7 +30,7 @@ fi
 
 say "2/6 python venv + requirements"
 [ -x venv/bin/python ] || python3 -m venv venv
-venv/bin/pip install -q -r requirements.txt && echo "ok" || { echo "pip install failed"; fail=1; }
+venv/bin/pip install -q -r requirements.txt && echo "ok" || { echo "pip install failed"; fail=1; failed="$failed python-deps"; }
 
 say "3/6 API service (systemd, 127.0.0.1:8080)"
 tmux kill-session -t api 2>/dev/null && echo "stopped old tmux API" || true
@@ -41,7 +42,7 @@ sleep 4
 if curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health | grep -qE '200|503'; then
   echo "ok — API answering locally"
 else
-  echo "API not answering — see: journalctl -u turnaroundiq-api -n 50"; fail=1
+  echo "API not answering — see: journalctl -u turnaroundiq-api -n 50"; fail=1; failed="$failed api"
 fi
 
 say "4/6 Caddy (HTTPS for $DOMAIN)"
@@ -56,7 +57,7 @@ fi
 $SUDO mkdir -p /var/log/caddy && $SUDO chown caddy:caddy /var/log/caddy 2>/dev/null || true
 $SUDO cp deploy/Caddyfile /etc/caddy/Caddyfile
 $SUDO systemctl enable caddy >/dev/null 2>&1
-$SUDO systemctl restart caddy && echo "ok" || { echo "caddy failed — journalctl -u caddy -n 50"; fail=1; }
+$SUDO systemctl restart caddy && echo "ok" || { echo "caddy failed — journalctl -u caddy -n 50"; fail=1; failed="$failed caddy"; }
 
 say "5/6 firewall"
 if command -v ufw >/dev/null && $SUDO ufw status | grep -q "Status: active"; then
@@ -70,7 +71,7 @@ fi
 
 if [ "${1:-}" = "--cron" ]; then
   say "cron"
-  sed "s#/root/TurnaroundIQ#$ROOT#g" deploy/crontab.example | crontab - && echo "ok — crontab installed" || fail=1
+  sed "s#/root/TurnaroundIQ#$ROOT#g" deploy/crontab.example | crontab - && echo "ok — crontab installed" || { fail=1; failed="$failed cron"; }
 fi
 
 say "6/6 HTTPS check (certificate can take ~1 min first time)"
@@ -83,9 +84,9 @@ done
 case "$code" in
   200) echo "ok — https://$DOMAIN/health is healthy";;
   503) echo "HTTPS works; health is critical (data) — run: venv/bin/python run.py health";;
-  *)   echo "HTTPS not ready (code $code). Check Cloudflare record is DNS only (grey), then: journalctl -u caddy -n 50"; fail=1;;
+  *)   echo "HTTPS not ready (code $code). Check Cloudflare record is DNS only (grey), then: journalctl -u caddy -n 50"; fail=1; failed="$failed https";;
 esac
 
 echo
-[ "$fail" -eq 0 ] && echo "SETUP DONE" || echo "SETUP FINISHED WITH ISSUES (see above, full log: logs/setup.log)"
+[ "$fail" -eq 0 ] && echo "SETUP DONE" || echo "SETUP FINISHED WITH ISSUES:$failed (details above, full log: logs/setup.log)"
 exit "$fail"

@@ -2,6 +2,7 @@
 # Give (or remove) Pro for a signed-in web account — soft-launch testers, comps.
 #   bash scripts/grant_pro.sh someone@example.com          # Pro for 60 days
 #   bash scripts/grant_pro.sh someone@example.com 30       # Pro for 30 days
+#   bash scripts/grant_pro.sh someone@example.com forever  # no expiry (founder/staff)
 #   bash scripts/grant_pro.sh someone@example.com revoke   # back to Free
 #   bash scripts/grant_pro.sh --list                       # all accounts + status
 # The person must have signed in once first (so their account exists).
@@ -32,7 +33,8 @@ if len(args) > 1 and args[1] == "revoke":
     upsert_subscriber(uid, False, entitlement="pro", status="expired", last_event="MANUAL_REVOKE")
     print(f"Pro removed for {email}")
 else:
-    days = int(args[1]) if len(args) > 1 else 60
+    arg = args[1] if len(args) > 1 else "60"
+    days = 36500 if arg == "forever" else int(arg)
     exp = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
     upsert_subscriber(uid, True, entitlement="pro", expires_at=exp, status="active",
                       product_id="comp", environment="MANUAL", last_event="MANUAL_GRANT")

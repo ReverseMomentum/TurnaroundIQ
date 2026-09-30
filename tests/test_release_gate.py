@@ -123,6 +123,28 @@ def test_entitlement_lifecycle_via_webhooks():
     assert not rc.is_entitled(user)
 
 
+def test_manual_grant_survives_revenuecat_lookup(monkeypatch):
+    """A grant_pro comp must not be wiped when RevenueCat (which never saw it) says 'no purchase'."""
+    from billing import revenuecat as rc
+    user = "u_comp_tester"
+    exp = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    rc.upsert_subscriber(user, True, entitlement="pro", expires_at=exp, status="active",
+                         product_id="comp", environment="MANUAL", last_event="MANUAL_GRANT")
+    monkeypatch.setattr(rc, "fetch_subscriber", lambda uid: {"subscriber": {"entitlements": {}}})
+    assert rc.is_entitled(user, refresh=True)
+    assert rc.get_subscriber_row(user)["environment"] == "MANUAL"
+
+    # an unrelated real-subscription expiry doesn't cancel the comp either
+    rc.apply_webhook(_webhook("EXPIRATION", user, expires_in_days=-1))
+    assert rc.is_entitled(user, refresh=True)
+
+    # an expired comp falls back to what RevenueCat says
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    rc.upsert_subscriber(user, True, entitlement="pro", expires_at=past, status="active",
+                         product_id="comp", environment="MANUAL", last_event="MANUAL_GRANT")
+    assert not rc.is_entitled(user, refresh=True)
+
+
 @pytest.fixture
 def client():
     from fastapi.testclient import TestClient

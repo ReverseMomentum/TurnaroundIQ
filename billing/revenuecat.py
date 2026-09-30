@@ -217,6 +217,16 @@ def cached_entitled(app_user_id):
     return True
 
 
+def manual_grant_active(app_user_id):
+    """A comp from scripts/grant_pro.sh that hasn't expired. RevenueCat knows nothing
+    about these, so a RevenueCat lookup must not overwrite them."""
+    row = get_subscriber_row(app_user_id)
+    return bool(
+        row and row["entitled"] and row.get("environment") == "MANUAL"
+        and _not_expired(row.get("expires_at"))
+    )
+
+
 def fetch_subscriber(app_user_id):
     key = _secret()
     if not key:
@@ -271,6 +281,8 @@ def is_entitled(app_user_id, refresh=False):
     if murl:
         _management_urls[app_user_id] = murl
     entitled, expires, product = entitlement_from_subscriber(payload)
+    if not entitled and manual_grant_active(app_user_id):
+        return True
     upsert_subscriber(
         app_user_id,
         entitled,
@@ -318,6 +330,8 @@ def apply_webhook(body):
             entitled = cached_entitled(user_id) or False
             status = "unknown"
 
+    if not entitled and manual_grant_active(user_id):
+        return True
     upsert_subscriber(
         user_id,
         entitled,

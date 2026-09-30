@@ -186,41 +186,86 @@ def _row_to_dict(row):
     return d
 
 
-def _expected_profit(stake, back_odds, fta_pct, commission=2.0):
+def _estimate_lay(back_odds):
+    """Same margin as opportunities_engine.estimate_lay_odds."""
+    margin = 0.03 if back_odds < 2 else 0.05 if back_odds < 5 else 0.08
+    return round(back_odds * (1 + margin), 2)
+
+
+def matched_bet_outcomes(stake, back_odds, lay_odds=None, commission=2.0):
+    """
+    2UP / FTA matched bet (back at the bookie + lay at the exchange).
+    Returns (qualifying_loss, fta_profit):
+      - team goes 2 up and fails to win -> fta_profit (early payout + lay wins)
+      - anything else                  -> qualifying_loss (small, usually negative)
+    Same formulas as calculations.py and the app's calculator.
+    """
+    from calculations import (
+        calculate_fta_profit, calculate_lay_stake, calculate_qualifying_loss,
+    )
+    try:
+        stake = float(stake or 0)
+        back = float(back_odds or 0)
+        comm = float(commission if commission is not None else 2.0)
+        lay = float(lay_odds) if lay_odds else _estimate_lay(back)
+    except (TypeError, ValueError):
+        return None, None
+    if stake <= 0 or back <= 1 or lay <= 1:
+        return None, None
+    lay_stake = calculate_lay_stake(back, lay, stake, comm)
+    ql = calculate_qualifying_loss(back, lay, stake, lay_stake, comm)
+    fta = calculate_fta_profit(stake, back, lay_stake, comm)
+    return ql, fta
+
+
+def _expected_profit(stake, back_odds, fta_pct, commission=2.0, lay_odds=None, product="fta"):
+    """fta_pct is always percent (full event for FTA, e.g. 2.4)."""
+    try:
+        p = float(fta_pct or 0) / 100.0
+    except (TypeError, ValueError):
+        return None
+    if (product or "fta") == "fta":
+        ql, fta = matched_bet_outcomes(stake, back_odds, lay_odds, commission)
+        if ql is None:
+            return None
+        return round(fta * p - abs(ql) * (1 - p), 2)
     try:
         stake = float(stake or 0)
         odds = float(back_odds or 0)
-        p = float(fta_pct or 0)
-        if p > 1.5:
-            p = p / 100.0
         if stake <= 0 or odds <= 1:
             return None
         win = stake * (odds - 1) * (1 - float(commission or 0) / 100.0)
-        lose = -stake
-        return round(p * win + (1 - p) * lose, 2)
+        return round(p * win - (1 - p) * stake, 2)
     except (TypeError, ValueError):
         return None
 
 
-def compute_profit(result, stake, back_odds, commission=2.0, actual_profit=None):
+def compute_profit(result, stake, back_odds, commission=2.0, actual_profit=None,
+                   lay_odds=None, product="fta"):
     if actual_profit is not None:
         return float(actual_profit)
     r = (result or "").lower().strip()
+    if r in ("void", "push", "cancelled"):
+        return 0.0
+    hit = r in ("fta", "won", "win", "hit")
+    miss = r in ("no_fta", "lost", "lose", "miss")
+    if not (hit or miss):
+        return 0.0
+    if (product or "fta") == "fta":
+        ql, fta = matched_bet_outcomes(stake, back_odds, lay_odds, commission)
+        if ql is None:
+            return 0.0
+        return round(fta if hit else ql, 2)
+    # Early Goal / Chaos: simple back bet on the signal
     try:
         stake = float(stake or 0)
         odds = float(back_odds or 0)
         comm = float(commission or 0) / 100.0
     except (TypeError, ValueError):
         return 0.0
-    if r in ("void", "push", "cancelled"):
-        return 0.0
-    if r in ("fta", "won", "win", "hit"):
-        if odds > 1:
-            return round(stake * (odds - 1) * (1 - comm), 2)
-        return 0.0
-    if r in ("no_fta", "lost", "lose", "miss"):
-        return round(-stake, 2)
-    return 0.0
+    if hit:
+        return round(stake * (odds - 1) * (1 - comm), 2) if odds > 1 else 0.0
+    return round(-stake, 2)
 
 
 def list_tracked(app_user_id, status=None, limit=50):
@@ -261,9 +306,9 @@ def create_tracked(app_user_id, data):
     if commission is None:
         commission = settings["default_commission"]
     fta_pct = data.get("fta_pct")
-    exp = _expected_profit(stake, back, fta_pct, commission)
-    paper = 1 if data.get("paper", True) else 0
     product = (data.get("product") or "fta").strip().lower()
+    exp = _expected_profit(stake, back, fta_pct, commission, lay_odds=lay, product=product)
+    paper = 1 if data.get("paper", True) else 0
 
     conn = get_db()
     cur = conn.execute(
@@ -316,7 +361,8 @@ def settle_tracked(app_user_id, bet_id, result, actual_profit=None, actual_fta=N
     conn = get_db()
     row = conn.execute(
         """
-        SELECT id, stake, back_odds, commission, actual_fta
+        SELECT id, stake, back_odds, commission, actual_fta, lay_odds,
+               COALESCE(product, 'fta')
         FROM tracked_bets WHERE id = ? AND app_user_id = ?
         """,
         (bet_id, app_user_id),
@@ -326,7 +372,8 @@ def settle_tracked(app_user_id, bet_id, result, actual_profit=None, actual_fta=N
         return None
 
     profit = compute_profit(
-        result, row[1], row[2], row[3], actual_profit=actual_profit
+        result, row[1], row[2], row[3], actual_profit=actual_profit,
+        lay_odds=row[5], product=row[6],
     )
     if actual_fta is None:
         r = (result or "").lower()
@@ -506,7 +553,7 @@ def auto_settle_from_results(app_user_id=None):
         opens = conn.execute(
             """
             SELECT id, app_user_id, home_team, away_team, team, is_home,
-                   stake, back_odds, commission, match_id,
+                   stake, back_odds, commission, match_id, lay_odds,
                    COALESCE(product, 'fta')
             FROM tracked_bets WHERE status = 'open' AND app_user_id = ?
             """,
@@ -516,7 +563,7 @@ def auto_settle_from_results(app_user_id=None):
         opens = conn.execute(
             """
             SELECT id, app_user_id, home_team, away_team, team, is_home,
-                   stake, back_odds, commission, match_id,
+                   stake, back_odds, commission, match_id, lay_odds,
                    COALESCE(product, 'fta')
             FROM tracked_bets WHERE status = 'open'
             """
@@ -524,7 +571,7 @@ def auto_settle_from_results(app_user_id=None):
 
     settled = 0
     for row in opens:
-        bet_id, uid, home, away, team, is_home, stake, odds, comm, mid, product = row
+        bet_id, uid, home, away, team, is_home, stake, odds, comm, mid, lay, product = row
         mr = _fetch_match_row(conn, mid, home, away)
         if not mr:
             continue
@@ -561,7 +608,7 @@ def auto_settle_from_results(app_user_id=None):
                 result = "fta" if fta else "no_fta"
                 actual_fta = 1 if fta else 0
 
-        profit = compute_profit(result, stake, odds, comm)
+        profit = compute_profit(result, stake, odds, comm, lay_odds=lay, product=product)
         now = datetime.now(timezone.utc).isoformat()
         conn.execute(
             """

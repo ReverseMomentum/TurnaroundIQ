@@ -180,3 +180,14 @@ def test_restore_drill_passes_and_leaves_live_untouched():
     before = backup.row_counts(database.DB_NAME)
     assert backup.drill() is True
     assert backup.row_counts(database.DB_NAME) == before
+
+
+def test_paper_fta_bet_uses_matched_bet_maths():
+    """A miss costs the qualifying loss (~£1-2), not the whole stake; % is never x100."""
+    from api import tracked
+    ql, fta = tracked.matched_bet_outcomes(40, 2.1, 2.2, 2.0)
+    assert -3 < ql < 0 and fta > 60
+    assert tracked.compute_profit("no_fta", 40, 2.1, 2.0, lay_odds=2.2) == ql
+    assert tracked.compute_profit("fta", 40, 2.1, 2.0, lay_odds=2.2) == fta
+    exp = tracked._expected_profit(40, 2.1, 1.2, 2.0, lay_odds=2.2)  # 1.2% full event
+    assert exp == round(fta * 0.012 - abs(ql) * 0.988, 2)

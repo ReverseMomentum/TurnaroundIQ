@@ -31,7 +31,10 @@ from database import DB_NAME
 
 BACKUP_DIR = Path(os.environ.get("BACKUP_DIR", str(ROOT / "backups")))
 BACKUP_KEEP = int(os.environ.get("BACKUP_KEEP", "30"))
-CORE_TABLES = ("match_results", "team_stats", "training_data")
+CORE_TABLES = (
+    "match_results", "team_stats", "training_data",
+    "historical_matches", "historical_events",
+)
 
 
 class BackupError(RuntimeError):

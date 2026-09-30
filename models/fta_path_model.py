@@ -176,7 +176,7 @@ def load_matches(conn=None):
             matches[(day, home, away)] = {
                 "day": day, "league": league or "", "home": home, "away": away,
                 "fh": int(fh), "fa": int(fa), "sides": _side_outcomes(goals, fh, fa),
-                "odds": odds.get(mid), "ou": ou.get(mid),
+                "odds": odds.get(mid), "ou": ou.get(mid), "source": "historical",
             }
     except Exception as exc:
         print(f"[path-model] historical tables unavailable: {exc}")
@@ -215,6 +215,7 @@ def load_matches(conn=None):
             matches[key] = {
                 "day": day, "league": league or "", "home": home, "away": away,
                 "fh": int(fh), "fa": int(fa), "sides": sides,
+                "source": "live" + ("" if sides[1].get("timeline") else " (no timeline)"),
             }
     except Exception as exc:
         print(f"[path-model] match_results unavailable: {exc}")

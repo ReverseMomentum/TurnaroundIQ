@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.env
+ios/App/App/public/
+android/app/src/main/assets/public/

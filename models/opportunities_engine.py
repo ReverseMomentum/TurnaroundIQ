@@ -257,6 +257,7 @@ def build_opportunity(fixture, stake=40, commission=2):
     )
 
     return {
+        "match_id": fixture.get("match_id"),
         "match": fixture.get("match") or f"{home_team} vs {away_team}",
         "team": team,
         "league": fixture.get("league") or "",

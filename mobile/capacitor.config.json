@@ -1,0 +1,7 @@
+{
+  "appId": "uk.co.turnaroundiq.app",
+  "appName": "TurnaroundIQ",
+  "webDir": "dist",
+  "backgroundColor": "#060B18",
+  "ios": { "contentInset": "always" }
+}

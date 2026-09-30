@@ -16,8 +16,8 @@ Status as of 2026-09-30. ✅ done · 🟡 built, needs evidence · ⬜ not start
 | 4 | Automated `two_up.db` backup | ✅ nightly + post-live + before train/historical; **restore drill PASS 2026-09-30 12:20 UTC** (match_results 2381, historical 44603) | Off-box copy (should-have) | F |
 | 5 | Fresh opportunities, no stale junk | ✅ finished matches never served; kicked-off games dropped | Spot-check on 3 match days | PM |
 | 6 | Paper log running | 🟡 cron opens + settles FTA / Early / Chaos daily | 2+ weekends settled, reviewed weekly | PM |
-| 7 | App loads Pro / Opportunities / Early / Chaos | 🟡 client points at HTTPS; no shared `dev_user`; 401/402 → paywall | Wire `setAppUserId(Purchases.appUserID)`; TestFlight pass on clean device | F |
-| 8 | Disclaimer copy | ⬜ app-side | Copy approved per messaging guardrails | PM |
+| 7 | App loads Pro / Opportunities / Early / Chaos | 🟡 `mobile/` Capacitor app: all screens on live API, RevenueCat purchase/restore/manage, paper tracking; verified in headless browser against a local API | `npx cap add ios/android`, RC keys + offering, TestFlight pass on a clean device | F |
+| 8 | Disclaimer copy | 🟡 on every data screen + paywall (estimates not tips, 18+, BeGambleAware) | Founder/PM approve wording; Terms + Privacy URLs | PM |
 
 ### Model (for honest copy)
 
@@ -36,11 +36,10 @@ Not allowed: profit, "high confidence", "predicts turnarounds".
 3. TestFlight sandbox user: `bash scripts/rc_check.sh user <appUserID>` → 402 before purchase,
    200 after, 402 again after sandbox expiry (minutes).
 
-### App blockers still open
+### App (mobile/)
 
-- Call `setAppUserId(Purchases.appUserID)` after `Purchases.configure()`.
-- Hide the Model Testing page from the menu for public builds (API serves it
-  only to `ADMIN_USER_IDS`).
+Build steps and the RevenueCat checklist: `mobile/README.md`. Live monitoring
+shows "coming soon" (no in-play backend in v1 scope).
 
 ## Should-have
 

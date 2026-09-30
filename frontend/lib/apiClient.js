@@ -2,34 +2,40 @@
  * TurnaroundIQ → FastAPI client
  */
 
+const env = (typeof process !== "undefined" && process.env) || {};
+
+// Expo uses EXPO_PUBLIC_*, Next.js NEXT_PUBLIC_*.
 export const API_BASE =
-  (typeof process !== "undefined" &&
-    process.env &&
-    process.env.NEXT_PUBLIC_API_BASE) ||
-  "https://api.turnaroundiq.co.uk";
+  env.EXPO_PUBLIC_API_BASE || env.NEXT_PUBLIC_API_BASE || "https://api.turnaroundiq.co.uk";
 
 /**
- * The RevenueCat app user id (Purchases.appUserID), saved via setAppUserId()
- * after Purchases.configure(). No shared fallback: without an id the API
- * answers 401 and the UI shows the paywall. NEXT_PUBLIC_DEV_USER_ID is for
- * local development only.
+ * The RevenueCat app user id. React Native: set by initPurchases()
+ * (lib/revenuecat.js) from Purchases.getAppUserID(); RevenueCat itself
+ * persists it on the device, so it is simply re-read on each launch.
+ * No shared fallback: without an id the API answers 401 -> paywall.
+ * EXPO_PUBLIC_DEV_USER_ID / NEXT_PUBLIC_DEV_USER_ID: local development only.
  */
+let currentUserId = null;
+
+function webStorage() {
+  try {
+    return typeof window !== "undefined" && window.localStorage ? window.localStorage : null;
+  } catch {
+    return null; // React Native / private mode
+  }
+}
+
 export function getAppUserId() {
-  if (typeof window === "undefined") return null;
-  const stored = window.localStorage.getItem("tq_app_user_id");
+  if (currentUserId) return currentUserId;
+  const stored = webStorage()?.getItem("tq_app_user_id");
   if (stored) return stored;
-  return (
-    (typeof process !== "undefined" &&
-      process.env &&
-      process.env.NEXT_PUBLIC_DEV_USER_ID) ||
-    null
-  );
+  return env.EXPO_PUBLIC_DEV_USER_ID || env.NEXT_PUBLIC_DEV_USER_ID || null;
 }
 
 export function setAppUserId(id) {
-  if (typeof window !== "undefined" && id) {
-    window.localStorage.setItem("tq_app_user_id", id);
-  }
+  currentUserId = id || null;
+  const storage = webStorage();
+  if (storage && id) storage.setItem("tq_app_user_id", id);
 }
 
 export class ApiError extends Error {

@@ -9,6 +9,10 @@ TurnaroundIQ pipelines.
     python -u run.py api              # restart API in tmux session "api"
     python -u run.py walk-forward     # chronological validation
     python -u run.py walk-forward --folds 5 --min-train 800
+    python -u run.py backup           # dated copy of two_up.db in backups/
+    python -u run.py backup --list
+    python -u run.py restore backups/two_up-YYYYMMDD-HHMMSS-label.db
+    python -u run.py health           # row counts + freshness, non-zero exit if unhealthy
 """
 
 import runpy
@@ -27,6 +31,7 @@ PIPELINES = {
 
 API_COMMANDS = {"api", "api-restart", "restart-api"}
 WALK_COMMANDS = {"walk-forward", "walkforward", "wf"}
+USAGE = "Usage: python -u run.py [live|historical|train|api|walk-forward|backup|restore|health]"
 
 
 def restart_api():
@@ -58,9 +63,21 @@ def run_walk_forward():
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python -u run.py [live|historical|train|api|walk-forward]")
+        print(USAGE)
         sys.exit(1)
     cmd = sys.argv[1]
+    if cmd == "backup":
+        from ops.backup import main as backup_main
+        sys.exit(backup_main(sys.argv[2:]))
+    if cmd == "restore":
+        if len(sys.argv) < 3:
+            print("Usage: python -u run.py restore <backup file>")
+            sys.exit(1)
+        from ops.backup import main as backup_main
+        sys.exit(backup_main(["--restore", sys.argv[2]]))
+    if cmd == "health":
+        from ops.health import main as health_main
+        sys.exit(health_main())
     if cmd in API_COMMANDS:
         restart_api()
         return
@@ -68,7 +85,7 @@ def main():
         run_walk_forward()
         return
     if cmd not in PIPELINES:
-        print("Usage: python -u run.py [live|historical|train|api|walk-forward]")
+        print(USAGE)
         sys.exit(1)
     target = PIPELINES[cmd]
     sys.argv = [str(target), *sys.argv[2:]]

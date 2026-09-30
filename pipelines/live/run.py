@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from progress import ProgressBar, ok, step, warn
+from ops.backup import BackupError, backup_db
 
 STEPS = [
     ("Collect finished results", "collectors/results_collector.py", "always"),
@@ -70,7 +71,12 @@ def main():
     bar.finish()
     ok(f"Live pipeline {round(time.time() - started, 1)}s")
     if failed:
-        warn(f"{failed} step(s) failed")
+        warn(f"{failed} step(s) failed — skipping post-live backup")
+        sys.exit(1)
+    try:
+        backup_db("post-live")
+    except BackupError as exc:
+        warn(f"Post-live backup failed: {exc}")
         sys.exit(1)
 
 

@@ -12,6 +12,10 @@ HOST="${API_HOST:-0.0.0.0}"
 SESSION="${API_TMUX_SESSION:-api}"
 
 echo "[api] root=$ROOT port=$PORT session=$SESSION"
+if [ "$HOST" = "0.0.0.0" ]; then
+  echo "[api] WARNING bound to 0.0.0.0 — plain HTTP, reachable from the internet."
+  echo "[api]         Production path: systemd + Caddy (deploy/RUNBOOK.md), API_HOST=127.0.0.1"
+fi
 
 # Free the port if something is already bound
 if command -v fuser >/dev/null 2>&1; then

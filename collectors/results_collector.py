@@ -14,8 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from constants import API_FOOTBALL_KEY, SUPPORTED_LEAGUE_IDS
 from team_normalizer import normalize_team
-
-DB_NAME = "two_up.db"
+from database import DB_NAME
 # Cover ~full season so far from a mid-season date (Aug → now).
 # Override: RESULTS_LOOKBACK_DAYS=90 python3 collectors/results_collector.py
 LOOKBACK_DAYS = int(os.environ.get("RESULTS_LOOKBACK_DAYS", "75"))
@@ -467,11 +466,20 @@ def process_results(lookback_days=None, force=False):
     migrate_match_results()
     create_processed_fixtures_table()
 
+    fixtures = get_completed_fixtures(lookback_days)
+
     if force:
+        if not fixtures:
+            print("[FORCE] no fixtures fetched — refusing to clear existing results")
+            sys.exit(1)
+        from ops.backup import BackupError, backup_db
+        try:
+            backup_db("pre-results-force")
+        except BackupError as exc:
+            print(f"[FORCE] backup failed ({exc}) — refusing to clear results")
+            sys.exit(1)
         print(f"[FORCE] season rebuild — lookback {lookback_days} days")
         clear_results_for_force(lookback_days)
-
-    fixtures = get_completed_fixtures(lookback_days)
     processed = skipped = unsupported = failed = 0
     unmatched_leagues = set()
 
@@ -550,4 +558,7 @@ if __name__ == "__main__":
         help="Clear existing results in window and reprocess (fixes missed-pen rows)",
     )
     args = parser.parse_args()
+    if not API_FOOTBALL_KEY:
+        print("[results] API_FOOTBALL_KEY is not set (see deploy/env.example)")
+        sys.exit(2)
     process_results(lookback_days=args.days, force=args.force)

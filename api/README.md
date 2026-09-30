@@ -6,7 +6,7 @@ Mobile apps talk to this service. Python collectors stay on the same VPS and fil
 
 | Method | Path | Auth | Notes |
 |--------|------|------|--------|
-| GET | `/health` | none | DB ping |
+| GET | `/health` | none | Row counts, freshness, backup age; 503 if critical |
 | GET | `/me` | Bearer app_user_id | entitlement, expires_at, prefs |
 | GET | `/me/prefs` | Bearer | settings defaults |
 | PATCH | `/me/prefs` | Bearer | stake, commission, notification toggles |
@@ -60,13 +60,19 @@ Authorization: Bearer <Purchases.appUserID>
 - `402` — not entitled (free or expired) → show paywall / Manage subscription  
 - `/me.entitled` drives the **Pro** badge on Settings  
 
-## Production (when you are ready)
+## Production
 
-1. Put env vars in `/etc/turnaroundiq.env` (not in git).
+Full steps: `deploy/RUNBOOK.md`.
+
+1. Put env vars in `/etc/turnaroundiq.env` (not in git) — template `deploy/env.example`.
 2. Install systemd unit from `deploy/turnaroundiq-api.service`.
 3. Terminate TLS with Caddy/nginx → `127.0.0.1:8080`.
 4. Restrict `CORS_ORIGINS` if a web client is used.
-5. Keep running collectors + `run.py train` on cron; API does not retrain.
+5. Install `deploy/crontab.example`; API does not retrain.
+
+`/health` returns **503** when the DB is empty/missing or the model file is
+absent, and lists `warnings` (stale results, old backup, missing keys).
+`/features/mismatch` is off unless `FEATURE_MISMATCH=1`.
 
 ## Next.js
 

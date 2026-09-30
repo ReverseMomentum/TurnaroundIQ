@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from progress import ok, step, warn
+from ops.backup import BackupError, backup_db
 
 GINF = ROOT / "data" / "ginf.csv"
 EVENTS = ROOT / "data" / "events.csv"
@@ -48,6 +49,13 @@ def main():
         run_script("training/fetch_fbref_source.py", extra)
     else:
         step("Using existing data/ginf.csv and data/events.csv")
+
+    step("Back up two_up.db")
+    try:
+        backup_db("pre-historical")
+    except BackupError as exc:
+        warn(f"Backup failed ({exc}) — not importing without a backup")
+        raise SystemExit(1)
 
     step("Import historical events")
     run_script("training/import_historical_events.py")

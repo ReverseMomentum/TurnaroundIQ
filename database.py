@@ -1,10 +1,17 @@
+import os
 import sqlite3
 from datetime import (
     datetime,
     timezone
 )
+from pathlib import Path
 
-DB_NAME = "two_up.db"
+# Absolute path so a script run from another directory never creates
+# (and silently uses) a fresh empty two_up.db. Override with TURNAROUNDIQ_DB.
+DB_NAME = os.environ.get(
+    "TURNAROUNDIQ_DB",
+    str(Path(__file__).resolve().parent / "two_up.db"),
+)
 
 
 def get_db():

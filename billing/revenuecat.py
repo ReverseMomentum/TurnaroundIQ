@@ -8,6 +8,7 @@ Env:
 """
 
 from datetime import datetime, timezone
+import hmac
 import json
 import os
 from urllib.parse import quote
@@ -51,7 +52,9 @@ def webhook_auth_ok(header_value):
     if not header_value:
         return False
     got = header_value.replace("Bearer ", "").strip()
-    return got == expected or header_value.strip() == expected
+    return hmac.compare_digest(got, expected) or hmac.compare_digest(
+        header_value.strip(), expected
+    )
 
 
 def ensure_tables():

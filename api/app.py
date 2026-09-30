@@ -3,16 +3,17 @@ Public API for the mobile app.
 """
 
 from datetime import datetime, timedelta, timezone
+import logging
 import os
 import sys
 import time
-import traceback
 from pathlib import Path
 from typing import Optional
 
 import requests
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,7 +30,7 @@ from billing.revenuecat import (
     ensure_tables,
 )
 from constants import API_FOOTBALL_KEY, SUPPORTED_LEAGUE_IDS
-from database import get_db, create_tables
+from database import create_tables
 from models.opportunities_engine import (
     rank_opportunities,
     build_opportunity,
@@ -42,6 +43,7 @@ from models.early_goal_hunter import rank_early_goal_matches
 from models.chaos_index import rank_chaos_matches
 from models.mismatch_meter import rank_mismatch_matches
 from team_normalizer import normalize_team
+from ops.health import check as data_health
 
 try:
     from api import tracked as tracked_store
@@ -55,7 +57,13 @@ except ImportError:
 
 DEFAULT_BACK_ODDS = float(os.environ.get("DEFAULT_BACK_ODDS", "2.10"))
 UPCOMING_DAYS = int(os.environ.get("UPCOMING_DAYS", "7"))
-FIXTURE_CACHE_SECONDS = int(os.environ.get("FIXTURE_CACHE_SECONDS", "300"))
+FIXTURE_CACHE_SECONDS = int(os.environ.get("FIXTURE_CACHE_SECONDS", "1800"))
+# Mismatch Meter is weak in backtests — off unless explicitly enabled.
+FEATURE_MISMATCH = os.environ.get("FEATURE_MISMATCH", "0") == "1"
+# After a failed fixtures fetch, wait this long before calling API-Football again.
+FIXTURE_RETRY_SECONDS = int(os.environ.get("FIXTURE_RETRY_SECONDS", "300"))
+
+log = logging.getLogger("turnaroundiq.api")
 
 CORS_ORIGINS = [
     o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()
@@ -70,6 +78,7 @@ app.add_middleware(
 )
 
 _upcoming_cache = {"ts": 0.0, "pairs": []}
+_fixture_status = {"source": "none", "error": None, "failed_at": 0.0}
 
 
 class PrefsPatch(BaseModel):
@@ -146,8 +155,10 @@ def require_pro(authorization: str | None) -> str:
 def fetch_upcoming_from_api_football(days=UPCOMING_DAYS):
     """Pull not-started fixtures for supported leagues over the next N days."""
     if not API_FOOTBALL_KEY:
+        _fixture_status["error"] = "api_football_key_missing"
         return []
 
+    errors = 0
     headers = {"x-apisports-key": API_FOOTBALL_KEY}
     pairs = []
     seen = set()
@@ -166,7 +177,9 @@ def fetch_upcoming_from_api_football(days=UPCOMING_DAYS):
                 resp = requests.get(url, headers=headers, timeout=45)
             resp.raise_for_status()
             payload = resp.json().get("response") or []
-        except Exception:
+        except Exception as exc:
+            errors += 1
+            log.warning("api-football fixtures %s failed: %s", target, exc)
             continue
 
         for fx in payload:
@@ -198,45 +211,56 @@ def fetch_upcoming_from_api_football(days=UPCOMING_DAYS):
             })
         time.sleep(0.35)
 
+    _fixture_status["error"] = (
+        f"api_football_errors:{errors}/{max(1, days)}" if errors else None
+    )
     pairs.sort(key=lambda p: p.get("kickoff") or "")
     return pairs
 
 
+def _not_kicked_off(pair, now=None):
+    now = now or datetime.now(timezone.utc)
+    try:
+        ko = datetime.fromisoformat(str(pair.get("kickoff")).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if ko.tzinfo is None:
+        ko = ko.replace(tzinfo=timezone.utc)
+    return ko > now
+
+
 def upcoming_match_pairs(limit=60):
-    """Cached upcoming fixtures. Does NOT use odds_history."""
+    """
+    Cached upcoming (not started) fixtures. Does NOT use odds_history.
+
+    Never falls back to finished matches: if API-Football is down or out of
+    quota we serve the last good list (minus kicked-off games) or nothing.
+    """
     global _upcoming_cache
     now = time.time()
     if _upcoming_cache["pairs"] and (now - _upcoming_cache["ts"]) < FIXTURE_CACHE_SECONDS:
-        return _upcoming_cache["pairs"][:limit]
+        return [p for p in _upcoming_cache["pairs"] if _not_kicked_off(p)][:limit]
 
-    pairs = fetch_upcoming_from_api_football()
-    if pairs:
-        _upcoming_cache = {"ts": now, "pairs": pairs}
-        return pairs[:limit]
+    pairs = []
+    if (now - _fixture_status["failed_at"]) >= FIXTURE_RETRY_SECONDS:
+        pairs = fetch_upcoming_from_api_football()
+        if pairs:
+            _upcoming_cache = {"ts": now, "pairs": pairs}
+            _fixture_status["source"] = "api-football-upcoming"
+            _fixture_status["failed_at"] = 0.0
+            return pairs[:limit]
+        _fixture_status["failed_at"] = now
 
-    conn = get_db()
-    fallback = []
-    try:
-        rows = conn.execute(
-            """
-            SELECT match_id, processed_at, league, home_team, away_team
-            FROM match_results
-            ORDER BY id DESC LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-        for row in rows:
-            fallback.append({
-                "match_id": row[0],
-                "kickoff": row[1],
-                "league": row[2] or "",
-                "home_team": row[3],
-                "away_team": row[4],
-            })
-    except Exception:
-        pass
-    conn.close()
-    return fallback[:limit]
+    stale = [p for p in _upcoming_cache["pairs"] if _not_kicked_off(p)]
+    _fixture_status["source"] = "cached-upcoming" if stale else "unavailable"
+    return stale[:limit]
+
+
+def fixture_meta():
+    return {
+        "fixture_source": _fixture_status["source"],
+        "fixture_error": _fixture_status["error"],
+    }
 
 
 def latest_match_pairs(limit=40):
@@ -296,27 +320,12 @@ def score_manual_fixture(body: TrackedCreate):
 
 @app.get("/health")
 def health():
-    db_ok = False
-    model_ok = False
-    model_path = str(ROOT / "fta_model.pkl")
-    try:
-        conn = get_db()
-        conn.execute("SELECT 1")
-        conn.close()
-        db_ok = True
-    except Exception:
-        pass
-    try:
-        model_ok = (ROOT / "fta_model.pkl").is_file()
-    except Exception:
-        pass
-    return {
-        "ok": db_ok,
-        "time": datetime.now(timezone.utc).isoformat(),
-        "version": "0.5.6",
-        "model_present": model_ok,
-        "model_path": model_path,
-        "features": [
+    """
+    200 when the product can serve real intel (status ok|degraded),
+    503 when it cannot (empty/missing DB, no model). See ops/health.py.
+    """
+    report = data_health()
+    features = [
             "opportunities",
             "fta_bands",
             "fta_edge_gate",
@@ -325,13 +334,27 @@ def health():
             "paper_trading",
             "early_goal_hunter",
             "chaos_index",
-            "mismatch_meter",
-        ],
+    ]
+    if FEATURE_MISMATCH:
+        features.append("mismatch_meter")
+    body = {
+        "ok": not report["critical"],
+        "status": report["status"],
+        "critical": report["critical"],
+        "warnings": report["warnings"],
+        "row_counts": report["row_counts"],
+        "results_age_hours": report["results_age_hours"],
+        "backup_age_hours": report["backup_age_hours"],
+        "time": datetime.now(timezone.utc).isoformat(),
+        "version": "0.5.6",
+        "model_present": report["model_present"],
+        "features": features,
         "fta_bands": [{"name": n, "lo": lo, "hi": hi} for n, lo, hi in FTA_BANDS],
         "default_back_odds": DEFAULT_BACK_ODDS,
         "upcoming_days": UPCOMING_DAYS,
-        "fixture_source": "api-football NS next days (no odds_history)",
+        **fixture_meta(),
     }
+    return JSONResponse(body, status_code=503 if report["critical"] else 200)
 
 
 @app.get("/me")
@@ -447,7 +470,7 @@ def opportunities(
             "auto_count": len(ranked),
             "manual_count": len(manual),
             "fixture_count": len(fixtures),
-            "fixture_source": "api-football-upcoming",
+            **fixture_meta(),
             "filters": {
                 "min_fta": min_fta,
                 "min_edge_pp": min_edge_pp,
@@ -460,12 +483,12 @@ def opportunities(
             "opportunities": combined[:limit],
         }
     except Exception as exc:
+        log.exception("GET /opportunities failed")
         raise HTTPException(
             status_code=500,
             detail={
-                "error": str(exc),
-                "type": type(exc).__name__,
-                "trace": traceback.format_exc()[-1500:],
+                "code": "OPPORTUNITIES_FAILED",
+                "message": "Could not build opportunities. Please try again shortly.",
             },
         ) from exc
 
@@ -573,7 +596,7 @@ def early_goal_feature(
     return {
         "feature": "early_goal_hunter",
         "count": len(ranked[:limit]),
-        "fixture_source": "api-football-upcoming",
+        **fixture_meta(),
         "matches": ranked[:limit],
     }
 
@@ -595,7 +618,7 @@ def chaos_feature(
     return {
         "feature": "chaos_index",
         "count": len(ranked[:limit]),
-        "fixture_source": "api-football-upcoming",
+        **fixture_meta(),
         "matches": ranked[:limit],
     }
 
@@ -606,6 +629,8 @@ def mismatch_feature(
     limit: int = 20,
 ):
     """Mismatch Meter — underdog / strength-vs-hierarchy ranker."""
+    if not FEATURE_MISMATCH:
+        raise HTTPException(404, "Not found")
     require_pro(authorization)
     limit = max(1, min(limit, 50))
     pairs = latest_match_pairs(limit=max(limit, 40))
@@ -613,7 +638,7 @@ def mismatch_feature(
     return {
         "feature": "mismatch_meter",
         "count": len(ranked[:limit]),
-        "fixture_source": "api-football-upcoming",
+        **fixture_meta(),
         "matches": ranked[:limit],
     }
 

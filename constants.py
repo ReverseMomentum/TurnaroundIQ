@@ -63,11 +63,19 @@ SUPPORTED_LEAGUES = list(SUPPORTED_LEAGUE_IDS.values())
 SAMPLE_WEIGHT_HALF_LIFE_YEARS = 1.5
 SAMPLE_WEIGHT_FLOOR = 0.05
 
-# API-Football — results_collector only.
-API_FOOTBALL_KEY = "aa7c72b2db786ed876c98fdafd5274b4"
+# API keys come from the environment, never from git.
+# Set them in /etc/turnaroundiq.env (systemd) or a repo-root .env (cron / CLI).
+import os  # noqa: E402
+
+import env_loader  # noqa: E402
+
+env_loader.load()
+
+# API-Football — results_collector + upcoming fixtures.
+API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "").strip()
 
 # TheStatsAPI — xG + pre-match back odds.
-THESTATSAPI_KEY = "fapi_aGYmBLcFZ7tLylMXENrK62GkYxlnEEiq"
+THESTATSAPI_KEY = os.environ.get("THESTATSAPI_KEY", "").strip()
 THESTATSAPI_PREFERRED_BOOKS = [
     "Bet365",
     "Pinnacle",

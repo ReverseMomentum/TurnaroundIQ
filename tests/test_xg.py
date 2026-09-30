@@ -1,7 +1,10 @@
 import requests
 import json
+import sys
+from pathlib import Path
 
-API_FOOTBALL_KEY = "aa7c72b2db786ed876c98fdafd5274b4"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from constants import API_FOOTBALL_KEY
 
 headers = {
     "x-apisports-key": API_FOOTBALL_KEY

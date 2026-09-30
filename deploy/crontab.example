@@ -1,0 +1,24 @@
+# TurnaroundIQ schedule (UTC). Install:  crontab deploy/crontab.example
+# Edit the path if the repo is not at /root/TurnaroundIQ.
+# Every job: locked, logged to logs/<name>.log, optional healthcheck ping.
+SHELL=/bin/bash
+J=/root/TurnaroundIQ/scripts/cron_job.sh
+
+# Results + team stats every 3h (last 3 days only), post-live backup on success
+20 */3 * * *  $J live python -u run.py live --skip-odds
+# Once a day with football-data odds as well
+40 6 * * *    $J live python -u run.py live
+
+# Paper log: open picks for today's slate, settle finished ones
+0 9,15 * * *  $J paper python -u scripts/paper_auto_products.py --products fta,early,chaos
+50 */3 * * *  $J paper-settle python -u scripts/paper_auto_products.py --settle-only
+
+# Nightly backup (live runs also back up after success)
+30 3 * * *    $J backup python -u run.py backup --label nightly
+
+# Data health — exit 1/2 = degraded/critical, pings /fail
+*/30 * * * *  $J health python -u run.py health
+
+# Retraining stays a deliberate ops step (run walk-forward, review, then train).
+# To automate later: backs up first and refuses on empty training_data.
+# 10 4 * * 1  $J train python -u run.py train

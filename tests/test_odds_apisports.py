@@ -264,3 +264,30 @@ def test_opportunities_use_saved_bookmakers(fresh_table, monkeypatch):
     fx = app_module.fixtures_from_upcoming(hours=24, bookmakers=["Betfred"])
     home = next(f for f in fx if f["team"] == "Arsenal")
     assert home["odds_estimated"] is True and home["not_at_my_books"] is True
+
+
+def test_feature_pages_24h_window_and_score_floor(monkeypatch):
+    from api import app as app_module
+    now = datetime.now(timezone.utc)
+    pairs = [
+        {"match_id": "s", "kickoff": (now + timedelta(hours=3)).isoformat(), "league": "L",
+         "home_team": "A", "away_team": "B"},
+        {"match_id": "t", "kickoff": (now + timedelta(hours=5)).isoformat(), "league": "L",
+         "home_team": "C", "away_team": "D"},
+        {"match_id": "l", "kickoff": (now + timedelta(hours=40)).isoformat(), "league": "L",
+         "home_team": "E", "away_team": "F"},
+    ]
+    monkeypatch.setattr(app_module, "upcoming_match_pairs", lambda limit=60: pairs)
+    monkeypatch.setattr(app_module, "require_pro", lambda auth: "u_x")
+    scores = {"s": 72, "t": 31, "l": 90}
+    monkeypatch.setattr(app_module, "rank_early_goal_matches",
+                        lambda ps: [{"match_id": p["match_id"], "hunter_score": scores[p["match_id"]]} for p in ps])
+    monkeypatch.setattr(app_module, "rank_chaos_matches",
+                        lambda ps: [{"match_id": p["match_id"], "chaos_index": scores[p["match_id"]]} for p in ps])
+
+    early = app_module.early_goal_feature(authorization="x", limit=50, hours=24, min_score=40)
+    assert [m["match_id"] for m in early["matches"]] == ["s"]  # 40h game and 31/100 hidden
+    chaos = app_module.chaos_feature(authorization="x", limit=50, hours=24, min_score=40)
+    assert [m["match_id"] for m in chaos["matches"]] == ["s"]
+    # old behaviour without the params is unchanged
+    assert len(app_module.early_goal_feature(authorization="x", limit=50)["matches"]) == 3

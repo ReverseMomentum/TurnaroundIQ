@@ -181,9 +181,10 @@ def main():
     p.add_argument("--products", default="fta,early,chaos",
                    help="Comma list: fta,early,chaos")
     p.add_argument("--limit", type=int, default=8, help="Max opens per product")
-    p.add_argument("--min-fta", type=float, default=1.0)
-    p.add_argument("--min-hunter", type=float, default=25.0)
-    p.add_argument("--min-chaos", type=float, default=45.0)
+    # Same floors as the app shows (mobile/src/lib/api.js MIN_FTA / MIN_SCORE)
+    p.add_argument("--min-fta", type=float, default=1.8)
+    p.add_argument("--min-hunter", type=float, default=40.0)
+    p.add_argument("--min-chaos", type=float, default=40.0)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--settle-only", action="store_true")
     args = p.parse_args()
@@ -200,7 +201,9 @@ def main():
     if upcoming_match_pairs is None:
         raise SystemExit("Could not import upcoming_match_pairs")
 
-    pairs = upcoming_match_pairs(80)
+    # Same window as the app: games kicking off in the next 24 hours
+    from api.app import _kicks_off_within
+    pairs = [p for p in upcoming_match_pairs(400) if _kicks_off_within(p, FTA_WINDOW_HOURS)]
     settings = store.get_paper_settings(args.user)
     products = [x.strip().lower() for x in args.products.split(",") if x.strip()]
 

@@ -55,6 +55,9 @@ async function request(path, { method = "GET", body } = {}) {
   return data;
 }
 
+export const MIN_FTA = 1.8;
+export const MIN_SCORE = 40;
+
 export const api = {
   authStart: (email) => request("/auth/start", { method: "POST", body: { email } }),
   authVerify: (email, code) => request("/auth/verify", { method: "POST", body: { email, code } }),
@@ -62,13 +65,14 @@ export const api = {
   me: () => request("/me"),
   deleteMe: () => request("/me", { method: "DELETE" }),
   patchPrefs: (prefs) => request("/me/prefs", { method: "PATCH", body: prefs }),
-  // next 24h only: odds (and exchange lay liquidity) exist for that window
-  opportunities: (limit = 100) => request(`/opportunities?limit=${limit}&include_tracked=false&hours=24`),
+  // Next 24h only (odds and exchange lay liquidity exist for that window), and only
+  // picks above a quality floor: FTA >= 1.8%, Hunter / Chaos >= 40/100.
+  opportunities: (limit = 100) => request(`/opportunities?limit=${limit}&include_tracked=false&hours=24&min_fta=${MIN_FTA}`),
   refreshOdds: () => request("/odds/refresh", { method: "POST" }),
   oddsRefreshStatus: () => request("/odds/refresh"),
   oddsBookmakers: () => request("/odds/bookmakers"),
-  earlyGoal: (limit = 30) => request(`/features/early-goal?limit=${limit}`),
-  chaos: (limit = 30) => request(`/features/chaos?limit=${limit}`),
+  earlyGoal: (limit = 50) => request(`/features/early-goal?limit=${limit}&hours=24&min_score=${MIN_SCORE}`),
+  chaos: (limit = 50) => request(`/features/chaos?limit=${limit}&hours=24&min_score=${MIN_SCORE}`),
   tracked: (status) => request(status ? `/tracked?status=${status}&limit=200` : "/tracked?limit=200"),
   track: (body) => request("/tracked", { method: "POST", body }),
   editTracked: (id, body) => request(`/tracked/${id}`, { method: "PUT", body }),

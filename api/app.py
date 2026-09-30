@@ -785,15 +785,27 @@ def paper_auto_settle(authorization: str | None = Header(default=None)):
     return {"settled": n, "summary": tracked_store.summary(user_id)}
 
 
+def _feature_pairs(limit, hours):
+    """Upcoming fixtures for a feature page: every game in the next `hours`, or the next few."""
+    if hours:
+        hours = max(1, min(hours, 168))
+        return [p for p in upcoming_match_pairs(limit=400) if _kicks_off_within(p, hours)]
+    return latest_match_pairs(limit=max(limit, 40))
+
+
 @app.get("/features/early-goal")
 def early_goal_feature(
     authorization: str | None = Header(default=None),
     limit: int = 20,
+    hours: Optional[int] = None,
+    min_score: Optional[float] = None,
 ):
+    """hours: only games kicking off in the next N hours; min_score: hide Hunter scores below it."""
     require_pro(authorization)
     limit = max(1, min(limit, 50))
-    pairs = latest_match_pairs(limit=max(limit, 40))
-    ranked = rank_early_goal_matches(pairs)
+    ranked = rank_early_goal_matches(_feature_pairs(limit, hours))
+    if min_score is not None:
+        ranked = [r for r in ranked if (r.get("hunter_score") or 0) >= min_score]
     return {
         "feature": "early_goal_hunter",
         "count": len(ranked[:limit]),
@@ -806,11 +818,15 @@ def early_goal_feature(
 def chaos_feature(
     authorization: str | None = Header(default=None),
     limit: int = 20,
+    hours: Optional[int] = None,
+    min_score: Optional[float] = None,
 ):
+    """hours: only games kicking off in the next N hours; min_score: hide Chaos indexes below it."""
     require_pro(authorization)
     limit = max(1, min(limit, 50))
-    pairs = latest_match_pairs(limit=max(limit, 40))
-    ranked = rank_chaos_matches(pairs)
+    ranked = rank_chaos_matches(_feature_pairs(limit, hours))
+    if min_score is not None:
+        ranked = [r for r in ranked if (r.get("chaos_index") or 0) >= min_score]
     for row in ranked:
         row["chaos_score"] = row.get("chaos_index")
         comps = row.get("components") or {}

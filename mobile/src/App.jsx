@@ -42,7 +42,7 @@ import {
 } from "lucide-react";
 
 import { LOGO_SRC } from "./logo";
-import { api, API_BASE, ApiError } from "./lib/api";
+import { api, API_BASE, ApiError, MIN_FTA, MIN_SCORE } from "./lib/api";
 import {
   clearSession,
   finishSignIn,
@@ -1098,7 +1098,7 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
 
       {opps.loading && <Loading />}
       {opps.error && <ErrorBox error={opps.error} onRetry={opps.reload} />}
-      {!opps.loading && !opps.error && list.length === 0 && <Empty>No games in our leagues kick off in the next 24 hours.</Empty>}
+      {!opps.loading && !opps.error && list.length === 0 && <Empty>{`No picks at ${MIN_FTA}% FTA or above kick off in the next 24 hours.`}</Empty>}
 
       <div className="lg:grid lg:grid-cols-[1.35fr_1fr] lg:gap-6">
         <div>
@@ -1171,7 +1171,7 @@ function RefreshOddsButton({ opps }) {
         if (!st.running) break;
       }
       if (st.error) setNote(st.error);
-      else if (st.last) setNote(`Updated prices for ${st.last.saved} games.`);
+      else if (st.last) setNote(`Updated prices for ${st.last.saved} game${st.last.saved === 1 ? "" : "s"}.`);
       opps.reload();
     } catch (e) {
       setNote(e.message || "Couldn't refresh odds");
@@ -1286,7 +1286,7 @@ function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
     <PageShell activeTab="opportunities" onNavigate={nav} entitled={entitled}>
       <PageTitle
         title="Opportunities"
-        subtitle={<>Games in the next 24 hours, ranked by FTA chance — the team goes 2 goals up <i>and</i> fails to win. The average is about 2%.</>}
+        subtitle={<>Games in the next 24 hours, ranked by FTA chance — the team goes 2 goals up <i>and</i> fails to win. The average is about 2%; we only show picks at {MIN_FTA}% or above.</>}
       />
       {entitled && !opps.needsPro && (
         <div className="lg:grid lg:grid-cols-2 lg:gap-4">
@@ -1312,7 +1312,7 @@ function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
           <div className="flex flex-col gap-3 lg:hidden">
             {filtered.map((o, i) => <OpportunityCard key={oppKey(o)} o={o} onClick={onOpen} highlight={i === 0 && league === "All leagues"} />)}
           </div>
-          {filtered.length === 0 && <Empty>{list.length === 0 ? "No games in our leagues kick off in the next 24 hours." : "No opportunities match this filter right now."}</Empty>}
+          {filtered.length === 0 && <Empty>{list.length === 0 ? `No picks at ${MIN_FTA}% FTA or above kick off in the next 24 hours.` : "No opportunities match this filter right now."}</Empty>}
         </>
       )}
       <Disclaimer />
@@ -1382,9 +1382,9 @@ function EarlyGoalHunterPage({ nav, entitled, onPurchased }) {
   const ranked = [...(q.data?.matches || [])].sort((a, b) => b.hunter_score - a.hunter_score);
   return (
     <PageShell activeTab="early-goal-hunter" onNavigate={nav} entitled={entitled}>
-      <PageTitle title="Early Goal Hunter" subtitle="Fixtures most likely to see an early goal — and which side is likelier to strike first. A separate signal from FTA." />
+      <PageTitle title="Early Goal Hunter" subtitle={`Games in the next 24 hours most likely to see an early goal — and which side is likelier to strike first. Hunter score ${MIN_SCORE}/100 and above.`} />
       {q.needsPro && <Paywall onPurchased={onPurchased} />}
-      <FeatureList q={q} ranked={ranked} empty="No fixtures right now." render={(f, i) => {
+      <FeatureList q={q} ranked={ranked} empty={`Nothing scores ${MIN_SCORE}/100 or above in the next 24 hours.`} render={(f, i) => {
         const home = (f.p_home_scores_first || 0) * 100;
         const away = (f.p_away_scores_first || 0) * 100;
         const split = home + away > 0 ? (home / (home + away)) * 100 : 50;
@@ -1435,9 +1435,9 @@ function ChaosFactorPage({ nav, entitled, onPurchased }) {
   const ranked = [...(q.data?.matches || [])].sort((a, b) => b.chaos_index - a.chaos_index);
   return (
     <PageShell activeTab="chaos-factor" onNavigate={nav} entitled={entitled}>
-      <PageTitle title="Chaos Factor" subtitle="How unpredictable a game looks: goals, both teams scoring, early goals and instability combined into one index." />
+      <PageTitle title="Chaos Factor" subtitle={`How unpredictable the next 24 hours' games look: goals, both teams scoring, early goals and instability in one index. Chaos ${MIN_SCORE}/100 and above.`} />
       {q.needsPro && <Paywall onPurchased={onPurchased} />}
-      <FeatureList q={q} ranked={ranked} empty="No fixtures right now." render={(f, i) => {
+      <FeatureList q={q} ranked={ranked} empty={`Nothing scores ${MIN_SCORE}/100 or above in the next 24 hours.`} render={(f, i) => {
         const raw = f.pie || f.components || {};
         const parts = Array.isArray(raw)
           ? raw.map((e) => ({ key: e.key || e.name, value: Number(e.value) || 0 }))

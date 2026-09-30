@@ -35,7 +35,7 @@ sudo systemctl restart turnaroundiq-api  # restart
 ```
 
 HTTPS: follow `deploy/CADDY.md`, then point the app's `NEXT_PUBLIC_API_BASE`
-and the RevenueCat webhook at `https://api.<domain>`.
+and the RevenueCat webhook at `https://api.turnaroundiq.co.uk`.
 
 `run.py api` (tmux, `0.0.0.0:8080`, plain HTTP) is for testing only.
 
@@ -136,9 +136,9 @@ confirm `/health` is `ok` and row counts match. Record the date in the launch ga
 ## 5. RevenueCat end-to-end check
 
 ```bash
-curl -s -H "Authorization: Bearer <sandbox appUserID>" https://api.<domain>/me
+curl -s -H "Authorization: Bearer <sandbox appUserID>" https://api.turnaroundiq.co.uk/me
 curl -s -o /dev/null -w "%{http_code}\n" \
-  -H "Authorization: Bearer <sandbox appUserID>" https://api.<domain>/opportunities
+  -H "Authorization: Bearer <sandbox appUserID>" https://api.turnaroundiq.co.uk/opportunities
 ```
 
 1. Fresh sandbox user → `/opportunities` = **402**, `/me.entitled=false`

@@ -46,7 +46,7 @@ sqlite3 two_up.db "SELECT * FROM subscribers;"
 1. Entitlement id: `pro` (must match `REVENUECAT_ENTITLEMENT`).
 2. Attach App Store + Play products to `pro`.
 3. Project → API keys → **Secret** → `REVENUECAT_SECRET_API_KEY`.
-4. Integrations → Webhooks → `https://YOUR_DOMAIN/webhooks/revenuecat`.
+4. Integrations → Webhooks → `https://api.turnaroundiq.co.uk/webhooks/revenuecat`.
 5. Webhook Authorization header = `REVENUECAT_WEBHOOK_AUTH`.
 6. Sandbox purchases for TestFlight; production keys only at launch.
 

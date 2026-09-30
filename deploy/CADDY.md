@@ -7,10 +7,18 @@ Uvicorn stays on **127.0.0.1:8080**. Caddy terminates HTTPS and proxies.
 Create an **A record**:
 
 ```text
-api.yourdomain.com  →  YOUR_VPS_PUBLIC_IP
+api.turnaroundiq.co.uk  →  YOUR_VPS_PUBLIC_IP
 ```
 
-Wait until it resolves (`dig +short api.yourdomain.com`).
+Wait until it resolves (`dig +short api.turnaroundiq.co.uk`).
+
+### Cloudflare
+
+The record lives in Cloudflare. Set **Proxy status = DNS only (grey cloud)**
+while Caddy gets its first certificate. Once `https://api.turnaroundiq.co.uk/health`
+works you can switch to **Proxied (orange)**, but only with Cloudflare
+SSL/TLS mode **Full (strict)** — "Flexible" sends traffic to the VPS
+unencrypted and causes redirect loops with Caddy.
 
 ## 2. Install Caddy (Ubuntu)
 
@@ -28,7 +36,7 @@ sudo apt install -y caddy
 cd ~/TurnaroundIQ && git pull
 sudo mkdir -p /var/log/caddy
 sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
-sudo nano /etc/caddy/Caddyfile   # change api.yourdomain.com
+sudo nano /etc/caddy/Caddyfile   # change api.turnaroundiq.co.uk
 ```
 
 ## 4. API still local-only
@@ -59,14 +67,14 @@ sudo ufw delete allow 8080/tcp   # if you opened 8080 for testing
 ## 6. Test
 
 ```bash
-curl -s https://api.yourdomain.com/health
-curl -s -H "Authorization: Bearer test" https://api.yourdomain.com/me
+curl -s https://api.turnaroundiq.co.uk/health
+curl -s -H "Authorization: Bearer test" https://api.turnaroundiq.co.uk/me
 ```
 
 ## 7. RevenueCat webhook
 
 ```text
-https://api.yourdomain.com/webhooks/revenuecat
+https://api.turnaroundiq.co.uk/webhooks/revenuecat
 ```
 
 Authorization header = `REVENUECAT_WEBHOOK_AUTH`.
@@ -74,7 +82,7 @@ Authorization header = `REVENUECAT_WEBHOOK_AUTH`.
 ## 8. App base URL
 
 ```text
-https://api.yourdomain.com
+https://api.turnaroundiq.co.uk
 ```
 
 ## Troubleshooting

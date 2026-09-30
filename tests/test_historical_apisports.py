@@ -92,6 +92,7 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setattr(bf, "EVENTS", tmp_path / "events_apisports.csv")
     monkeypatch.setattr(bf, "SKIPPED", tmp_path / "skipped.csv")
     monkeypatch.setattr(bf, "DONE", tmp_path / "done.csv")
+    monkeypatch.setattr(bf, "SEASONS_CACHE", tmp_path / "seasons.json")
     monkeypatch.setattr(imp, "DATA_DIR", tmp_path)
     monkeypatch.setattr(af, "API_FOOTBALL_KEY", "test")
     monkeypatch.setattr(af, "RESERVE", 5)
@@ -105,17 +106,17 @@ def run(*extra):
     return bf.main(["--league-id", "39", *extra])
 
 
-def test_season_selection_five_completed_plus_current():
+def test_season_selection_last_five_completed():
     seasons = [{"year": y, "current": y == 2026, "events_covered": True}
                for y in range(2026, 2017, -1)]
-    assert [s["year"] for s in bf.pick_seasons(seasons)] == [2026, 2025, 2024, 2023, 2022, 2021]
-    assert [s["year"] for s in bf.pick_seasons(seasons, 5, False)] == [2025, 2024, 2023, 2022, 2021]
+    assert [s["year"] for s in bf.pick_seasons(seasons)] == [2025, 2024, 2023, 2022, 2021]
+    assert [s["year"] for s in bf.pick_seasons(seasons, 5, True)] == [2026, 2025, 2024, 2023, 2022, 2021]
 
 
 def test_backfill_writes_validated_matches(api):
     assert run() == 0
     ginf = pd.read_csv(bf.GINF)
-    assert sorted(ginf["id_odsp"]) == ["af-1", "af-2", "af-4", "af-5"]
+    assert sorted(ginf["id_odsp"]) == ["af-1", "af-2", "af-4"]  # af-5 is current season
     ev = pd.read_csv(bf.EVENTS)
     m1 = ev[ev.id_odsp == "af-1"]
     assert list(m1["side"]) == [1, 1, 2, 2]          # missed penalty dropped
@@ -124,9 +125,9 @@ def test_backfill_writes_validated_matches(api):
     assert list(og["side"]) == [1] and list(og["event_team"]) == ["Liverpool"]
     skipped = pd.read_csv(bf.SKIPPED)
     assert list(skipped["id_odsp"]) == ["af-3"]
-    # 5 completed seasons (2021-2025) + current 2026 were listed
+    # exactly the last 5 completed seasons were listed
     listed = sorted(p["season"] for path, p in api.calls if path == "/fixtures" and "season" in p)
-    assert listed == [2021, 2022, 2023, 2024, 2025, 2026]
+    assert listed == [2021, 2022, 2023, 2024, 2025]
 
 
 def test_resume_makes_no_event_calls(api):
@@ -134,21 +135,34 @@ def test_resume_makes_no_event_calls(api):
     before = len(api.calls)
     assert run() == 0
     new = api.calls[before:]
-    assert not any("ids" in p for _, p in new)
-    # completed seasons are not re-listed: only /leagues + current season
-    listed = [p["season"] for path, p in new if path == "/fixtures" and "season" in p]
-    assert listed == [2026]
+    # finished backfill: second run costs nothing
+    assert new == []
+
+
+def test_include_current_is_opt_in(api):
+    assert run("--include-current") == 0
+    assert "af-5" in set(pd.read_csv(bf.GINF)["id_odsp"])
+
+
+def test_season_list_cache_expires(api):
+    run()
+    cache = bf._load_seasons_cache()
+    cache["39"]["at"] = "2000-01-01T00:00:00+00:00"
+    bf.SEASONS_CACHE.write_text(__import__("json").dumps(cache))
+    before = len(api.calls)
+    run()
+    assert [c[0] for c in api.calls[before:]] == ["/leagues"]
 
 
 def test_stops_at_reserve_and_resumes(api):
     api.remaining = 9  # reserve 5: /leagues + a few fixture lists, then stop
     assert run() == bf.EXIT_PARTIAL
     got = len(pd.read_csv(bf.GINF)) if bf.GINF.exists() else 0
-    assert got < 4
+    assert got < 3
     api.remaining = 10_000
     af._state["remaining_day"] = None
     assert run() == 0
-    assert len(pd.read_csv(bf.GINF)) == 4
+    assert len(pd.read_csv(bf.GINF)) == 3
 
 
 def test_own_goal_rule_as_is_also_supported():
@@ -193,16 +207,16 @@ def test_import_prefers_apisports_and_dedupes(api, tmp_path):
                    "side": 1, "event_team": "Arsenal", "player": "x", "is_goal": 1,
                    "situation": ""}]).to_csv(tmp_path / "events_api.csv", index=False)
     # crash-and-refetch duplicate goal rows
-    pd.read_csv(bf.EVENTS).query("id_odsp == 'af-5'").to_csv(
+    pd.read_csv(bf.EVENTS).query("id_odsp == 'af-1'").to_csv(
         bf.EVENTS, mode="a", header=False, index=False)
 
     conn = _historical_db()
     imp.run("all")
     ids = sorted(r[0] for r in conn.execute("SELECT match_id FROM historical_matches"))
-    assert ids == ["af-1", "af-2", "af-4", "af-5", "api-9"]
+    assert ids == ["af-1", "af-2", "af-4", "api-9"]
     goals = dict(conn.execute(
         "SELECT match_id, COUNT(*) FROM historical_events GROUP BY match_id").fetchall())
-    assert goals == {"af-1": 4, "af-2": 1, "af-5": 1}
+    assert goals == {"af-1": 4, "af-2": 1}
     conn.close()
 
 
@@ -216,5 +230,5 @@ def test_import_refuses_to_shrink(api):
         imp.run("apisports")
     assert exc.value.code == 4
     imp.run("apisports", allow_shrink=True)
-    assert conn.execute("SELECT COUNT(*) FROM historical_matches").fetchone()[0] == 4
+    assert conn.execute("SELECT COUNT(*) FROM historical_matches").fetchone()[0] == 3
     conn.close()

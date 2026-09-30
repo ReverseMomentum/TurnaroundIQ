@@ -13,7 +13,7 @@ J=/root/TurnaroundIQ/scripts/cron_job.sh
 0 9,15 * * *  $J paper python -u scripts/paper_auto_products.py --products fta,early,chaos
 50 */3 * * *  $J paper-settle python -u scripts/paper_auto_products.py --settle-only
 
-# Historical backfill from api-sports.io (5 seasons + current, all leagues).
+# Historical backfill from api-sports.io (last 5 completed seasons, all leagues).
 # Resumes nightly; stops leaving APISPORTS_RESERVE calls for live collection.
 # Exit 3 = stopped at the quota (expected until complete; no ping URL needed).
 15 1 * * *    $J backfill python -u collectors/backfill_apisports.py

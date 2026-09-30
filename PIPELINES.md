@@ -21,12 +21,16 @@ python -u run.py health
 ```bash
 python -u collectors/backfill_apisports.py --probe        # check key + parser on one league
 python -u run.py historical --league-id 39 --season 2024  # small trial
-python -u run.py historical                               # all leagues, 5 seasons + current, resumes
+python -u run.py historical                               # all leagues, last 5 completed seasons, resumes
 python -u run.py historical --no-fetch                    # rebuild profiles from collected CSVs
 python -u run.py historical --source fbref --fetch        # legacy FBref scrape
 ```
 
-Leagues come from `SUPPORTED_LEAGUE_IDS` in `constants.py`. Collected rows go
+Leagues come from `SUPPORTED_LEAGUE_IDS` in `constants.py`. Nothing is fetched
+twice: completed seasons are recorded in `data/apisports_done.csv`, stored
+fixtures are never re-requested, and season lists are cached for 7 days — once
+complete, the nightly run costs 0 calls. The in-progress season comes from the
+live results collector (`--include-current` to backfill it too). Collected rows go
 to `data/ginf_apisports.csv` / `data/events_apisports.csv`. Events come in
 batches of 20 fixtures per call. A match is kept only if its goal events
 reproduce the official score (missed penalties ignored, own goals resolved);

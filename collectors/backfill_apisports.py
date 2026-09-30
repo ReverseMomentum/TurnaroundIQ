@@ -2,18 +2,27 @@
 """
 Historical backfill from api-sports.io -> data/ginf_apisports.csv + data/events_apisports.csv.
 
-Default: every league in constants.SUPPORTED_LEAGUE_IDS, the 5 most recent
-completed seasons plus the current season's finished matches.
+Default: every league in constants.SUPPORTED_LEAGUE_IDS, the last 5
+completed seasons. The in-progress season is left to the live results
+collector (it already fetches those matches) unless --include-current.
 
     python -u collectors/backfill_apisports.py                     # everything, resumes
     python -u collectors/backfill_apisports.py --league-id 39 --season 2024
-    python -u collectors/backfill_apisports.py --seasons 3 --no-current
+    python -u collectors/backfill_apisports.py --seasons 3
     python -u collectors/backfill_apisports.py --probe             # 1 league: raw shapes + parse check
 
-Cost: 1 call per league (season list) + 1 per league-season (fixture list) +
-1 per 20 fixtures (events come back with /fixtures?ids=). About 3k calls for
-all 30 leagues x 6 seasons. Stops at APISPORTS_RESERVE calls left for the day
-(exit 3) and resumes next run — fixtures already stored are never re-fetched.
+Nothing is paid for twice:
+  - each league's season list is cached for 7 days (data/apisports_seasons.json)
+  - a completed season, once fully collected, is recorded in
+    data/apisports_done.csv and never listed again
+  - a fixture already stored (or skipped as unusable) is never re-fetched
+So once the backfill is complete, a nightly run makes 0 calls (30 once a
+week to refresh season lists, which is how a newly finished season is picked up).
+
+First full run: ~30 season lists + 150 fixture lists + 1 call per 20 fixtures
+(events come back with /fixtures?ids=) — about 2.5k calls for 30 leagues x 5
+seasons. Stops at APISPORTS_RESERVE calls left for the day (exit 3) and
+resumes next run.
 
 A match is written only when its goal events reproduce the official full-time
 score (missed penalties ignored, own goals resolved). Anything else goes to
@@ -44,6 +53,8 @@ SKIPPED = DATA_DIR / "apisports_skipped.csv"
 # Completed past seasons fully collected — not re-listed on later runs.
 DONE = DATA_DIR / "apisports_done.csv"
 DONE_FIELDS = ["key", "league", "season", "matches", "at"]
+SEASONS_CACHE = DATA_DIR / "apisports_seasons.json"
+SEASONS_CACHE_DAYS = 7
 GINF_FIELDS = ["id_odsp", "date", "league", "season", "country", "ht", "at", "fthg", "ftag", "odd_h", "odd_d", "odd_a"]
 EVENT_FIELDS = ["id_odsp", "time", "event_type", "event_type2", "side", "event_team", "player", "is_goal", "situation"]
 SKIPPED_FIELDS = ["id_odsp", "league", "season", "reason", "at"]
@@ -70,8 +81,35 @@ def append_rows(path, fields, rows):
 
 # --- API calls ---------------------------------------------------------------
 
-def league_seasons(league_id):
-    """[{year, current, events_covered}] newest first."""
+def _load_seasons_cache():
+    try:
+        return json.loads(SEASONS_CACHE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def league_seasons(league_id, refresh=False):
+    """[{year, current, events_covered}] newest first; cached for SEASONS_CACHE_DAYS."""
+    cache = _load_seasons_cache()
+    entry = cache.get(str(league_id))
+    if entry and not refresh:
+        try:
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(entry["at"])
+            if age.days < SEASONS_CACHE_DAYS:
+                return entry["seasons"]
+        except (KeyError, ValueError):
+            pass
+    seasons = _fetch_league_seasons(league_id)
+    if seasons:
+        cache[str(league_id)] = {
+            "at": datetime.now(timezone.utc).isoformat(), "seasons": seasons,
+        }
+        SEASONS_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        SEASONS_CACHE.write_text(json.dumps(cache, indent=1))
+    return seasons
+
+
+def _fetch_league_seasons(league_id):
     payload = af.api_get("/leagues", {"id": league_id})
     rows = payload.get("response") or []
     if not rows:
@@ -87,7 +125,7 @@ def league_seasons(league_id):
     return sorted((s for s in out if s["year"]), key=lambda s: s["year"], reverse=True)
 
 
-def pick_seasons(seasons, n_completed=DEFAULT_SEASONS, include_current=True):
+def pick_seasons(seasons, n_completed=DEFAULT_SEASONS, include_current=False):
     current = next((s for s in seasons if s["current"]), None)
     current_year = current["year"] if current else None
     completed = [s for s in seasons if current_year is None or s["year"] < current_year]
@@ -297,8 +335,10 @@ def main(argv=None):
                         help="Explicit season year(s); overrides --seasons")
     parser.add_argument("--seasons", type=int, default=DEFAULT_SEASONS,
                         help="Completed seasons per league (default 5)")
-    parser.add_argument("--no-current", action="store_true",
-                        help="Skip the in-progress season")
+    parser.add_argument("--include-current", action="store_true",
+                        help="Also collect the in-progress season (live collector covers it)")
+    parser.add_argument("--refresh-seasons", action="store_true",
+                        help="Ignore the 7-day season-list cache")
     parser.add_argument("--retry-skipped", action="store_true")
     parser.add_argument("--probe", action="store_true")
     args = parser.parse_args(argv)
@@ -329,7 +369,10 @@ def main(argv=None):
                 years = list(args.season)
                 current_years = set()
             else:
-                chosen = pick_seasons(league_seasons(league_id), args.seasons, not args.no_current)
+                chosen = pick_seasons(
+                    league_seasons(league_id, args.refresh_seasons),
+                    args.seasons, args.include_current,
+                )
                 for s in chosen:
                     if s["events_covered"] is False:
                         print(f"  {league} {s['year']}: no event coverage on api-sports — skipped")

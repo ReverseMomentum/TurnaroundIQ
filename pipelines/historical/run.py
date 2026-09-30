@@ -2,7 +2,7 @@
 Historical pipeline — api-sports.io backfill -> CSVs -> historical_* tables
 -> team_stats profiles.
 
-    python -u run.py historical                           # all leagues, 5 seasons + current, resumes
+    python -u run.py historical                           # all leagues, last 5 completed seasons, resumes
     python -u run.py historical --league-id 39 --season 2024
     python -u run.py historical --no-fetch                # rebuild from collected CSVs only
     python -u run.py historical --only-apisports          # ignore older CSVs (FBref / one-off backfills)

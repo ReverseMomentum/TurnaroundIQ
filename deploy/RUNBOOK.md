@@ -81,7 +81,7 @@ tail -f logs/live.log              # each job logs to logs/<name>.log
 | paper | 09:00, 15:00 | open paper picks for FTA / Early / Chaos (`PAPER_USER`) |
 | paper-settle | every 3h | settle finished paper picks |
 | backup | 03:30 | nightly backup |
-| backfill | 01:15 | api-sports history (5 seasons + current), stops at quota reserve, resumes |
+| backfill | 01:15 | api-sports history (last 5 completed seasons); skips anything already collected; 0 calls once complete |
 | historical | Sun 04:40 | rebuild historical profiles from collected CSVs |
 | health | every 30 min | exit 1 degraded / 2 critical |
 
@@ -122,7 +122,7 @@ cd ~/TurnaroundIQ && tmux new -d -s hist 'venv/bin/python -u run.py historical >
 tail -n 20 ~/TurnaroundIQ/logs/historical.log
 ```
 
-About 3,000 calls for all 30 leagues × 6 seasons. On a plan with 7,500
+About 2,500 calls for all 30 leagues × 5 seasons, paid once. On a plan with 7,500
 calls/day it finishes in one run; on a smaller plan it stops at the reserve and
 the nightly cron continues. The free plan (100/day, limited seasons) is not
 enough.

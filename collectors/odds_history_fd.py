@@ -23,7 +23,7 @@ import io
 import sys
 import time
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS match_odds (
 
 
 def season_codes():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     last = now.year if now.month >= 7 else now.year - 1
     return [(y, f"{y % 100:02d}{(y + 1) % 100:02d}") for y in range(FIRST_SEASON, last + 1)]
 
@@ -176,7 +176,9 @@ def link(conn, rows):
             continue
         index[(league, day)].append((mid, home, away))
 
-    stats = defaultdict(lambda: {"rows": 0, "linked": 0})
+    stats = defaultdict(lambda: {"rows": 0, "linked": 0, "ours": 0})
+    for (league, _day), items in index.items():
+        stats[league]["ours"] += len(items)
     taken = set()
     out = []
     for league, d, home, away, source, oh, od, oa in rows:
@@ -213,12 +215,15 @@ def main(argv=None):
     conn.close()
     print(f"\nLinked {n} of {total_hist} historical matches "
           f"({100 * n / max(total_hist, 1):.0f}%)")
-    print("  league                    fd rows  linked")
+    print("  % of OUR matches that got odds (football-data also covers seasons we don't hold)")
+    print("  league                    matches  with odds")
     for league in sorted(stats):
         s = stats[league]
-        pct = 100 * s["linked"] / max(s["rows"], 1)
+        if not s["ours"]:
+            continue
+        pct = 100 * s["linked"] / s["ours"]
         flag = "  <- check team names" if pct < 85 else ""
-        print(f"  {league:<24} {s['rows']:>7}  {pct:>5.0f}%{flag}")
+        print(f"  {league:<24} {s['ours']:>8}  {pct:>8.0f}%{flag}")
     return 0
 
 

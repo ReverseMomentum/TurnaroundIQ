@@ -23,3 +23,18 @@ api.turnaroundiq.co.uk {
 		output file /var/log/caddy/turnaroundiq-api.log
 	}
 }
+
+# Web app (PWA) — built by deploy/build_web.sh
+app.turnaroundiq.co.uk {
+	encode gzip
+	root * /var/www/turnaroundiq-app
+	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+	@html path / /index.html /manifest.webmanifest
+	header @html Cache-Control "no-cache"
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	try_files {path} /index.html
+	file_server
+}

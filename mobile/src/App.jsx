@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -35,19 +35,29 @@ import {
   FlaskConical,
   RefreshCw,
   Info,
+  LogOut,
+  Mail,
 } from "lucide-react";
 
 import { LOGO_SRC } from "./logo";
 import { api, API_BASE, ApiError } from "./lib/api";
 import {
+  clearSession,
+  finishSignIn,
   getPackages,
   initPurchases,
+  isNative,
   manageSubscription,
   onCustomerInfoChange,
+  openWebCheckout,
   purchase,
-  purchasesAvailable,
   restore,
+  signOut,
+  startSignIn,
 } from "./lib/purchases";
+
+// { me, reloadMe } for components deep in the tree (paywall, settings)
+const Account = createContext({ me: null, reloadMe: async () => {} });
 
 const SHOW_DEV_TOOLS = import.meta.env.VITE_SHOW_DEV_TOOLS === "true";
 const TERMS_URL = import.meta.env.VITE_TERMS_URL || "";
@@ -313,12 +323,13 @@ function StatBox({ label, value, tone }) {
 // PAYWALL -- real App Store / Play purchase via RevenueCat
 // ============================================================
 function Paywall({ title, onPurchased }) {
+  const { me } = useContext(Account);
   const [packages, setPackages] = useState(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
 
   useEffect(() => {
-    getPackages().then(setPackages).catch(() => setPackages([]));
+    if (isNative) getPackages().then(setPackages).catch(() => setPackages([]));
   }, []);
 
   const buy = async (pkg) => {
@@ -345,6 +356,11 @@ function Paywall({ title, onPurchased }) {
       setBusy(false);
     }
   };
+  const checkAgain = async () => {
+    setBusy(true);
+    await onPurchased();
+    setBusy(false);
+  };
 
   return (
     <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-2xl p-6 text-center mt-4">
@@ -356,38 +372,114 @@ function Paywall({ title, onPurchased }) {
         Pro unlocks ranked FTA opportunities, Early Goal Hunter, Chaos Factor and your paper-tracking log.
       </p>
 
-      {!purchasesAvailable && (
-        <p style={{ color: c.textSecondary }} className="text-xs mb-3">
-          Subscriptions are available in the iOS and Android app.
-        </p>
-      )}
-      {purchasesAvailable && packages === null && <Loading />}
-      {purchasesAvailable && packages && packages.length === 0 && (
-        <p style={{ color: c.textSecondary }} className="text-xs mb-3">No subscription options available right now.</p>
-      )}
-      {packages &&
-        packages.map((pkg) => (
-          <button
-            key={pkg.identifier}
-            disabled={busy}
-            onClick={() => buy(pkg)}
-            style={{ background: c.green, color: c.greenDark, opacity: busy ? 0.6 : 1 }}
-            className="w-full rounded-xl py-3 text-sm font-medium mb-2"
-          >
-            {pkg.product?.title || "Upgrade to Pro"} — {pkg.product?.priceString}
+      {isNative ? (
+        <>
+          {packages === null && <Loading />}
+          {packages && packages.length === 0 && (
+            <p style={{ color: c.textSecondary }} className="text-xs mb-3">No subscription options available right now.</p>
+          )}
+          {(packages || []).map((pkg) => (
+            <button key={pkg.identifier} disabled={busy} onClick={() => buy(pkg)} style={{ background: c.green, color: c.greenDark, opacity: busy ? 0.6 : 1 }} className="w-full rounded-xl py-3 text-sm font-medium mb-2">
+              {pkg.product?.title || "Upgrade to Pro"} — {pkg.product?.priceString}
+            </button>
+          ))}
+          <button disabled={busy} onClick={doRestore} style={{ color: c.cyan }} className="text-xs font-medium mt-1">Restore purchases</button>
+        </>
+      ) : me?.purchase_url ? (
+        <>
+          <button disabled={busy} onClick={() => openWebCheckout(me.purchase_url)} style={{ background: c.green, color: c.greenDark }} className="w-full rounded-xl py-3 text-sm font-medium mb-2">
+            Subscribe to Pro
           </button>
-        ))}
-      {purchasesAvailable && (
-        <button disabled={busy} onClick={doRestore} style={{ color: c.cyan }} className="text-xs font-medium mt-1">
-          Restore purchases
-        </button>
+          <button disabled={busy} onClick={checkAgain} style={{ color: c.cyan }} className="text-xs font-medium mt-1">
+            {busy ? "Checking…" : "Already paid? Check again"}
+          </button>
+          <p style={{ color: c.textSecondary }} className="text-[11px] mt-3">
+            Secure checkout by Stripe via RevenueCat. Your subscription is linked to {me.email || "this account"}.
+          </p>
+        </>
+      ) : (
+        <p style={{ color: c.textSecondary }} className="text-xs mb-3">Subscriptions open soon.</p>
       )}
       {message && <p style={{ color: c.orange }} className="text-xs mt-3">{message}</p>}
       <p style={{ color: c.textSecondary }} className="text-[11px] mt-4">
-        Subscriptions renew automatically until cancelled in your App Store / Google Play settings.
+        Subscriptions renew automatically until cancelled.
         {TERMS_URL && <> · <a href={TERMS_URL} style={{ color: c.cyan }}>Terms</a></>}
         {PRIVACY_URL && <> · <a href={PRIVACY_URL} style={{ color: c.cyan }}>Privacy</a></>}
       </p>
+    </div>
+  );
+}
+
+// ============================================================
+// SIGN IN (web) -- email + 6-digit code, no passwords
+// ============================================================
+function SignInPage({ onSignedIn }) {
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState("email");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const send = async (e) => {
+    e?.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await startSignIn(email.trim());
+      setStep("code");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const verify = async (e) => {
+    e?.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await finishSignIn(email.trim(), code.trim());
+      await onSignedIn();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const inputStyle = { background: c.cardAlt, color: c.text, border: "1px solid " + c.border };
+
+  return (
+    <div style={{ background: c.bg, minHeight: "100vh" }} className="flex flex-col justify-center px-6">
+      <div className="max-w-[380px] w-full mx-auto">
+        <div className="flex items-center gap-2 mb-8 justify-center">
+          <img src={LOGO_SRC} alt="" className="h-8 w-auto" />
+          <span className="text-xl font-medium"><span style={{ color: c.text }}>Turnaround</span><span style={{ color: c.green }}>IQ</span></span>
+        </div>
+        <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-2xl p-6">
+          {step === "email" ? (
+            <form onSubmit={send} className="flex flex-col gap-3">
+              <p style={{ color: c.text }} className="text-base font-medium">Sign in</p>
+              <p style={{ color: c.textSecondary }} className="text-sm">We'll email you a 6-digit code. No password needed.</p>
+              <input type="email" autoComplete="email" inputMode="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} className="rounded-xl px-4 py-3 text-base" />
+              <button type="submit" disabled={busy || !email} style={{ background: c.green, color: c.greenDark, opacity: busy || !email ? 0.6 : 1 }} className="rounded-xl py-3 text-sm font-medium flex items-center justify-center gap-2">
+                <Mail size={16} /> {busy ? "Sending…" : "Email me a code"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={verify} className="flex flex-col gap-3">
+              <p style={{ color: c.text }} className="text-base font-medium">Check your email</p>
+              <p style={{ color: c.textSecondary }} className="text-sm">Enter the code sent to {email}.</p>
+              <input autoComplete="one-time-code" inputMode="numeric" maxLength={6} placeholder="123456" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} style={{ ...inputStyle, letterSpacing: "0.4em" }} className="rounded-xl px-4 py-3 text-xl text-center" />
+              <button type="submit" disabled={busy || code.length !== 6} style={{ background: c.green, color: c.greenDark, opacity: busy || code.length !== 6 ? 0.6 : 1 }} className="rounded-xl py-3 text-sm font-medium">
+                {busy ? "Checking…" : "Sign in"}
+              </button>
+              <button type="button" onClick={() => { setStep("email"); setCode(""); }} style={{ color: c.cyan }} className="text-xs font-medium">Use a different email / resend</button>
+            </form>
+          )}
+          {error && <p style={{ color: c.red }} className="text-xs mt-3">{error}</p>}
+        </div>
+        <Disclaimer />
+      </div>
     </div>
   );
 }
@@ -1043,7 +1135,7 @@ function subscriptionStatusText(me) {
   }
 }
 
-function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe }) {
+function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSignedOut }) {
   const prefs = me?.prefs || {};
   const [stake, setStake] = useState(String(prefs.default_stake ?? 40));
   const [commission, setCommission] = useState(String(prefs.default_commission ?? 2));
@@ -1085,15 +1177,15 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe }) {
           <User size={18} style={{ color: c.textSecondary }} />
         </div>
         <div className="flex-1 min-w-0">
-          <p style={{ color: c.text }} className="text-sm font-medium">{entitled ? "TurnaroundIQ Pro" : "Free account"}</p>
+          <p style={{ color: c.text }} className="text-sm font-medium truncate">{me?.email || (entitled ? "TurnaroundIQ Pro" : "Free account")}</p>
           <p style={{ color: status.tone }} className="text-xs truncate">{status.text}</p>
         </div>
       </div>
 
       <p style={{ color: c.textSecondary }} className="text-xs uppercase tracking-wide mb-2">Subscription</p>
       <div style={{ background: c.card, border: "1px solid " + c.border }} className="rounded-xl px-4 mb-5">
-        {entitled ? (
-          <button onClick={manageSubscription} style={{ borderBottom: "1px solid " + c.border }} className="w-full flex items-center gap-3 py-3 text-left">
+        {entitled && (isNative || me?.management_url) ? (
+          <button onClick={() => manageSubscription(me?.management_url)} style={{ borderBottom: "1px solid " + c.border }} className="w-full flex items-center gap-3 py-3 text-left">
             <CreditCard size={18} style={{ color: c.green }} />
             <span style={{ color: c.text }} className="text-sm flex-1">Manage subscription</span>
             <ChevronRight size={16} style={{ color: c.textSecondary }} />
@@ -1105,10 +1197,15 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe }) {
             <ChevronRight size={16} style={{ color: c.textSecondary }} />
           </button>
         )}
-        {purchasesAvailable && (
+        {isNative ? (
           <button disabled={busy} onClick={doRestore} className="w-full flex items-center gap-3 py-3 text-left">
             <RotateCcw size={18} style={{ color: c.textSecondary }} />
             <span style={{ color: c.text }} className="text-sm flex-1">{busy ? "Restoring…" : "Restore purchases"}</span>
+          </button>
+        ) : (
+          <button onClick={async () => { await signOut(); onSignedOut(); }} className="w-full flex items-center gap-3 py-3 text-left">
+            <LogOut size={18} style={{ color: c.red }} />
+            <span style={{ color: c.text }} className="text-sm flex-1">Sign out</span>
           </button>
         )}
       </div>
@@ -1151,7 +1248,7 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe }) {
             {PRIVACY_URL && <a href={PRIVACY_URL} style={{ color: c.cyan }}>Privacy</a>}
           </p>
         )}
-        <p style={{ color: c.textSecondary }} className="text-[11px] break-all">Support ID: {userId || "—"}</p>
+        <p style={{ color: c.textSecondary }} className="text-[11px] break-all">Support ID: {me?.app_user_id || (isNative ? userId : "—")}</p>
       </div>
 
       <Disclaimer />
@@ -1224,8 +1321,12 @@ export default function App() {
   const loadMe = useCallback(async () => {
     try {
       setMe(await api.me());
-    } catch {
-      setMe(null); // no user id yet (browser without dev id) or offline -> Free
+    } catch (e) {
+      setMe(null);
+      if (!isNative && e instanceof ApiError && e.status === 401) {
+        clearSession(); // session expired -> back to sign in
+        setUserIdState(null);
+      }
     }
   }, []);
 
@@ -1245,6 +1346,16 @@ export default function App() {
   const entitled = Boolean(me?.entitled);
   const opps = useApi(() => (entitled ? api.opportunities() : Promise.resolve(null)), [entitled]);
 
+  const afterSignIn = async () => {
+    setUserIdState(await initPurchasesToken());
+    await loadMe();
+    setPage("dashboard");
+  };
+
+  if (booted && !isNative && !userId) {
+    return <SignInPage onSignedIn={afterSignIn} />;
+  }
+
   if (!booted) {
     return (
       <div style={{ background: c.bg, minHeight: "100vh" }} className="flex items-center justify-center">
@@ -1262,14 +1373,20 @@ export default function App() {
     live: <LiveMonitorPage {...common} />,
     bets: <MyBetsPage {...common} reloadMe={loadMe} />,
     calculator: <CalculatorPage {...common} prefs={me?.prefs} />,
-    settings: <SettingsPage {...common} me={me} userId={userId} reloadMe={loadMe} />,
+    settings: <SettingsPage {...common} me={me} userId={userId} reloadMe={loadMe} onSignedOut={() => { setMe(null); setUserIdState(null); }} />,
     ...(SHOW_DEV_TOOLS ? { "model-testing": <ModelTestingPage {...common} /> } : {}),
   };
 
   return (
-    <>
+    <Account.Provider value={{ me, reloadMe: loadMe }}>
       {pages[page] || pages.dashboard}
       <OpportunityDetailModal opportunity={selected} onClose={() => setSelected(null)} prefs={me?.prefs} />
-    </>
+    </Account.Provider>
   );
+}
+
+// After web sign-in the session token is already set on the API client.
+async function initPurchasesToken() {
+  const { getSession } = await import("./lib/purchases");
+  return getSession();
 }

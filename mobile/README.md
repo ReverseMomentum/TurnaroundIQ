@@ -1,7 +1,25 @@
-# TurnaroundIQ app (iOS / Android via Capacitor)
+# TurnaroundIQ app
 
-Your React UI, wired to `https://api.turnaroundiq.co.uk`, with App Store /
-Google Play subscriptions through RevenueCat.
+One React code base, two ways to ship:
+
+- **Now — web app** at `https://app.turnaroundiq.co.uk` (install from Safari:
+  Share → *Add to Home Screen*). Email-code sign-in; subscriptions via a
+  RevenueCat Web Purchase Link (Stripe checkout). No Apple account needed.
+- **Later — App Store / Play** via Capacitor + RevenueCat in-app purchases
+  (needs an Apple Developer account; can be built in the cloud, no Mac).
+
+## Web app (from the VPS, one line)
+
+```bash
+cd ~/TurnaroundIQ && git pull && bash deploy/build_web.sh
+```
+
+Needs: Cloudflare A record `app` → VPS IP (DNS only), and on the server
+`AUTH_SECRET`, `SMTP_*` and `RC_WEB_PURCHASE_LINK` (see `deploy/env.example`).
+
+---
+
+## Native apps (later)
 
 ## One-time setup (on your Mac — iOS needs Xcode; Android needs Android Studio)
 

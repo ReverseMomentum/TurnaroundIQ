@@ -56,6 +56,9 @@ async function request(path, { method = "GET", body } = {}) {
 }
 
 export const api = {
+  authStart: (email) => request("/auth/start", { method: "POST", body: { email } }),
+  authVerify: (email, code) => request("/auth/verify", { method: "POST", body: { email, code } }),
+  authLogout: () => request("/auth/logout", { method: "POST" }),
   me: () => request("/me"),
   patchPrefs: (prefs) => request("/me/prefs", { method: "PATCH", body: prefs }),
   opportunities: (limit = 40) => request(`/opportunities?limit=${limit}&include_tracked=false`),

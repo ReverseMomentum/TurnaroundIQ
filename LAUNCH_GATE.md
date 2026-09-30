@@ -11,12 +11,12 @@ Status as of 2026-09-30. ✅ done · 🟡 built, needs evidence · ⬜ not start
 | # | Gate | Status | Remaining to tick | Owner |
 |---|---|---|---|---|
 | 1 | API stable, Pro-only opportunities | ✅ systemd + Caddy, HTTPS live at `api.turnaroundiq.co.uk`; 401/402 enforced + tested; `/health` 503 on empty DB | 7 days of `/health` 200 | F |
-| 2 | RevenueCat end-to-end | 🟡 lifecycle tested locally; live paywall verified (non-subscriber → 402, 2026-09-30); dev/test ids confirmed absent from `subscribers` | Webhook URL in RC dashboard; sandbox purchase → 200 → expiry → 402 with a real appUserID | F → PM |
+| 2 | RevenueCat end-to-end (web: Stripe via Web Purchase Link) | 🟡 lifecycle tested locally; live paywall verified (non-subscriber → 402, 2026-09-30); dev/test ids confirmed absent from `subscribers` | Webhook URL in RC dashboard; sandbox purchase → 200 → expiry → 402 with a real appUserID | F → PM |
 | 3 | Match-day collection unattended | 🟡 cron installed; season-to-date filled; events batched, retries, quota reserve | 2 match weekends without manual runs (`logs/live.log`) | F |
 | 4 | Automated `two_up.db` backup | ✅ nightly + post-live + before train/historical; **restore drill PASS 2026-09-30 12:20 UTC** (match_results 2381, historical 44603) | Off-box copy (should-have) | F |
 | 5 | Fresh opportunities, no stale junk | ✅ finished matches never served; kicked-off games dropped | Spot-check on 3 match days | PM |
 | 6 | Paper log running | 🟡 cron opens + settles FTA / Early / Chaos daily | 2+ weekends settled, reviewed weekly | PM |
-| 7 | App loads Pro / Opportunities / Early / Chaos | 🟡 `mobile/` Capacitor app: all screens on live API, RevenueCat purchase/restore/manage, paper tracking; verified in headless browser against a local API | `npx cap add ios/android`, RC keys + offering, TestFlight pass on a clean device | F |
+| 7 | App loads Pro / Opportunities / Early / Chaos | 🟡 Web app (PWA) at `app.turnaroundiq.co.uk`: email-code sign-in, Stripe checkout via RevenueCat Web Purchase Link, all screens on live API; sign-in → paywall → Pro → reload → sign-out verified in headless browser against a local API | DNS record, SMTP + AUTH_SECRET, RC Web Billing + purchase link, `bash deploy/build_web.sh`, test on iPhone | F |
 | 8 | Disclaimer copy | 🟡 on every data screen + paywall (estimates not tips, 18+, BeGambleAware) | Founder/PM approve wording; Terms + Privacy URLs | PM |
 
 ### Model (for honest copy)

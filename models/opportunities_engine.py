@@ -198,7 +198,7 @@ def build_opportunity(fixture, stake=40, commission=2):
         estimated_lay = True
     else:
         lay_odds = float(supplied_lay)
-        estimated_lay = False
+        estimated_lay = bool(fixture.get("lay_estimated"))
 
     home_team = fixture.get("home_team")
     away_team = fixture.get("away_team")
@@ -266,6 +266,7 @@ def build_opportunity(fixture, stake=40, commission=2):
         "lay_odds": round(lay_odds, 2),
         "estimated_lay": estimated_lay,
         "odds_estimated": odds_estimated,
+        "odds_updated_at": fixture.get("odds_updated_at"),
         "stake": stake,
         "commission": commission,
         "fta_pct": round(fta_display, 2),

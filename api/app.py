@@ -45,6 +45,7 @@ from models.chaos_index import rank_chaos_matches
 from models.mismatch_meter import rank_mismatch_matches
 from team_normalizer import normalize_team
 from ops.health import check as data_health
+from collectors import odds_apisports as odds_store
 from api import auth
 from urllib.parse import quote
 
@@ -348,11 +349,31 @@ def latest_match_pairs(limit=40):
     return upcoming_match_pairs(limit=limit)
 
 
+def _with_prices(base, row, is_home):
+    """Real UK back price + estimated exchange lay from collectors/odds_apisports, if fresh."""
+    prices = odds_store.side_prices(row, is_home)
+    if not prices:
+        return base
+    back, book, lay_est, updated = prices
+    return {
+        **base,
+        "bookmaker": book or "Bookmaker",
+        "back_odds": back,
+        "lay_odds": lay_est,
+        "lay_estimated": True,
+        "odds_estimated": False,
+        "odds_updated_at": updated,
+    }
+
+
 def fixtures_from_upcoming(limit=40):
     fixtures = []
-    for pair in upcoming_match_pairs(limit=max(limit, 20)):
+    pairs = upcoming_match_pairs(limit=max(limit, 20))
+    stored = odds_store.load_odds([p.get("match_id") for p in pairs])
+    for pair in pairs:
         home = pair["home_team"]
         away = pair["away_team"]
+        row = stored.get(str(pair.get("match_id")))
         base = {
             "match_id": pair.get("match_id"),
             "match": f"{home} vs {away}",
@@ -365,8 +386,8 @@ def fixtures_from_upcoming(limit=40):
             "lay_odds": None,
             "odds_estimated": True,
         }
-        fixtures.append({**base, "team": home, "is_home": True})
-        fixtures.append({**base, "team": away, "is_home": False})
+        fixtures.append(_with_prices({**base, "team": home, "is_home": True}, row, True))
+        fixtures.append(_with_prices({**base, "team": away, "is_home": False}, row, False))
     return fixtures[: limit * 2]
 
 
@@ -511,7 +532,7 @@ def opportunities(
         ranked = rank_opportunities(fixtures)
         for r in ranked:
             r["source"] = "auto"
-            if r.get("estimated_lay") or r.get("bookmaker") == "Estimated":
+            if r.get("bookmaker") == "Estimated":
                 r["odds_estimated"] = True
             if "fta_band" not in r:
                 r["fta_band"] = fta_band(r.get("fta_pct"))

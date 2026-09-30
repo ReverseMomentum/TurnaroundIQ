@@ -186,3 +186,13 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 | `fixture_source: unavailable` | API-Football key/quota; opportunities list is empty until fixed |
 | 500 on `/opportunities` | `journalctl -u turnaroundiq-api -n 200` (details are logged, not sent to the app) |
 | Wrong/empty DB after a manual script | DB path is now absolute (`TURNAROUNDIQ_DB` to override); restore if needed |
+
+## Odds (api-sports, no extra cost)
+
+`collectors/odds_apisports.py` runs 4x a day (cron `odds`) and stores, for fixtures in the
+next 3 days, the best UK bookmaker back price and an **estimated** exchange lay
+(fair price from Pinnacle / median of books, plus one Betfair tick). The app labels
+it "est. lay". Prices older than 24h are ignored and the pick falls back to
+placeholder odds. Manual run: `venv/bin/python -u collectors/odds_apisports.py`.
+Log: `logs/odds.log`. Upgrade path: The Odds API (~$30/mo) for real exchange lays.
+

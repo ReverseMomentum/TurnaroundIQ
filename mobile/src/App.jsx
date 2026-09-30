@@ -524,6 +524,11 @@ function OpportunityCard({ o, onClick, wide }) {
         <div><p style={{ color: c.textSecondary }} className="text-xs">Then fails</p><p style={{ color: c.text }} className="text-sm font-medium">{pct(o.fail_given_2up_pct ?? o.turnaround_pct, 1)}</p></div>
         <div><p style={{ color: c.textSecondary }} className="text-xs">Usual 2-up</p><p style={{ color: c.text }} className="text-sm font-medium">{o.usual_2up_minute ? Math.round(o.usual_2up_minute) + "'" : "—"}</p></div>
       </div>
+      {!o.odds_estimated && o.back_odds && (
+        <p style={{ color: c.textSecondary }} className="text-xs truncate">
+          Back {Number(o.back_odds).toFixed(2)} {o.bookmaker} · Lay {o.estimated_lay ? "est. " : ""}{Number(o.lay_odds).toFixed(2)}
+        </p>
+      )}
       <div className="flex items-center justify-between">
         <span style={{ color: depth.tone }} className="text-xs font-medium">{depth.label}</span>
         <span style={{ color: c.cyan }} className="flex items-center gap-1 text-xs font-medium">Analysis <ChevronRight size={14} /></span>
@@ -563,6 +568,7 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
   const ev = calcEvPercent(expected, ql);
   const pricesEdited = String(o.back_odds) !== backOdds || String(o.lay_odds) !== layOdds;
   const estimated = o.odds_estimated && !pricesEdited;
+  const layEstimated = o.estimated_lay && !o.odds_estimated && String(o.lay_odds) === layOdds;
 
   const track = async () => {
     setTrackState("saving");
@@ -609,16 +615,16 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
         <div className="flex items-center justify-between mb-2">
           <p style={{ color: c.textSecondary }} className="text-xs uppercase tracking-wide">Your prices</p>
           <span style={{ color: estimated ? c.orange : c.textSecondary }} className="text-xs">
-            {estimated ? "estimated — enter real odds" : "editable"}
+            {estimated ? "estimated — enter real odds" : layEstimated ? "lay is an estimate — check the exchange" : "editable"}
           </span>
         </div>
         <div style={{ background: c.card, border: "1px solid " + (estimated ? c.orange : c.border) }} className="rounded-xl p-3 grid grid-cols-3 gap-2 text-center mb-4">
           <div>
-            <p style={{ color: c.textSecondary }} className="text-xs mb-1">Back (bookie)</p>
+            <p style={{ color: c.textSecondary }} className="text-xs mb-1 truncate">{!o.odds_estimated && o.bookmaker ? "Back · " + o.bookmaker : "Back (bookie)"}</p>
             <input type="number" inputMode="decimal" step="0.01" value={backOdds} onChange={(e) => setBackOdds(e.target.value)} style={{ background: "transparent", color: c.green, width: "100%" }} className="text-base font-medium text-center" />
           </div>
           <div>
-            <p style={{ color: c.textSecondary }} className="text-xs mb-1">Lay (exchange)</p>
+            <p style={{ color: layEstimated ? c.orange : c.textSecondary }} className="text-xs mb-1">{layEstimated ? "Lay (est.)" : "Lay (exchange)"}</p>
             <input type="number" inputMode="decimal" step="0.01" value={layOdds} onChange={(e) => setLayOdds(e.target.value)} style={{ background: "transparent", color: c.cyan, width: "100%" }} className="text-base font-medium text-center" />
           </div>
           <div>
@@ -650,6 +656,12 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
         {estimated && (
           <p style={{ color: c.orange }} className="text-xs mb-3">
             These odds are placeholders — expected profit only means something with the real prices from your bookmaker and exchange.
+          </p>
+        )}
+        {layEstimated && (
+          <p style={{ color: c.textSecondary }} className="text-xs mb-3">
+            Back price: best UK bookmaker price we found{o.odds_updated_at ? " (checked " + formatKickoff(o.odds_updated_at) + ")" : ""}.
+            The lay price is estimated from the market's fair price — prices move, so enter the live exchange lay before you bet.
           </p>
         )}
 

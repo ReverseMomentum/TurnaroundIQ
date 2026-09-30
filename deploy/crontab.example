@@ -9,6 +9,10 @@ J=/root/TurnaroundIQ/scripts/cron_job.sh
 # Once a day with football-data odds as well
 40 6 * * *    $J live python -u run.py live
 
+# Pre-match odds (api-sports, in plan): best UK back + estimated lay for the next
+# 3 days. Runs before the paper log so paper picks use real back prices.
+40 5,8,14,18 * * *  $J odds python -u collectors/odds_apisports.py --days 3 --max-calls 200
+
 # Paper log: open picks for today's slate, settle finished ones
 0 9,15 * * *  $J paper python -u scripts/paper_auto_products.py --products fta,early,chaos
 50 */3 * * *  $J paper-settle python -u scripts/paper_auto_products.py --settle-only

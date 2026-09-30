@@ -13,6 +13,8 @@ unless --allow-shrink is passed.
 """
 
 import argparse
+import csv
+import io
 import sys
 from pathlib import Path
 
@@ -41,6 +43,22 @@ SOURCES["all"] = tuple(
 )
 
 
+def read_clean_csv(path):
+    """Read a CSV keeping only rows with exactly the header's field count."""
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+    if not rows:
+        return pd.DataFrame(), 0
+    header = rows[0]
+    good = [r for r in rows[1:] if len(r) == len(header)]
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    writer.writerows(good)
+    buf.seek(0)
+    return pd.read_csv(buf), len(rows) - 1 - len(good)
+
+
 def load_named(names):
     frames = []
     for name in names:
@@ -48,8 +66,9 @@ def load_named(names):
         if not path.exists():
             print(f"Skip missing {name}")
             continue
-        print(f"Reading {name}")
-        frames.append(pd.read_csv(path))
+        frame, bad = read_clean_csv(path)
+        frames.append(frame)
+        print(f"Reading {name}" + (f" — skipped {bad} malformed line(s)" if bad else ""))
     if not frames:
         raise FileNotFoundError(f"None of {names} exist in data/")
     return pd.concat(frames, ignore_index=True)

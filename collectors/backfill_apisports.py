@@ -67,11 +67,46 @@ def existing_ids(path):
         return {row.get("id_odsp", "") for row in csv.DictReader(handle)}
 
 
+def _ends_with_newline(path):
+    with path.open("rb") as handle:
+        handle.seek(-1, 2)
+        return handle.read(1) == b"\n"
+
+
+def repair_csv(path, fields):
+    """
+    Drop malformed rows (e.g. a row half-written when a run was killed, with
+    the next row appended onto the same line). Returns the number dropped.
+    The original is kept as <name>.bak.
+    """
+    if not path.exists() or path.stat().st_size == 0:
+        return 0
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or rows[0] != fields:
+        return 0
+    good = [r for r in rows[1:] if len(r) == len(fields)]
+    dropped = len(rows) - 1 - len(good)
+    if dropped or not _ends_with_newline(path):
+        path.replace(path.with_name(path.name + ".bak"))
+        tmp = path.with_name(path.name + ".tmp")
+        with tmp.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(fields)
+            writer.writerows(good)
+        tmp.replace(path)
+    return dropped
+
+
 def append_rows(path, fields, rows):
     if not rows:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not path.exists() or path.stat().st_size == 0
+    if not write_header and not _ends_with_newline(path):
+        # A killed run left a partial last line — never glue a row onto it.
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write("\n")
     with path.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         if write_header:
@@ -361,6 +396,18 @@ def main(argv=None):
 
     if args.probe:
         return probe(league_ids[0])
+
+    dropped = repair_csv(GINF, GINF_FIELDS)
+    dropped_events = repair_csv(EVENTS, EVENT_FIELDS)
+    repair_csv(SKIPPED, SKIPPED_FIELDS)
+    if dropped or dropped_events:
+        print(f"Repaired damaged rows: {dropped} match, {dropped_events} goal "
+              f"(originals kept as .bak)")
+    if dropped and DONE.exists():
+        # The dropped matches' seasons must be re-listed to re-fetch them.
+        # Stored fixtures are still skipped, so this costs ~1 call per season.
+        DONE.unlink()
+        print("Cleared completed-season markers so dropped matches are re-fetched")
 
     seen = existing_ids(GINF)
     done = set()

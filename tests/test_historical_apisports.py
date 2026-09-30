@@ -284,3 +284,36 @@ def test_unexpected_error_stops_cleanly(api, monkeypatch):
 
     monkeypatch.setattr(bf, "process_batch", boom)
     assert run() == bf.EXIT_PARTIAL
+
+
+def _glue_partial_row(path):
+    """Simulate a run killed mid-write: a partial row, then the next append glued on."""
+    text = path.read_text()
+    lines = text.splitlines()
+    partial = lines[1][: len(lines[1]) // 2]
+    path.write_text("\n".join([lines[0], partial + lines[2]] + lines[3:]) + "\n")
+
+
+def test_damaged_csv_is_repaired_and_refetched(api):
+    assert run() == 0
+    _glue_partial_row(bf.GINF)
+    assert run() == 0
+    assert sorted(pd.read_csv(bf.GINF)["id_odsp"]) == ["af-1", "af-2", "af-4"]
+    assert bf.GINF.with_name(bf.GINF.name + ".bak").exists()
+
+
+def test_append_never_glues_onto_partial_line(api, tmp_path):
+    path = tmp_path / "x.csv"
+    path.write_text("a,b\n1,")  # killed mid-row, no newline
+    bf.append_rows(path, ["a", "b"], [{"a": 2, "b": 3}])
+    assert path.read_text().splitlines()[-1] == "2,3"
+
+
+def test_import_skips_malformed_lines(api, tmp_path):
+    run()
+    with bf.GINF.open("a") as handle:
+        handle.write("af-99,2024-01-01,x\n")  # wrong field count
+    conn = _historical_db()
+    imp.run("apisports")
+    assert conn.execute("SELECT COUNT(*) FROM historical_matches").fetchone()[0] == 3
+    conn.close()

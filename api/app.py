@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from billing.revenuecat import management_url as revenuecat_management_url
 from billing.revenuecat import (
     apply_webhook,
     get_prefs,
@@ -44,6 +45,8 @@ from models.chaos_index import rank_chaos_matches
 from models.mismatch_meter import rank_mismatch_matches
 from team_normalizer import normalize_team
 from ops.health import check as data_health
+from api import auth
+from urllib.parse import quote
 
 try:
     from api import tracked as tracked_store
@@ -128,6 +131,7 @@ def startup():
     create_tables()
     ensure_tables()
     tracked_store.ensure_tracked_tables()
+    auth.ensure_auth_tables()
     # Warm the FTA path model's team state (~2s) off the request path.
     import threading
     from models import fta_path_model
@@ -136,12 +140,72 @@ def startup():
 
 
 def user_from_auth(authorization: str | None) -> str:
+    """
+    Bearer token -> app user id.
+      s_…  web session (email sign-in) -> the account's u_… id
+      u_…  refused: web accounts must use a session token
+      else RevenueCat app user id from the native app (e.g. $RCAnonymousID:…)
+    """
     if not authorization:
         raise HTTPException(401, "Missing Authorization")
     token = authorization.replace("Bearer ", "").strip()
     if not token:
         raise HTTPException(401, "Missing token")
+    if token.startswith("s_"):
+        try:
+            user_id = auth.resolve_session(token)
+        except auth.AuthError as exc:
+            raise HTTPException(exc.status, exc.message) from exc
+        if not user_id:
+            raise HTTPException(401, "Session expired — sign in again")
+        return user_id
+    if token.startswith("u_"):
+        raise HTTPException(401, "Sign in required")
     return token
+
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
+class AuthStart(BaseModel):
+    email: str
+
+
+class AuthVerify(BaseModel):
+    email: str
+    code: str
+
+
+@app.post("/auth/start")
+def auth_start(body: AuthStart, request: Request):
+    try:
+        auth.start(body.email, _client_ip(request))
+    except auth.AuthError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+    except Exception as exc:
+        log.exception("auth/start email failed")
+        raise HTTPException(502, "Couldn't send the email — try again shortly") from exc
+    return {"ok": True}
+
+
+@app.post("/auth/verify")
+def auth_verify(body: AuthVerify):
+    try:
+        return auth.verify(body.email, body.code)
+    except auth.AuthError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+
+
+@app.post("/auth/logout")
+def auth_logout(authorization: str | None = Header(default=None)):
+    token = (authorization or "").replace("Bearer ", "").strip()
+    if token.startswith("s_"):
+        auth.logout(token)
+    return {"ok": True}
 
 
 def require_pro(authorization: str | None) -> str:
@@ -369,8 +433,16 @@ def me(authorization: str | None = Header(default=None)):
     row = get_subscriber_row(user_id) or {}
     prefs = get_prefs(user_id)
     paper = tracked_store.summary(user_id) if entitled else None
+    web_link = os.environ.get("RC_WEB_PURCHASE_LINK", "").strip().rstrip("/")
+    purchase_url = (
+        f"{web_link}/{quote(user_id, safe='')}"
+        if web_link and user_id.startswith("u_") and not entitled else None
+    )
     return {
         "app_user_id": user_id,
+        "email": auth.email_for(user_id) if user_id.startswith("u_") else None,
+        "purchase_url": purchase_url,
+        "management_url": revenuecat_management_url(user_id),
         "entitled": entitled,
         "entitlement": row.get("entitlement") or ("pro" if entitled else "free"),
         "status": row.get("status") or ("active" if entitled else "free"),

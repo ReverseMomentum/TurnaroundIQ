@@ -233,6 +233,14 @@ def fetch_subscriber(app_user_id):
     return response.json()
 
 
+_management_urls = {}
+
+
+def management_url(app_user_id):
+    """Store / Stripe subscription management page from the last RevenueCat lookup."""
+    return _management_urls.get(app_user_id)
+
+
 def entitlement_from_subscriber(payload, name=ENTITLEMENT):
     entitlements = (payload or {}).get("subscriber", {}).get("entitlements") or {}
     item = entitlements.get(name)
@@ -259,6 +267,9 @@ def is_entitled(app_user_id, refresh=False):
     if payload is None:
         cached = cached_entitled(app_user_id)
         return bool(cached)
+    murl = ((payload or {}).get("subscriber") or {}).get("management_url")
+    if murl:
+        _management_urls[app_user_id] = murl
     entitled, expires, product = entitlement_from_subscriber(payload)
     upsert_subscriber(
         app_user_id,

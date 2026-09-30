@@ -34,6 +34,37 @@ class AuthError(RuntimeError):
     """Bad/suspended key or plan does not cover the request."""
 
 
+class NetworkError(RuntimeError):
+    """api-sports unreachable after retries — stop and resume next run."""
+
+
+NETWORK_RETRIES = 6  # waits 5, 10, 20, 40, 80s between attempts (~2.5 min)
+
+
+def _get(url, params):
+    """requests.get with retries on connection drops / timeouts / 5xx."""
+    wait = 5
+    last = None
+    for attempt in range(NETWORK_RETRIES):
+        try:
+            resp = requests.get(
+                url,
+                headers={"x-apisports-key": API_FOOTBALL_KEY},
+                params=params,
+                timeout=60,
+            )
+            if resp.status_code < 500:
+                return resp
+            last = f"HTTP {resp.status_code}"
+        except requests.RequestException as exc:
+            last = f"{type(exc).__name__}: {exc}"
+        if attempt < NETWORK_RETRIES - 1:
+            print(f"[api-sports] network problem ({last}); retry in {wait}s")
+            time.sleep(wait)
+            wait *= 2
+    raise NetworkError(last)
+
+
 def require_key():
     if not API_FOOTBALL_KEY:
         raise SystemExit(
@@ -64,12 +95,7 @@ def api_get(path, params=None):
         raise QuotaExhausted(f"{remaining} calls left today (reserve {RESERVE})")
 
     for attempt in range(4):
-        resp = requests.get(
-            f"{BASE_URL}{path}",
-            headers={"x-apisports-key": API_FOOTBALL_KEY},
-            params=params or {},
-            timeout=60,
-        )
+        resp = _get(f"{BASE_URL}{path}", params or {})
         _state["calls"] += 1
         day_left = resp.headers.get("x-ratelimit-requests-remaining")
         if day_left is not None:

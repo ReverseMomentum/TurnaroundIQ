@@ -232,3 +232,41 @@ def test_import_refuses_to_shrink(api):
     imp.run("apisports", allow_shrink=True)
     assert conn.execute("SELECT COUNT(*) FROM historical_matches").fetchone()[0] == 3
     conn.close()
+
+
+def test_network_drop_retries_then_succeeds(monkeypatch):
+    import requests
+    calls = {"n": 0}
+
+    class Resp:
+        status_code = 200
+        headers = {"x-ratelimit-requests-remaining": "7000"}
+        text = ""
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"response": [], "errors": []}
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise requests.ConnectionError("reset by peer")
+        return Resp()
+
+    monkeypatch.setattr(af.requests, "get", flaky)
+    monkeypatch.setattr(af.time, "sleep", lambda s: None)
+    monkeypatch.setattr(af, "API_FOOTBALL_KEY", "k")
+    assert af.api_get("/fixtures", {"ids": "1"}) == {"response": [], "errors": []}
+    assert calls["n"] == 3
+
+
+def test_network_down_stops_cleanly_and_keeps_progress(api, monkeypatch):
+    def down(path, params=None):
+        if "ids" in (params or {}):
+            raise af.NetworkError("ConnectionError")
+        return FakeAPI.__call__(api, path, params)
+
+    monkeypatch.setattr(af, "api_get", down)
+    assert run() == bf.EXIT_PARTIAL

@@ -411,6 +411,8 @@ def main(argv=None):
                     done.add(key)
     except af.QuotaExhausted as exc:
         stopped = f"daily quota ({exc})"
+    except af.NetworkError as exc:
+        stopped = f"api-sports unreachable after retries ({exc})"
     except af.AuthError as exc:
         print(f"api-sports refused the request: {exc}")
         print("Check the key and that your plan covers these seasons.")

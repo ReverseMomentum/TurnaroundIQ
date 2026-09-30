@@ -8,8 +8,23 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 PORT="${API_PORT:-8080}"
-HOST="${API_HOST:-0.0.0.0}"
+HOST="${API_HOST:-127.0.0.1}"
 SESSION="${API_TMUX_SESSION:-api}"
+
+# Production: systemd service behind Caddy. Restart that instead of starting
+# a second copy in tmux (which would fight it for the port).
+if systemctl list-unit-files turnaroundiq-api.service 2>/dev/null | grep -q enabled; then
+  echo "[api] restarting systemd service turnaroundiq-api"
+  SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+  $SUDO systemctl restart turnaroundiq-api
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/health" || true)"
+    case "$code" in 200|503) break;; esac
+    sleep 1
+  done
+  echo "[api] health: HTTP ${code:-000} (200 ok, 503 = data critical, 000 = not up: journalctl -u turnaroundiq-api -n 50)"
+  exit 0
+fi
 
 echo "[api] root=$ROOT port=$PORT session=$SESSION"
 if [ "$HOST" = "0.0.0.0" ]; then

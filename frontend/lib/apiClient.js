@@ -6,18 +6,24 @@ export const API_BASE =
   (typeof process !== "undefined" &&
     process.env &&
     process.env.NEXT_PUBLIC_API_BASE) ||
-  "http://144.91.92.72:8080";
+  "https://api.turnaroundiq.co.uk";
 
+/**
+ * The RevenueCat app user id (Purchases.appUserID), saved via setAppUserId()
+ * after Purchases.configure(). No shared fallback: without an id the API
+ * answers 401 and the UI shows the paywall. NEXT_PUBLIC_DEV_USER_ID is for
+ * local development only.
+ */
 export function getAppUserId() {
   if (typeof window === "undefined") return null;
   const stored = window.localStorage.getItem("tq_app_user_id");
   if (stored) return stored;
-  const dev =
+  return (
     (typeof process !== "undefined" &&
       process.env &&
       process.env.NEXT_PUBLIC_DEV_USER_ID) ||
-    "dev_user";
-  return dev;
+    null
+  );
 }
 
 export function setAppUserId(id) {

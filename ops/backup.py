@@ -146,11 +146,42 @@ def restore_db(backup_path) -> Path:
     return live
 
 
+def drill():
+    """
+    Restore drill without touching the live DB: take a backup, restore it
+    into a scratch file, check integrity and that every table's row count
+    matches live. Result appended to logs/restore_drill.log.
+    """
+    import tempfile
+
+    live = Path(DB_NAME)
+    saved = backup_db("drill")
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp) / "restored.db"
+        _copy(saved, scratch)
+        intact = _integrity_ok(scratch)
+        want, got = row_counts(live), row_counts(scratch)
+    ok = intact and want == got and bool(want.get("match_results"))
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    counts = " ".join(f"{k}={v}" for k, v in got.items())
+    line = f"{stamp} {'PASS' if ok else 'FAIL'} backup={saved.name} {counts}"
+    log = ROOT / "logs" / "restore_drill.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("a") as handle:
+        handle.write(line + "\n")
+    print(f"[drill] {line}")
+    if not ok:
+        print(f"[drill] live counts: {want}  integrity_ok={intact}")
+    return ok
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="two_up.db backup / restore")
     parser.add_argument("--label", default="manual")
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--restore", metavar="FILE")
+    parser.add_argument("--drill", action="store_true",
+                        help="Backup + restore into a scratch copy and verify (live DB untouched)")
     args = parser.parse_args(argv)
 
     try:
@@ -167,6 +198,8 @@ def main(argv=None):
         if args.restore:
             restore_db(args.restore)
             return 0
+        if args.drill:
+            return 0 if drill() else 1
         backup_db(args.label)
         return 0
     except BackupError as exc:

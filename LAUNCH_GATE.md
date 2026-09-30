@@ -6,37 +6,48 @@ How-to for each step: `deploy/RUNBOOK.md`.
 
 ## Must-have
 
-| # | Gate | Code status | Remaining to tick | Owner |
+Status as of 2026-09-30. ✅ done · 🟡 built, needs evidence · ⬜ not started.
+
+| # | Gate | Status | Remaining to tick | Owner |
 |---|---|---|---|---|
-| 1 | API stable, Pro-only opportunities | ✅ 401/402 enforced + tested; real `/health` (503 on empty DB) | Move API to systemd + Caddy; 7 days of `/health` 200 | F |
-| 2 | RevenueCat end-to-end | ✅ Purchase → cancel → expiry lifecycle tested locally | Sandbox run of RUNBOOK §5 steps 1–4 on the VPS, screenshots | F → PM |
-| 3 | Match-day collection unattended | ✅ Cron schedule, lock, logs, optional pings | Install crontab; 2 match weekends without manual runs | F |
-| 4 | Automated `two_up.db` backup | ✅ Nightly + post-live + before train/historical/`--force`; restore command | First backup; **restore drill**; off-box copy | F |
-| 5 | Fresh opportunities, no stale junk | ✅ Finished matches never served; kicked-off games dropped from cache | Spot-check list on 3 match days (dupes, sensible %) | PM |
-| 6 | Paper log running | ✅ Scheduled open + settle for FTA / Early / Chaos | 2+ weeks of settled rows, reviewed weekly | PM |
-| 7 | App loads Pro / Opportunities / Early / Chaos | ⚠️ App code not in this repo — see app blockers below | TestFlight pass on a clean device | F |
-| 8 | Disclaimer copy | ⚠️ App-side | Copy approved per messaging guardrails | PM |
+| 1 | API stable, Pro-only opportunities | ✅ systemd + Caddy, HTTPS live at `api.turnaroundiq.co.uk`; 401/402 enforced + tested; `/health` 503 on empty DB | 7 days of `/health` 200 | F |
+| 2 | RevenueCat end-to-end | 🟡 lifecycle tested locally; `scripts/rc_check.sh` for live checks | Webhook URL in RC dashboard; sandbox purchase → 200 → expiry → 402 (see below) | F → PM |
+| 3 | Match-day collection unattended | 🟡 cron installed; season-to-date filled; events batched, retries, quota reserve | 2 match weekends without manual runs (`logs/live.log`) | F |
+| 4 | Automated `two_up.db` backup | 🟡 nightly + post-live + before train/historical | `run.py restore-drill` PASS recorded; off-box copy | F |
+| 5 | Fresh opportunities, no stale junk | ✅ finished matches never served; kicked-off games dropped | Spot-check on 3 match days | PM |
+| 6 | Paper log running | 🟡 cron opens + settles FTA / Early / Chaos daily | 2+ weekends settled, reviewed weekly | PM |
+| 7 | App loads Pro / Opportunities / Early / Chaos | 🟡 client points at HTTPS; no shared `dev_user`; 401/402 → paywall | Wire `setAppUserId(Purchases.appUserID)`; TestFlight pass on clean device | F |
+| 8 | Disclaimer copy | ⬜ app-side | Copy approved per messaging guardrails | PM |
 
-### P0 actions before anything else
+### Model (for honest copy)
 
-- [ ] **Rotate** the API-Football key (and TheStatsAPI if still used) (the old ones are in git history) and put the new ones in `/etc/turnaroundiq.env`
-- [ ] `python -u run.py backup --label first` → then do the restore drill
-- [ ] `crontab deploy/crontab.example`
-- [ ] Record current counts from `python -u run.py health` here: match_results `__` · team_stats `__` · training_data `__` · model present `__`
+FTA% = chance the team goes 2 up **and** fails to win (full event, ~2% average).
+Walk-forward on 3½ unseen seasons: top-10% picks happened ~1.5× the average
+(3.2% vs 2.1%); stage AUCs ~0.67. Free historical odds tested: no gain for
+FTA% ranking, so no paid odds feed for the model. Claims allowed: "top-ranked
+picks turned around ~1.5× as often as average in out-of-sample testing".
+Not allowed: profit, "high confidence", "predicts turnarounds".
 
-### App blockers found in `frontend/lib/apiClient.js` / `app.jsx`
+### RevenueCat steps (founder)
 
-- `API_BASE` defaults to `http://<VPS IP>:8080` — plain HTTP; switch to the HTTPS domain for release.
-- `getAppUserId()` falls back to `"dev_user"` — every fresh install would share one account (and its Pro status, if `dev_user` was ever marked Pro). Must use `Purchases.appUserID`.
-- The API trusts the bearer app user ID as-is. Fine with RevenueCat's random anonymous IDs; **not** fine if IDs are emails/usernames.
-- `app.jsx` calls `GET /model/runs`, which the API does not serve.
+1. Dashboard → Integrations → Webhooks → URL `https://api.turnaroundiq.co.uk/webhooks/revenuecat`,
+   Authorization header = value from `sudo grep REVENUECAT_WEBHOOK_AUTH /etc/turnaroundiq.env`.
+2. VPS: `bash scripts/rc_check.sh webhook` → 200 / 401.
+3. TestFlight sandbox user: `bash scripts/rc_check.sh user <appUserID>` → 402 before purchase,
+   200 after, 402 again after sandbox expiry (minutes).
+
+### App blockers still open
+
+- Call `setAppUserId(Purchases.appUserID)` after `Purchases.configure()`.
+- Hide the Model Testing page from the menu for public builds (API serves it
+  only to `ADMIN_USER_IDS`).
 
 ## Should-have
 
 - [ ] Walk-forward / calibration notes in plain language
 - [ ] League baseline context on opportunities (FTA% vs league)
 - [x] Runbook: restart API, live, train, restore — `deploy/RUNBOOK.md`
-- [ ] Domain + HTTPS (`deploy/CADDY.md`)
+- [x] Domain + HTTPS — `api.turnaroundiq.co.uk`
 
 ## Soft-launch criteria (proposal — founder + PM to agree)
 

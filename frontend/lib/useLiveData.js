@@ -16,7 +16,8 @@ function useAsyncList(loader) {
       const data = await loader();
       setItems(data);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 402) {
+      // 402 = not subscribed; 401 = no RevenueCat user id yet. Both -> paywall.
+      if (e instanceof ApiError && (e.status === 402 || e.status === 401)) {
         setNeedsPro(true);
         setItems([]);
       } else {

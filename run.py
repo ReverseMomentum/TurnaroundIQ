@@ -13,6 +13,7 @@ TurnaroundIQ pipelines.
     python -u run.py backup --list
     python -u run.py restore backups/two_up-YYYYMMDD-HHMMSS-label.db
     python -u run.py health           # row counts + freshness, non-zero exit if unhealthy
+    python -u run.py restore-drill    # backup -> restore to scratch -> verify (live untouched)
 """
 
 import runpy
@@ -31,7 +32,8 @@ PIPELINES = {
 
 API_COMMANDS = {"api", "api-restart", "restart-api"}
 WALK_COMMANDS = {"walk-forward", "walkforward", "wf"}
-USAGE = "Usage: python -u run.py [live|historical|train|api|walk-forward|backup|restore|health]"
+USAGE = ("Usage: python -u run.py [live|historical|train|api|walk-forward|"
+         "backup|restore|restore-drill|health]")
 
 
 def restart_api():
@@ -76,6 +78,9 @@ def main():
             sys.exit(1)
         from ops.backup import main as backup_main
         sys.exit(backup_main(["--restore", sys.argv[2]]))
+    if cmd == "restore-drill":
+        from ops.backup import main as backup_main
+        sys.exit(backup_main(["--drill"]))
     if cmd == "health":
         from ops.health import main as health_main
         sys.exit(health_main())

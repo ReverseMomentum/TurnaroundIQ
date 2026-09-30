@@ -11,15 +11,17 @@ Files in `frontend/lib/`:
 ## 1. Env
 
 ```bash
-NEXT_PUBLIC_API_BASE=http://144.91.92.72:8080
-NEXT_PUBLIC_DEV_USER_ID=dev_user
+NEXT_PUBLIC_API_BASE=https://api.turnaroundiq.co.uk
+# Local development only — never set in a store build:
+# NEXT_PUBLIC_DEV_USER_ID=<your RevenueCat sandbox appUserID>
 ```
 
-For a Pro sandbox user, put the same id RevenueCat uses, or temporarily force Pro in DB:
-
-```bash
-sqlite3 two_up.db "INSERT OR REPLACE INTO subscribers (app_user_id, entitled, status, updated_at) VALUES ('dev_user', 1, 'active', datetime('now'));"
-```
+The app must call `setAppUserId(Purchases.appUserID)` after
+`Purchases.configure()`. With no id the API returns 401 and the UI shows the
+paywall. To test Pro, make a **sandbox purchase** (TestFlight / Play internal
+testing) — do **not** insert entitled rows into the production `subscribers`
+table: the API trusts the bearer id, so a guessable id marked Pro is free Pro
+for anyone.
 
 ## 2. Import in `app.jsx` (or move lib next to the app)
 
@@ -195,7 +197,7 @@ You can leave `export const opportunities` / `otherFixtures` for Storybook, but 
 
 ## 9. CORS
 
-API already allows `CORS_ORIGINS=*`. Browser calls to `http://144.91.92.72:8080` work if uvicorn is on `0.0.0.0:8080`.
+API allows `CORS_ORIGINS=*` (native apps don't need CORS). Base URL: `https://api.turnaroundiq.co.uk` (Caddy → 127.0.0.1:8080).
 
 ## Field mapping (quick)
 

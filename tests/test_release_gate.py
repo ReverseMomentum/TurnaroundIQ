@@ -173,3 +173,10 @@ def test_mismatch_hidden_by_default(client):
     c, _ = client
     r = c.get("/features/mismatch", headers={"Authorization": "Bearer x"})
     assert r.status_code == 404
+
+
+def test_restore_drill_passes_and_leaves_live_untouched():
+    _seed(3)
+    before = backup.row_counts(database.DB_NAME)
+    assert backup.drill() is True
+    assert backup.row_counts(database.DB_NAME) == before

@@ -1294,12 +1294,13 @@ function ChaosFactorPage({ onNavigate, unreadCount }) {
 // though the server itself is reachable.
 //
 // This page is NOT gated by `entitled` -- it's a dev/testing tool for
-// you, not a subscriber feature, matching the /model/runs endpoint
-// itself (any authenticated user, not Pro-only). Worth hiding this
-// from the flyout menu before a real public launch.
+// you. The /model/runs endpoint only answers user ids listed in the
+// server's ADMIN_USER_IDS (everyone else gets 404). Hide this page from
+// the flyout menu before a public launch.
 const API_BASE =
-  (typeof process !== "undefined" && process.env && process.env.NEXT_PUBLIC_API_URL) ||
-  "http://localhost:8080";
+  (typeof process !== "undefined" && process.env &&
+    (process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_URL)) ||
+  "https://api.turnaroundiq.co.uk";
 
 function ModelTestingPage({ onNavigate, unreadCount }) {
   const [token, setToken] = useState("");

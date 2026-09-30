@@ -398,12 +398,52 @@ def train(save=True):
         "base_2up": float(ya.mean()), "base_fail": float(yb.mean()),
         "base_full": float(np.mean([r["fail"] for r in rows])),
     }
+    holdout = _holdout_score(rows)
+    bundle["holdout"] = holdout
+    print(f"held-out (latest 15%): full-event AUC {holdout['auc']:.3f}  "
+          f"Brier {holdout['brier']:.4f}  skill vs flat rate {100 * holdout['skill']:+.1f}%")
     if save:
         joblib.dump(bundle, MODEL_FILE)
         global _bundle_cache
         _bundle_cache = bundle
         print(f"saved {MODEL_FILE.name} ({VERSION})")
+        try:
+            from models.importance_store import save_model_run_with_importance
+            save_model_run_with_importance(
+                model_name="FTA_PATH", version=VERSION,
+                training_rows=int(len(ya)), brier_score=holdout["brier"],
+                log_loss=holdout["log_loss"], roc_auc=holdout["auc"],
+                notes=(f"full event = P(2up) x P(fail|2up); held-out latest 15%; "
+                       f"skill vs flat {100 * holdout['skill']:+.1f}%"),
+            )
+        except Exception as exc:
+            print(f"[path-model] could not record model run: {exc}")
     return bundle
+
+
+def _holdout_score(rows, frac=0.15):
+    """Fit on the earliest 85% of team-sides, score the full event on the rest."""
+    from sklearn.metrics import brier_score_loss, log_loss
+
+    rows = sorted(rows, key=lambda r: r["day"])
+    cut = int(len(rows) * (1 - frac))
+    train_rows, test_rows = rows[:cut], rows[cut:]
+    Xa, ya, _ = _xy(train_rows, "up2")
+    Xb, yb, _ = _xy(train_rows, "fail", where=lambda r: r["up2"] == 1)
+    ma, ca = _fit_stage(Xa, ya)
+    mb, cb = _fit_stage(Xb, yb)
+    Xt, _, sel = _xy(test_rows, "up2")
+    p = _predict_stage(ma, ca, Xt) * _predict_stage(mb, cb, Xt)
+    y = np.array([r["fail"] for r in sel])
+    m = _metrics(y, p)
+    flat = float(np.mean([r["fail"] for r in train_rows]))
+    brier_flat = float(brier_score_loss(y, np.full_like(p, flat)))
+    return {
+        "auc": m["auc"] or 0.5, "brier": m["brier"],
+        "log_loss": float(log_loss(y, np.clip(p, 1e-6, 1 - 1e-6), labels=[0, 1])),
+        "skill": 1 - m["brier"] / brier_flat if brier_flat else 0.0,
+        "n": int(len(y)),
+    }
 
 
 # --- walk-forward -----------------------------------------------------------------

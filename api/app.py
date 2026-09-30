@@ -30,7 +30,7 @@ from billing.revenuecat import (
     ensure_tables,
 )
 from constants import API_FOOTBALL_KEY, SUPPORTED_LEAGUE_IDS
-from database import create_tables
+from database import create_tables, get_db
 from models.opportunities_engine import (
     rank_opportunities,
     build_opportunity,
@@ -646,6 +646,34 @@ def mismatch_feature(
         **fixture_meta(),
         "matches": ranked[:limit],
     }
+
+
+ADMIN_USER_IDS = {
+    u.strip() for u in os.environ.get("ADMIN_USER_IDS", "").split(",") if u.strip()
+}
+
+
+@app.get("/model/runs")
+def model_runs(authorization: str | None = Header(default=None), limit: int = 20):
+    """Training history for the in-app Model Testing page. ADMIN_USER_IDS only."""
+    user_id = user_from_auth(authorization)
+    if user_id not in ADMIN_USER_IDS:
+        raise HTTPException(404, "Not found")
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """SELECT id, model_name, version, trained_at, training_rows,
+                      brier_score, log_loss, roc_auc, notes
+               FROM model_runs ORDER BY id DESC LIMIT ?""",
+            (max(1, min(limit, 100)),),
+        ).fetchall()
+    except Exception:
+        rows = []
+    finally:
+        conn.close()
+    keys = ["id", "model_name", "version", "trained_at", "training_rows",
+            "brier_score", "log_loss", "roc_auc", "notes"]
+    return {"runs": [dict(zip(keys, r)) for r in rows]}
 
 
 @app.post("/webhooks/revenuecat")

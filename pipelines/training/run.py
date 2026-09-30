@@ -1,7 +1,8 @@
 """
-Training pipeline — labelled rows then model fit.
+Training pipeline — FTA path model (V5).
 
-    python -u pipelines/training/run.py
+    python -u run.py train             # backup, then fit fta_path_model.pkl
+    python -u run.py train --legacy    # also rebuild the old fta_model.pkl
 """
 
 import subprocess
@@ -14,13 +15,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from progress import ok, step, warn
-from database import get_db
 from ops.backup import BackupError, backup_db
 
 
-def run_script(script):
+def run_script(script, extra=None):
     result = subprocess.run(
-        [sys.executable, "-u", str(ROOT / script)],
+        [sys.executable, "-u", str(ROOT / script), *(extra or [])],
         cwd=str(ROOT),
     )
     if result.returncode != 0:
@@ -35,19 +35,12 @@ def main():
     except BackupError as exc:
         warn(f"Backup failed ({exc}) — not training without a backup")
         raise SystemExit(1)
-    step("Build training_data")
-    run_script("training/build_training_data.py")
-    conn = get_db()
-    try:
-        rows = conn.execute("SELECT COUNT(*) FROM training_data").fetchone()[0]
-    finally:
-        conn.close()
-    if not rows:
-        warn("training_data is empty — keeping the existing model; restore from backups/")
-        raise SystemExit(1)
-    ok(f"training_data rows: {rows}")
-    step("Retrain model")
-    run_script("models/retrain_model.py")
+    step("Train FTA path model (V5: P(2-up) x P(fail | 2-up), point-in-time)")
+    run_script("models/fta_path_model.py", ["train"])
+    if "--legacy" in sys.argv:
+        step("Legacy: build training_data + retrain fta_model.pkl")
+        run_script("training/build_training_data.py")
+        run_script("models/retrain_model.py")
     ok(f"Training pipeline {round(time.time() - started, 1)}s")
 
 

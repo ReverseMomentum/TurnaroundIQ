@@ -128,6 +128,11 @@ def startup():
     create_tables()
     ensure_tables()
     tracked_store.ensure_tracked_tables()
+    # Warm the FTA path model's team state (~2s) off the request path.
+    import threading
+    from models import fta_path_model
+
+    threading.Thread(target=fta_path_model.current_state, daemon=True).start()
 
 
 def user_from_auth(authorization: str | None) -> str:
@@ -410,7 +415,7 @@ def opportunities(
 
     Hardening filters (optional):
       min_fta          — minimum model FTA % (e.g. 5)
-      band             — elite_12plus|high_8_12|mid_5_8|low_3_5|micro_under_3
+      band             — elite_4plus|high_3_4|mid_2_3|low_1_2|micro_under_1 (full-event %)
       min_edge_pp      — model − implied from odds
       edge_gate_only   — only rows that clear default +2pp edge buffer
       require_real_odds — drop estimated default odds

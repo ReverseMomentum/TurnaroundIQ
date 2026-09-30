@@ -1,8 +1,7 @@
 """
 Data health — shared by GET /health and `python -u run.py health`.
 
-"critical" means the product cannot serve real intel (no DB / no results /
-no model). "warnings" mean it is degraded (stale results, old backup, missing
+"critical" means the product cannot serve real intel (no DB / no results). "warnings" mean it is degraded (stale results, old backup, missing
 keys). CLI exits 2 on critical, 1 on warnings, 0 when healthy.
 
 Env:
@@ -27,7 +26,8 @@ from constants import API_FOOTBALL_KEY
 from database import DB_NAME
 from ops.backup import CORE_TABLES, list_backups
 
-MODEL_FILE = ROOT / "fta_model.pkl"
+# FTA path model (V5). Without it the app falls back to profile rates.
+MODEL_FILE = ROOT / "fta_path_model.pkl"
 MAX_RESULTS_AGE_H = float(os.environ.get("HEALTH_MAX_RESULTS_AGE_HOURS", "72"))
 MAX_BACKUP_AGE_H = float(os.environ.get("HEALTH_MAX_BACKUP_AGE_HOURS", "36"))
 
@@ -84,7 +84,7 @@ def check() -> dict:
             warnings.append("training_data_empty")
 
     if not MODEL_FILE.is_file():
-        critical.append("model_missing")
+        warnings.append("path_model_missing_run_train")
 
     results_age = _age_hours(last_result_at)
     if results_age is not None and results_age > MAX_RESULTS_AGE_H:

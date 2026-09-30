@@ -4,8 +4,8 @@ Automatically open paper trades from ranked opportunities, bucketed by FTA%.
     # Dry run — show what would be taken
     python -u scripts/paper_auto.py --user dev_user --dry-run
 
-    # Take top 10 by FTA%, min 3% FTA
-    python -u scripts/paper_auto.py --user dev_user --limit 10 --min-fta 3
+    # Take top 10 by FTA%, min 1.5% (full event)
+    python -u scripts/paper_auto.py --user dev_user --limit 10 --min-fta 1.5
 
     # Then auto-settle finished ones
     python -u scripts/paper_auto.py --user dev_user --settle-only
@@ -26,7 +26,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from api import tracked as store
-from models.opportunities_engine import rank_opportunities
+from models.opportunities_engine import fta_band, rank_opportunities
 
 try:
     from api.app import latest_fixtures
@@ -35,36 +35,16 @@ except Exception:
 
 
 def _fta_value(row) -> float:
-    """
-    Normalise fta_pct to percent 0–100.
-
-    Model returns percent (e.g. 8.26). Only scale if value is a clear
-    probability fraction (0 < p <= 1.0). Do NOT use 1.5 as the cutoff —
-    that turned real 1.27% into 127%.
-    """
+    """fta_pct is percent (full event, e.g. 2.4). Clamp to 0–100."""
     try:
         p = float(row.get("fta_pct") or 0)
     except (TypeError, ValueError):
         return 0.0
-    if 0 < p <= 1.0:
-        p = p * 100.0
-    if p < 0:
-        p = 0.0
-    if p > 100:
-        p = 100.0
-    return p
+    return min(max(p, 0.0), 100.0)
 
 
 def _band(pct: float) -> str:
-    if pct >= 12:
-        return "elite_12plus"
-    if pct >= 8:
-        return "high_8_12"
-    if pct >= 5:
-        return "mid_5_8"
-    if pct >= 3:
-        return "low_3_5"
-    return "micro_under_3"
+    return fta_band(pct)
 
 
 def _already_open(user_id: str, home: str, away: str, team: str) -> bool:
@@ -172,8 +152,8 @@ def main():
     p.add_argument(
         "--min-fta",
         type=float,
-        default=3.0,
-        help="Minimum FTA% to take (e.g. 3 = 3%)",
+        default=1.5,
+        help="Minimum full-event FTA% to take (e.g. 1.5 = 1.5%)",
     )
     p.add_argument("--dry-run", action="store_true")
     p.add_argument(

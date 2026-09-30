@@ -5,7 +5,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from database import get_db, get_odds_movement
+from database import get_db
 from calculations import (
     calculate_lay_stake,
     calculate_liability,
@@ -16,7 +16,7 @@ from calculations import (
     calculate_ev_rating,
     calculate_ranking_score,
 )
-from models.model import predict_with_confidence, build_feature_vector
+from models import fta_path_model
 
 TEAM_STATS_COLUMNS = [
     "avg_xg", "avg_xga", "xg_edge",
@@ -40,13 +40,13 @@ TEAM_STATS_COLUMNS = [
     "abs_trigger_delta", "abs_retention_delta",
 ]
 
-# Display / paper bands (fta_pct as percent 0–100)
+# FTA% is the FULL event: goes 2 up AND fails to win (typically 1–5%).
 FTA_BANDS = [
-    ("elite_12plus", 12.0, 100.0),
-    ("high_8_12", 8.0, 12.0),
-    ("mid_5_8", 5.0, 8.0),
-    ("low_3_5", 3.0, 5.0),
-    ("micro_under_3", 0.0, 3.0),
+    ("elite_4plus", 4.0, 100.0),
+    ("high_3_4", 3.0, 4.0),
+    ("mid_2_3", 2.0, 3.0),
+    ("low_1_2", 1.0, 2.0),
+    ("micro_under_1", 0.0, 1.0),
 ]
 
 # Default edge gate: model FTA% must clear implied% + this buffer
@@ -60,13 +60,12 @@ def get_last_rank_errors():
 
 
 def fta_pct_as_percent(val) -> float:
+    """fta_pct is always stored/served as percent. No fraction guessing:
+    full-event values below 1% are normal and must not become 80%."""
     try:
-        p = float(val or 0)
+        return float(val or 0)
     except (TypeError, ValueError):
         return 0.0
-    if 0 < p <= 1.0:
-        return p * 100.0
-    return p
 
 
 def fta_band(val) -> str:
@@ -74,7 +73,7 @@ def fta_band(val) -> str:
     for name, lo, hi in FTA_BANDS:
         if lo <= pct < hi or (hi >= 100 and pct >= lo):
             return name
-    return "micro_under_3"
+    return "micro_under_1"
 
 
 def implied_pct_from_odds(decimal_odds):
@@ -203,36 +202,33 @@ def build_opportunity(fixture, stake=40, commission=2):
 
     home_team = fixture.get("home_team")
     away_team = fixture.get("away_team")
-    opening_back_odds = None
-    odds_movement = None
-    if home_team and away_team:
-        try:
-            opening_back_odds, odds_movement = get_odds_movement(
-                home_team, away_team, team
-            )
-        except Exception:
-            pass
+    is_home = bool(fixture.get("is_home", team == home_team))
+    opponent = away_team if is_home else home_team
 
-    feature_vector = build_feature_vector(
-        team_stats=stats,
-        is_home=fixture.get("is_home", True),
-        opening_back_odds=opening_back_odds if opening_back_odds is not None else back_odds,
-        odds_movement=odds_movement,
-        lead_minute=0,
-        max_lead=2,
-        shots_for=0,
-        shots_against=0,
-        red_cards_for=0,
-        red_cards_against=0,
+    # Historical profile rates (kept for context / fallback)
+    hist_two_up, two_up_source = resolve_two_up_pct(stats)
+    hist_turnaround, turnaround_source = resolve_turnaround_pct(stats)
+    joint_pct = (hist_two_up * hist_turnaround) / 100.0 if hist_two_up and hist_turnaround else 0.0
+
+    # FTA% = P(goes 2 up) x P(fails to win | 2 up): the full event.
+    prediction = fta_path_model.predict_fixture(
+        team, opponent, fixture.get("league") or "", is_home,
     )
-
-    prediction = predict_with_confidence(feature_vector)
-    fta_pct = float(prediction["fta_pct"])
-    confidence = float(prediction["confidence"])
-
-    two_up_pct, two_up_source = resolve_two_up_pct(stats)
-    turnaround_pct, turnaround_source = resolve_turnaround_pct(stats)
-    joint_pct = (two_up_pct * turnaround_pct) / 100.0 if two_up_pct and turnaround_pct else 0.0
+    if prediction:
+        fta_pct = float(prediction["fta_pct"])
+        two_up_pct = float(prediction["two_up_pct"])
+        turnaround_pct = float(prediction["fail_given_2up_pct"])
+        confidence = float(prediction["data_confidence"])
+        usual_2up_minute = prediction["usual_2up_minute"]
+        model_version = prediction["model_version"]
+        two_up_source = turnaround_source = "path_model"
+    else:
+        # No trained path model yet: team profile rates, flagged low confidence.
+        fta_pct = joint_pct
+        two_up_pct, turnaround_pct = hist_two_up, hist_turnaround
+        confidence = 20.0
+        usual_2up_minute = None
+        model_version = "profile-rates"
 
     lay_stake = calculate_lay_stake(back_odds, lay_odds, stake, commission)
     liability = calculate_liability(lay_odds, lay_stake)
@@ -272,11 +268,16 @@ def build_opportunity(fixture, stake=40, commission=2):
         "stake": stake,
         "commission": commission,
         "fta_pct": round(fta_display, 2),
+        "fta_pct_meaning": "chance this team goes 2 goals up AND fails to win",
         "fta_band": band,
         "confidence": round(confidence, 2),
+        "confidence_meaning": "how much match history backs this pick (0-100), not a probability",
         "two_up_pct": round(two_up_pct, 2),
         "turnaround_pct": round(turnaround_pct, 2),
+        "fail_given_2up_pct": round(turnaround_pct, 2),
+        "usual_2up_minute": usual_2up_minute,
         "joint_pct": round(joint_pct, 2),
+        "model_version": model_version,
         "two_up_source": two_up_source,
         "turnaround_source": turnaround_source,
         "implied_pct": implied,

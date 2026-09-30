@@ -51,12 +51,13 @@ CREATE TABLE IF NOT EXISTS paper_settings (
 )
 """
 
+# FTA% is the FULL event: goes 2 up AND fails to win (typically 1–5%).
 FTA_BANDS = [
-    ("elite_12plus", 12.0, 100.0),
-    ("high_8_12", 8.0, 12.0),
-    ("mid_5_8", 5.0, 8.0),
-    ("low_3_5", 3.0, 5.0),
-    ("micro_under_3", 0.0, 3.0),
+    ("elite_4plus", 4.0, 100.0),
+    ("high_3_4", 3.0, 4.0),
+    ("mid_2_3", 2.0, 3.0),
+    ("low_1_2", 1.0, 2.0),
+    ("micro_under_1", 0.0, 1.0),
 ]
 
 SELECT_COLS = """
@@ -70,13 +71,12 @@ SELECT_COLS = """
 
 
 def fta_pct_as_percent(val) -> float:
+    """fta_pct is always stored/served as percent. No fraction guessing:
+    full-event values below 1% are normal and must not become 80%."""
     try:
-        p = float(val or 0)
+        return float(val or 0)
     except (TypeError, ValueError):
         return 0.0
-    if 0 < p <= 1.0:
-        return p * 100.0
-    return p
 
 
 def fta_band(val) -> str:
@@ -84,7 +84,7 @@ def fta_band(val) -> str:
     for name, lo, hi in FTA_BANDS:
         if lo <= pct < hi or (hi >= 100 and pct >= lo):
             return name
-    return "micro_under_3"
+    return "micro_under_1"
 
 
 def ensure_tracked_tables():

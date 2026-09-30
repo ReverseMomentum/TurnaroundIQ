@@ -38,9 +38,7 @@ def _fta_pct(row) -> float:
         p = float(row.get("fta_pct") or 0)
     except (TypeError, ValueError):
         return 0.0
-    if 0 < p <= 1.0:
-        p *= 100.0
-    return max(0.0, min(100.0, p))
+    return max(0.0, min(100.0, p))  # already percent (full event)
 
 
 def _already_open(user_id, product, home, away, team=None):

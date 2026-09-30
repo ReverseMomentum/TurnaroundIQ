@@ -12,9 +12,26 @@ python -u run.py health
 |---|---|
 | `live` | results → team_stats → football-data odds; backup after success |
 | `historical` | collect from api-sports.io (resumable) → backup → import → historical profiles |
-| `train` | backup → build `training_data` → retrain model (refuses on empty rows) |
+| `train` | backup → fit the FTA path model (`fta_path_model.pkl`) |
+| `walk-forward` | train on the past, test on later seasons; honest accuracy vs a flat-rate baseline |
 | `backup` | dated copy of `two_up.db` in `backups/` |
 | `health` | row counts, freshness, backup age; exit 0/1/2 |
+
+### FTA model (V5 "path" model)
+
+FTA% served to the app is the **full event**: the team goes 2 goals up **and**
+fails to win. It is the product of two models:
+
+- P(2-up) — trained on every team in every match
+- P(fail to win | 2-up) — trained on teams that went 2 up
+
+Features are built **point-in-time**: each match only sees results before it
+(decayed, shrunk to the league average), including the team's usual 2-up
+minute. Responses also carry `two_up_pct`, `fail_given_2up_pct`,
+`usual_2up_minute` and `confidence` (= how much history backs the pick,
+0–100, not a probability). Bands: `elite_4plus`, `high_3_4`, `mid_2_3`,
+`low_1_2`, `micro_under_1`. The old conditional model is still available via
+`run.py train --legacy` / `models/walk_forward.py`.
 
 ### Current season (live results)
 

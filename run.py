@@ -8,7 +8,7 @@ TurnaroundIQ pipelines.
     python -u run.py historical --league-id 39 --season 2024
     python -u run.py api              # restart API in tmux session "api"
     python -u run.py walk-forward     # chronological validation
-    python -u run.py walk-forward --folds 5 --min-train 800
+    python -u run.py walk-forward --folds 5
     python -u run.py backup           # dated copy of two_up.db in backups/
     python -u run.py backup --list
     python -u run.py restore backups/two_up-YYYYMMDD-HHMMSS-label.db
@@ -48,14 +48,15 @@ def restart_api():
 
 
 def run_walk_forward():
-    script = ROOT / "models" / "walk_forward.py"
+    # FTA path model (V5); the old conditional model: models/walk_forward.py
+    script = ROOT / "models" / "fta_path_model.py"
     if not script.is_file():
         print(f"Missing {script}")
         sys.exit(1)
     # Pass through extra args after the command name
     extra = sys.argv[2:]
     result = subprocess.run(
-        [sys.executable, "-u", str(script), *extra],
+        [sys.executable, "-u", str(script), "walk-forward", *extra],
         cwd=str(ROOT),
     )
     sys.exit(result.returncode)

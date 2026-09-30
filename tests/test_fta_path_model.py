@@ -12,7 +12,7 @@ import database
 from models import fta_path_model as pm
 
 
-def simulate(seed=7, teams=20, seasons=8):
+def simulate(seed=7, teams=20, seasons=8, return_strength=False):
     """Minute-by-minute league; some teams 'collapse' after going 2 up."""
     rng = random.Random(seed)
     names = [f"Team {i:02d}" for i in range(teams)]
@@ -43,6 +43,8 @@ def simulate(seed=7, teams=20, seasons=8):
                             events.append((f"sim-{mid}", minute, side))
                 matches.append((f"sim-{mid}", day.isoformat(), "Sim League",
                                 h, a, score[1], score[2]))
+    if return_strength:
+        return matches, events, attack
     return matches, events
 
 
@@ -138,3 +140,25 @@ def test_sub_one_percent_is_not_rescaled():
     assert tracked.fta_pct_as_percent(0.8) == 0.8
     assert oe.fta_band(0.8) == "micro_under_1"
     assert oe.fta_band(4.2) == "elite_4plus"
+
+
+def test_fd_odds_link_and_odds_test(sim_db):
+    """Odds priced from true strength link despite name/date noise and help stage A."""
+    from collectors import odds_history_fd as fd
+
+    matches, _, attack = simulate(return_strength=True)
+    rows = []
+    for i, (mid, d, league, h, a, fh, fa) in enumerate(matches):
+        diff = attack[h] - attack[a] + 0.12
+        ph = 1 / (1 + np.exp(-2.2 * diff)) * 0.75
+        pa = (1 - ph) * 0.6
+        pd_ = 1 - ph - pa
+        day = date.fromisoformat(d) + timedelta(days=1 if i % 7 == 0 else 0)
+        rows.append((league, day, h + " FC", a.replace("Team ", "Team-"),
+                     "avg", 1.05 / ph, 1.05 / pd_, 1.05 / pa))
+    conn = sqlite3.connect(database.DB_NAME)
+    stats, n = fd.link(conn, rows)
+    conn.close()
+    assert n / len(matches) > 0.95
+    summary = pm.odds_test(folds=3)
+    assert summary["with odds"]["auc_2up"] > summary["without odds"]["auc_2up"]

@@ -33,6 +33,18 @@ minute. Responses also carry `two_up_pct`, `fail_given_2up_pct`,
 `low_1_2`, `micro_under_1`. The old conditional model is still available via
 `run.py train --legacy` / `models/walk_forward.py`.
 
+### Odds experiment (free historical odds)
+
+```bash
+python -u collectors/odds_history_fd.py          # football-data.co.uk -> match_odds (cached CSVs)
+python -u models/fta_path_model.py odds-test     # same folds with vs without odds
+```
+
+Links each football-data row to an api-sports match by league + date (±1
+day) + fuzzy names and prints the link rate per league. The test compares
+AUC / top-10% lift with and without de-margined market odds on the same
+matches. Odds are not used by the served model until a live odds feed exists.
+
 ### Current season (live results)
 
 ```bash

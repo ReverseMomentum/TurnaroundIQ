@@ -61,6 +61,9 @@ FEATURES = [
     "t_log_n", "o_log_n",
     "naive_path",
 ]
+# Market odds (de-margined 1X2 probabilities from the team's point of view).
+# Only used by the odds experiment until a live odds feed exists.
+ODDS_FEATURES = ["mkt_win", "mkt_draw", "mkt_lose"]
 
 _state_cache = {"ts": 0.0, "teams": None, "leagues": None}
 _bundle_cache = None
@@ -108,6 +111,12 @@ def load_matches(conn=None):
     own = conn is None
     conn = conn or get_db()
     matches = {}
+    odds = {}
+    try:
+        odds = {mid: (h, d, a) for mid, h, d, a in conn.execute(
+            "SELECT match_id, odds_h, odds_d, odds_a FROM match_odds")}
+    except Exception:
+        pass  # no odds collected (collectors/odds_history_fd.py)
     try:
         events = defaultdict(list)
         for mid, minute, side in conn.execute(
@@ -129,6 +138,7 @@ def load_matches(conn=None):
             matches[(day, home, away)] = {
                 "day": day, "league": league or "", "home": home, "away": away,
                 "fh": int(fh), "fa": int(fa), "sides": _side_outcomes(goals, fh, fa),
+                "odds": odds.get(mid),
             }
     except Exception as exc:
         print(f"[path-model] historical tables unavailable: {exc}")
@@ -270,6 +280,19 @@ def _update(teams, leagues, m):
         lg.add(**vals)
 
 
+def _odds_features(odds, side):
+    """De-margined market probabilities for this side; NaN when unknown."""
+    nan = float("nan")
+    try:
+        inv = [1.0 / float(x) for x in odds]
+    except (TypeError, ValueError, ZeroDivisionError):
+        return {"mkt_win": nan, "mkt_draw": nan, "mkt_lose": nan, "has_odds": 0}
+    total = sum(inv)
+    ph, pd, pa = (x / total for x in inv)
+    win, lose = (ph, pa) if side == 1 else (pa, ph)
+    return {"mkt_win": win, "mkt_draw": pd, "mkt_lose": lose, "has_odds": 1}
+
+
 def replay(matches, collect=True):
     """
     Walk matches in date order. Features for each side use state BEFORE the
@@ -295,6 +318,7 @@ def replay(matches, collect=True):
                 s = m["sides"][side]
                 f.update(day=day, team=team, league=m["league"],
                          up2=int(s["up2"]), fail=int(bool(s["up2"]) and not won))
+                f.update(_odds_features(m.get("odds"), side))
                 rows.append(f)
         _update(teams, leagues, m)
     return rows, teams, leagues
@@ -302,9 +326,10 @@ def replay(matches, collect=True):
 
 # --- fitting ------------------------------------------------------------------------
 
-def _xy(rows, target, where=None):
+def _xy(rows, target, where=None, feats=None):
+    feats = feats or FEATURES
     sel = [r for r in rows if where is None or where(r)]
-    X = np.array([[r[f] for f in FEATURES] for r in sel], dtype=float)
+    X = np.array([[r[f] for f in feats] for r in sel], dtype=float)
     y = np.array([r[target] for r in sel], dtype=int)
     return X, y, sel
 
@@ -386,24 +411,22 @@ def train(save=True):
 FULL_BANDS = [0.0, 1.0, 2.0, 3.0, 4.0, 100.0]
 
 
-def walk_forward(folds=5, min_train_frac=0.3):
-    matches = load_matches()
-    rows, _, _ = replay(matches)
-    rows.sort(key=lambda r: r["day"])
+def _walk(rows, feats, folds=5, min_train_frac=0.3, verbose=True):
+    """Expanding-window walk-forward. Returns (fold results, pooled y, pooled p)."""
+    from sklearn.metrics import brier_score_loss
+
+    rows = sorted(rows, key=lambda r: r["day"])
     n = len(rows)
-    if n < MIN_ROWS_A:
-        raise SystemExit(f"Only {n} team-sides — need {MIN_ROWS_A}.")
     start = int(n * min_train_frac)
     edges = [start + (n - start) * i // folds for i in range(folds + 1)]
-    pooled_y, pooled_p = [], []
-    results = []
+    pooled_y, pooled_p, results = [], [], []
     for k in range(folds):
         train_rows, test_rows = rows[:edges[k]], rows[edges[k]:edges[k + 1]]
-        Xa, ya, _ = _xy(train_rows, "up2")
-        Xb, yb, _ = _xy(train_rows, "fail", where=lambda r: r["up2"] == 1)
+        Xa, ya, _ = _xy(train_rows, "up2", feats=feats)
+        Xb, yb, _ = _xy(train_rows, "fail", where=lambda r: r["up2"] == 1, feats=feats)
         ma, ca = _fit_stage(Xa, ya)
         mb, cb = _fit_stage(Xb, yb)
-        Xt, _, sel = _xy(test_rows, "up2")
+        Xt, _, sel = _xy(test_rows, "up2", feats=feats)
         pa = _predict_stage(ma, ca, Xt)
         pb = _predict_stage(mb, cb, Xt)
         full = pa * pb
@@ -414,7 +437,6 @@ def walk_forward(folds=5, min_train_frac=0.3):
         twoup = y_a == 1
         m_b = _metrics(y_full[twoup], pb[twoup])
         base_rate = float(np.mean([r["fail"] for r in train_rows]))
-        from sklearn.metrics import brier_score_loss
         brier_base = float(brier_score_loss(y_full, np.full_like(full, base_rate)))
         skill = 1 - m_full["brier"] / brier_base if brier_base else 0.0
         d0 = date.fromordinal(test_rows[0]["day"]).isoformat()
@@ -423,13 +445,27 @@ def walk_forward(folds=5, min_train_frac=0.3):
                         "skill": skill})
         pooled_y.extend(y_full)
         pooled_p.extend(full)
-        print(f"fold {k + 1}: {d0}→{d1}  sides={m_full['n']}  "
-              f"full actual={100 * m_full['actual']:.2f}% pred={100 * m_full['pred']:.2f}%  "
-              f"AUC full={m_full['auc']:.3f} 2up={m_a['auc']:.3f} fail|2up={m_b['auc'] or float('nan'):.3f}  "
-              f"skill vs flat rate={100 * skill:+.1f}%")
+        if verbose:
+            print(f"fold {k + 1}: {d0}→{d1}  sides={m_full['n']}  "
+                  f"full actual={100 * m_full['actual']:.2f}% pred={100 * m_full['pred']:.2f}%  "
+                  f"AUC full={m_full['auc']:.3f} 2up={m_a['auc']:.3f} "
+                  f"fail|2up={m_b['auc'] or float('nan'):.3f}  "
+                  f"skill vs flat rate={100 * skill:+.1f}%")
+    return results, np.array(pooled_y), np.array(pooled_p)
 
-    y = np.array(pooled_y)
-    p = np.array(pooled_p) * 100
+
+def _top_lift(y, p, frac=0.1):
+    order = np.argsort(-p)
+    top = order[: max(1, int(len(order) * frac))]
+    return float(p[top].mean()), float(y[top].mean()), float(y[top].mean() / max(y.mean(), 1e-9))
+
+
+def walk_forward(folds=5, min_train_frac=0.3):
+    rows, _, _ = replay(load_matches())
+    if len(rows) < MIN_ROWS_A:
+        raise SystemExit(f"Only {len(rows)} team-sides — need {MIN_ROWS_A}.")
+    results, y, p = _walk(rows, FEATURES, folds, min_train_frac)
+    p = p * 100
     print("\nCalibration (all test folds) — predicted full-event % vs what happened")
     print("  band      |     n  | predicted | actual")
     for lo, hi in zip(FULL_BANDS[:-1], FULL_BANDS[1:]):
@@ -437,14 +473,52 @@ def walk_forward(folds=5, min_train_frac=0.3):
         if mask.sum():
             print(f"  {lo:>3.0f}-{hi:<4.0f}% | {mask.sum():>6} | {p[mask].mean():>8.2f}% | "
                   f"{100 * y[mask].mean():>5.2f}%")
-    order = np.argsort(-p)
-    top = order[: max(1, len(order) // 10)]
-    print(f"\nTop 10% of picks: predicted {p[top].mean():.2f}%, happened {100 * y[top].mean():.2f}% "
-          f"(overall {100 * y.mean():.2f}%, lift x{(y[top].mean() / max(y.mean(), 1e-9)):.2f})")
+    pred, hit, lift = _top_lift(y, p / 100)
+    print(f"\nTop 10% of picks: predicted {100 * pred:.2f}%, happened {100 * hit:.2f}% "
+          f"(overall {100 * y.mean():.2f}%, lift x{lift:.2f})")
     aucs = [r["full"]["auc"] for r in results if r["full"]["auc"] is not None]
     print(f"Mean AUC (full event) {np.mean(aucs):.3f} ±{np.std(aucs):.3f}; "
           f"mean skill vs flat rate {100 * np.mean([r['skill'] for r in results]):+.1f}%")
     return results
+
+
+def odds_test(folds=5, min_train_frac=0.3):
+    """
+    Does adding market odds improve the model? Same matches, same folds,
+    with and without odds features. Only matches with linked odds are used.
+    """
+    rows, _, _ = replay(load_matches())
+    with_odds = [r for r in rows if r.get("has_odds")]
+    cover = 100 * len(with_odds) / max(len(rows), 1)
+    print(f"team-sides with odds: {len(with_odds)} of {len(rows)} ({cover:.0f}%)")
+    if len(with_odds) < MIN_ROWS_A:
+        raise SystemExit("Not enough matches with odds — run collectors/odds_history_fd.py")
+
+    summary = {}
+    for label, feats in (("without odds", FEATURES), ("with odds", FEATURES + ODDS_FEATURES)):
+        res, y, p = _walk(with_odds, feats, folds, min_train_frac, verbose=False)
+        pred, hit, lift = _top_lift(y, p)
+        summary[label] = {
+            "auc_full": float(np.mean([r["full"]["auc"] for r in res])),
+            "auc_2up": float(np.mean([r["a"]["auc"] for r in res])),
+            "auc_fail": float(np.mean([r["b"]["auc"] for r in res if r["b"]["auc"]])),
+            "skill": float(np.mean([r["skill"] for r in res])),
+            "top_hit": hit, "lift": lift, "base": float(y.mean()),
+        }
+
+    a, b = summary["without odds"], summary["with odds"]
+    print("\n                              without odds   with odds")
+    print(f"  AUC going 2-up              {a['auc_2up']:>10.3f}   {b['auc_2up']:>9.3f}")
+    print(f"  AUC fail once 2-up          {a['auc_fail']:>10.3f}   {b['auc_fail']:>9.3f}")
+    print(f"  AUC full event              {a['auc_full']:>10.3f}   {b['auc_full']:>9.3f}")
+    print(f"  top 10% happened            {100 * a['top_hit']:>9.2f}%   {100 * b['top_hit']:>8.2f}%")
+    print(f"  top 10% lift vs average     {a['lift']:>9.2f}x   {b['lift']:>8.2f}x")
+    print(f"  skill vs flat rate          {100 * a['skill']:>+9.1f}%   {100 * b['skill']:>+8.1f}%")
+    gain = b["auc_full"] - a["auc_full"]
+    verdict = ("worth it" if gain >= 0.02 or b["lift"] - a["lift"] >= 0.15
+               else "marginal" if gain >= 0.005 else "not worth it")
+    print(f"\nVerdict: odds add {gain:+.3f} AUC on the full event -> {verdict}")
+    return summary
 
 
 # --- serving ------------------------------------------------------------------------
@@ -510,11 +584,13 @@ def _copy(s):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["train", "walk-forward"])
+    parser.add_argument("command", choices=["train", "walk-forward", "odds-test"])
     parser.add_argument("--folds", type=int, default=5)
     args = parser.parse_args(argv)
     if args.command == "train":
         train()
+    elif args.command == "odds-test":
+        odds_test(folds=args.folds)
     else:
         walk_forward(folds=args.folds)
 

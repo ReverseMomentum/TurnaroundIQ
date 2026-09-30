@@ -65,35 +65,53 @@ const Account = createContext({ me: null, reloadMe: async () => {} });
 const SHOW_DEV_TOOLS = import.meta.env.VITE_SHOW_DEV_TOOLS === "true";
 const TERMS_URL = import.meta.env.VITE_TERMS_URL || "terms.html";
 const PRIVACY_URL = import.meta.env.VITE_PRIVACY_URL || "privacy.html";
+const PRO_PRICE = import.meta.env.VITE_PRO_PRICE || "£9.99";
 
 // ---- Brand tokens (locked palette) ----
 const c = {
-  bg: "#060B18",
-  card: "#0B1224",
-  cardAlt: "#0B1020",
-  border: "#18233D",
+  bg: "#05080F",
+  card: "#0A0F1C",
+  cardAlt: "#0D1424",
+  border: "#151E33",
   green: "#36E98F",
-  greenDark: "#0B3D26",
+  greenDark: "#04140C",
   cyan: "#4BC7FF",
   blue: "#4B6FFF",
   orange: "#FF9C42",
   red: "#FF5252",
   text: "#F5F7FA",
-  textSecondary: "#A0A8C0",
-  textMuted: "#6B7592",
+  textSecondary: "#9AA3BC",
+  textMuted: "#5F6A87",
+  line: "rgba(54,233,143,0.22)",
 };
 
-// Surfaces: soft top-lit gradient + depth, so cards read as layers not flat boxes.
+// Premium dark surfaces: near-black panels, hairline borders, one glowing accent.
 const card = {
-  background: "linear-gradient(180deg, #0E1731 0%, #0A1122 100%)",
+  background: "linear-gradient(180deg, #0B1120 0%, #080C17 100%)",
   border: "1px solid " + c.border,
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 30px rgba(0,0,0,0.25)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
 };
 const heroCard = {
-  background: "radial-gradient(120% 140% at 0% 0%, rgba(54,233,143,0.16) 0%, rgba(75,199,255,0.06) 45%, rgba(11,18,36,0) 70%), linear-gradient(180deg, #0F1A33 0%, #0A1122 100%)",
-  border: "1px solid rgba(54,233,143,0.25)",
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), 0 16px 40px rgba(0,0,0,0.35)",
+  background: "radial-gradient(90% 120% at 100% 0%, rgba(54,233,143,0.14) 0%, rgba(54,233,143,0) 55%), linear-gradient(180deg, #0B1322 0%, #070B15 100%)",
+  border: "1px solid rgba(54,233,143,0.38)",
+  boxShadow: "0 0 0 1px rgba(54,233,143,0.05), 0 0 42px rgba(54,233,143,0.13), inset 0 1px 0 rgba(255,255,255,0.05)",
 };
+const accentCard = {
+  ...card,
+  border: "1px solid rgba(54,233,143,0.30)",
+  boxShadow: "0 0 28px rgba(54,233,143,0.08), inset 0 1px 0 rgba(255,255,255,0.03)",
+};
+const primaryBtn = {
+  background: "linear-gradient(180deg, #43F09A 0%, #2BD47F 100%)",
+  color: "#03140B",
+  boxShadow: "0 0 24px rgba(54,233,143,0.30), inset 0 1px 0 rgba(255,255,255,0.35)",
+};
+const chip = (active) => ({
+  background: active ? "rgba(54,233,143,0.10)" : "transparent",
+  border: "1px solid " + (active ? "rgba(54,233,143,0.45)" : c.border),
+  color: active ? c.green : c.textSecondary,
+});
+
 // FTA% vs the ~2% base rate: colour + "x average" label
 function ftaTone(v) {
   if (v == null) return c.textSecondary;
@@ -104,6 +122,75 @@ function ftaTone(v) {
 function vsAverage(v) {
   if (v == null || !isFinite(v)) return null;
   return (v / 2).toFixed(1) + "× avg";
+}
+
+function Wordmark({ size = "md", tagline = false }) {
+  const t = { sm: "text-[13px]", md: "text-[15px]", lg: "text-2xl" }[size];
+  return (
+    <span className="inline-flex flex-col leading-none">
+      <span className={t + " font-bold uppercase"} style={{ letterSpacing: "0.09em" }}>
+        <span style={{ color: c.text }}>Turnaround</span><span style={{ color: c.green, marginLeft: "0.12em" }}>IQ</span>
+      </span>
+      {tagline && (
+        <span style={{ color: c.green, letterSpacing: size === "lg" ? "0.32em" : "0.2em" }} className={(size === "lg" ? "text-[10px] mt-2.5" : "text-[8px] mt-1.5") + " font-semibold uppercase whitespace-nowrap"}>
+          Data. Intelligence. Edge.
+        </span>
+      )}
+    </span>
+  );
+}
+
+function Logo({ size = 28, glow = false }) {
+  return (
+    <img src={LOGO_SRC} alt="" style={{ height: size, width: "auto", filter: glow ? "drop-shadow(0 0 10px rgba(54,233,143,0.55))" : "drop-shadow(0 0 6px rgba(54,233,143,0.25))" }} />
+  );
+}
+
+function SectionLabel({ children, action, onAction }) {
+  return (
+    <div className="flex items-center justify-between mb-3 mt-1">
+      <p style={{ color: c.textMuted, letterSpacing: "0.14em" }} className="text-[11px] font-semibold uppercase">{children}</p>
+      {action && <button onClick={onAction} style={{ color: c.green }} className="text-xs font-medium">{action}</button>}
+    </div>
+  );
+}
+
+function PageTitle({ title, subtitle, right }) {
+  return (
+    <div className="mb-5">
+      <div className="flex items-start justify-between gap-3">
+        <h1 style={{ color: c.text }} className="text-[26px] lg:text-3xl font-bold tracking-tight leading-tight">{title}</h1>
+        {right}
+      </div>
+      {subtitle && <p style={{ color: c.textSecondary }} className="text-sm mt-1.5 max-w-[640px]">{subtitle}</p>}
+    </div>
+  );
+}
+
+// Big figure with a smaller unit, e.g. 3.40 %
+function BigNum({ value, unit = "%", dp = 2, tone = c.text, size = "text-2xl" }) {
+  if (value == null || isNaN(value)) return <span style={{ color: c.textMuted }} className={size + " font-bold"}>—</span>;
+  return (
+    <span style={{ color: tone }} className={"num font-bold leading-none " + size}>
+      {Number(value).toFixed(dp)}<span className="text-[0.55em] font-semibold ml-0.5 opacity-80">{unit}</span>
+    </span>
+  );
+}
+
+// Data-depth as signal bars (history behind the numbers, not a probability)
+function DepthBars({ score }) {
+  const d = depthLabel(score);
+  const lit = score >= 80 ? 3 : score >= 60 ? 2 : 1;
+  return (
+    <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: d.tone }}>
+      <span className="flex items-end gap-[2px]">
+        {[6, 9, 12].map((h, i) => (
+          <span key={h} style={{ height: h, width: 3, borderRadius: 1, background: i < lit ? d.tone : c.border }} />
+        ))}
+      </span>
+      {d.label}
+    </span>
+  );
 }
 
 // ============================================================
@@ -196,8 +283,8 @@ const oppKey = (o) => `${o.match}|${o.team}`;
 // confidence = how much match history backs the pick (0-100), not a probability
 function depthLabel(score) {
   if (score >= 80) return { label: "Deep data", tone: c.green };
-  if (score >= 60) return { label: "Good data", tone: c.orange };
-  return { label: "Thin data", tone: c.textSecondary };
+  if (score >= 60) return { label: "Good data", tone: c.cyan };
+  return { label: "Thin data", tone: c.textMuted };
 }
 
 function resultTone(result) {
@@ -213,75 +300,120 @@ function resultLabel(result) {
 // ============================================================
 // LAYOUT
 // ============================================================
+const NAV_MAIN = [
+  { key: "dashboard", icon: Home, label: "Home", side: "Dashboard" },
+  { key: "opportunities", icon: Rocket, label: "Picks", side: "Opportunities" },
+  { key: "live", icon: RadioTower, label: "Live", side: "Live monitor" },
+  { key: "bets", icon: Wallet, label: "Bets", side: "My bets" },
+];
+const NAV_MORE = [
+  ...(SHOW_DEV_TOOLS ? [{ key: "model-testing", icon: FlaskConical, label: "Model Testing (dev)" }] : []),
+  { key: "early-goal-hunter", icon: Crosshair, label: "Early Goal Hunter" },
+  { key: "chaos-factor", icon: Flame, label: "Chaos Factor" },
+  { key: "calculator", icon: Calculator, label: "Calculator" },
+  { key: "settings", icon: Settings, label: "Settings" },
+];
+
+function ProBadge({ entitled }) {
+  return (
+    <span
+      style={{
+        color: entitled ? c.green : c.textSecondary,
+        border: "1px solid " + (entitled ? "rgba(54,233,143,0.45)" : c.border),
+        background: entitled ? "rgba(54,233,143,0.08)" : "transparent",
+        letterSpacing: "0.12em",
+      }}
+      className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-md"
+    >
+      {entitled ? "Pro" : "Free"}
+    </span>
+  );
+}
+
 function PageHeader({ onNavigate, entitled }) {
   return (
-    <div className="flex items-center justify-between mb-6">
-      <button onClick={() => onNavigate("dashboard")} className="flex items-center gap-2">
-        <img src={LOGO_SRC} alt="TurnaroundIQ logo" className="h-6 w-auto" />
-        <span className="text-base font-semibold tracking-tight">
-          <span style={{ color: c.text }}>Turnaround</span>
-          <span style={{ color: c.green }}>IQ</span>
-        </span>
+    <div className="flex items-center justify-between mb-7 lg:hidden">
+      <button onClick={() => onNavigate("dashboard")} className="flex items-center gap-2.5">
+        <Logo size={26} />
+        <Wordmark size="sm" />
       </button>
-      <span
-        style={{
-          background: entitled ? c.greenDark : c.cardAlt,
-          color: entitled ? c.green : c.textSecondary,
-          border: entitled ? "none" : "1px solid " + c.border,
-        }}
-        className="text-xs font-medium px-2 py-1 rounded-full"
-      >
-        {entitled ? "Pro" : "Free"}
-      </span>
+      <ProBadge entitled={entitled} />
     </div>
+  );
+}
+
+// Desktop: fixed left rail with every section (replaces the bottom bar)
+function Sidebar({ activeTab, onNavigate, entitled }) {
+  const { me } = useContext(Account);
+  const item = ({ key, icon: Icon, label, side }) => {
+    const active = key === activeTab;
+    return (
+      <button key={key} onClick={() => onNavigate(key)} style={{ background: active ? "rgba(54,233,143,0.08)" : "transparent", color: active ? c.green : c.textSecondary, borderLeft: "2px solid " + (active ? c.green : "transparent") }} className="w-full flex items-center gap-3 px-4 py-2.5 rounded-r-lg text-sm font-medium text-left">
+        <Icon size={18} /> {side || label}
+      </button>
+    );
+  };
+  const paper = me?.paper;
+  return (
+    <aside style={{ background: "linear-gradient(180deg, #070B15 0%, #05080F 100%)", borderRight: "1px solid " + c.border }} className="hidden lg:flex fixed left-0 top-0 bottom-0 w-64 flex-col px-3 py-6 z-40">
+      <button onClick={() => onNavigate("dashboard")} className="flex items-center gap-2.5 px-3 mb-8">
+        <Logo size={30} glow />
+        <Wordmark size="sm" tagline />
+      </button>
+      <nav className="flex flex-col gap-1">{NAV_MAIN.map(item)}</nav>
+      <p style={{ color: c.textMuted, letterSpacing: "0.14em" }} className="text-[10px] font-semibold uppercase px-4 mt-6 mb-2">Tools</p>
+      <nav className="flex flex-col gap-1">{NAV_MORE.map(item)}</nav>
+      <div className="mt-auto px-1">
+        {paper && (
+          <div style={card} className="rounded-xl p-4 mb-3">
+            <p style={{ color: c.textMuted, letterSpacing: "0.12em" }} className="text-[10px] font-semibold uppercase mb-1">Paper P/L</p>
+            <p style={{ color: (paper.total_profit || 0) >= 0 ? c.green : c.red }} className="num text-xl font-bold">{money(paper.total_profit || 0)}</p>
+          </div>
+        )}
+        <div className="flex items-center justify-between px-2">
+          <span style={{ color: c.textMuted }} className="text-xs truncate">{me?.email || ""}</span>
+          <ProBadge entitled={entitled} />
+        </div>
+      </div>
+    </aside>
   );
 }
 
 function BottomNav({ activeTab, onNavigate }) {
   const [open, setOpen] = useState(false);
-  const navItems = [
-    { key: "dashboard", icon: Home, label: "Home" },
-    { key: "opportunities", icon: Rocket, label: "Picks" },
-    { key: "live", icon: RadioTower, label: "Live" },
-    { key: "bets", icon: Wallet, label: "Bets" },
-  ];
-  const flyoutItems = [
-    ...(SHOW_DEV_TOOLS ? [{ key: "model-testing", icon: FlaskConical, label: "Model Testing (dev)", tone: c.cyan }] : []),
-    { key: "early-goal-hunter", icon: Crosshair, label: "Early Goal Hunter", tone: c.orange },
-    { key: "chaos-factor", icon: Flame, label: "Chaos Factor", tone: c.red },
-    { key: "calculator", icon: Calculator, label: "Calculator", tone: c.cyan },
-    { key: "settings", icon: Settings, label: "Settings", tone: c.textSecondary },
-  ];
   const go = (key) => {
     setOpen(false);
     onNavigate(key);
   };
+  const glass = { background: "rgba(8,12,23,0.86)", border: "1px solid " + c.border, backdropFilter: "blur(18px)", WebkitBackdropFilter: "blur(18px)" };
   return (
-    <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-4 px-4" style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
+    <div className="fixed bottom-0 left-0 right-0 flex justify-center pb-4 px-4 lg:hidden" style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}>
       <div className="w-full max-w-[420px]">
         {open && (
-          <div style={{ background: "rgba(11,16,32,0.92)", border: "1px solid " + c.border, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", boxShadow: "0 16px 40px rgba(0,0,0,0.5)" }} className="rounded-2xl p-2 mb-2">
-            {flyoutItems.map(({ key, icon: Icon, label, tone }) => (
-              <button key={key} onClick={() => go(key)} className="w-full flex items-center gap-3 px-3 py-3 text-left">
-                <Icon size={20} style={{ color: tone }} />
-                <span style={{ color: c.text }} className="text-sm">{label}</span>
+          <div style={{ ...glass, boxShadow: "0 18px 50px rgba(0,0,0,0.6)" }} className="rounded-2xl p-2 mb-2">
+            {NAV_MORE.map(({ key, icon: Icon, label }) => (
+              <button key={key} onClick={() => go(key)} className="w-full flex items-center gap-3 px-3 py-3 text-left rounded-xl">
+                <Icon size={18} style={{ color: key === activeTab ? c.green : c.textSecondary }} />
+                <span style={{ color: key === activeTab ? c.green : c.text }} className="text-sm font-medium">{label}</span>
+                <ChevronRight size={16} style={{ color: c.textMuted, marginLeft: "auto" }} />
               </button>
             ))}
           </div>
         )}
-        <div style={{ background: "rgba(11,18,36,0.82)", border: "1px solid " + c.border, backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)", boxShadow: "0 12px 32px rgba(0,0,0,0.45)" }} className="rounded-2xl flex items-center justify-between px-2 py-2">
-          {navItems.map(({ key, icon: Icon, label }) => {
+        <div style={{ ...glass, boxShadow: "0 14px 36px rgba(0,0,0,0.55)" }} className="rounded-2xl flex items-center justify-between px-1.5 py-1.5">
+          {NAV_MAIN.map(({ key, icon: Icon, label }) => {
             const active = !open && key === activeTab;
             return (
-              <button key={key} aria-label={key} onClick={() => go(key)} style={{ background: active ? "rgba(54,233,143,0.12)" : "transparent" }} className="flex-1 flex flex-col items-center gap-1 rounded-xl py-2">
-                <Icon size={20} style={{ color: active ? c.green : c.textSecondary }} />
-                <span style={{ color: active ? c.green : c.textMuted }} className="text-[10px] font-medium">{label}</span>
+              <button key={key} aria-label={key} onClick={() => go(key)} className="flex-1 flex flex-col items-center gap-1 py-2 relative">
+                {active && <span style={{ background: c.green, boxShadow: "0 0 10px " + c.green }} className="absolute top-0 w-6 h-[2px] rounded-full" />}
+                <Icon size={20} style={{ color: active ? c.green : c.textMuted }} />
+                <span style={{ color: active ? c.green : c.textMuted }} className="text-[10px] font-semibold">{label}</span>
               </button>
             );
           })}
-          <button aria-label={open ? "Close menu" : "Open menu"} onClick={() => setOpen(!open)} style={{ background: open ? "rgba(54,233,143,0.12)" : "transparent" }} className="flex-1 flex flex-col items-center gap-1 rounded-xl py-2">
-            {open ? <X size={20} style={{ color: c.green }} /> : <Menu size={20} style={{ color: c.textSecondary }} />}
-            <span style={{ color: open ? c.green : c.textMuted }} className="text-[10px] font-medium">More</span>
+          <button aria-label={open ? "Close menu" : "Open menu"} onClick={() => setOpen(!open)} className="flex-1 flex flex-col items-center gap-1 py-2">
+            {open ? <X size={20} style={{ color: c.green }} /> : <Menu size={20} style={{ color: c.textMuted }} />}
+            <span style={{ color: open ? c.green : c.textMuted }} className="text-[10px] font-semibold">More</span>
           </button>
         </div>
       </div>
@@ -291,10 +423,13 @@ function BottomNav({ activeTab, onNavigate }) {
 
 function PageShell({ children, activeTab, onNavigate, entitled }) {
   return (
-    <div style={{ background: "radial-gradient(900px 380px at 50% -160px, rgba(54,233,143,0.10), rgba(75,199,255,0.04) 40%, transparent 70%), " + c.bg, minHeight: "100vh" }} className="pb-36">
-      <div className="max-w-[420px] mx-auto px-4 pt-6">
-        <PageHeader onNavigate={onNavigate} entitled={entitled} />
-        {children}
+    <div style={{ background: "radial-gradient(1000px 420px at 50% -200px, rgba(54,233,143,0.09), transparent 70%), " + c.bg, minHeight: "100vh" }} className="pb-36 lg:pb-12">
+      <Sidebar activeTab={activeTab} onNavigate={onNavigate} entitled={entitled} />
+      <div className="lg:pl-64">
+        <div className="max-w-[440px] lg:max-w-[1120px] mx-auto px-4 lg:px-10 pt-6 lg:pt-10">
+          <PageHeader onNavigate={onNavigate} entitled={entitled} />
+          {children}
+        </div>
       </div>
       <BottomNav activeTab={activeTab} onNavigate={onNavigate} />
     </div>
@@ -398,14 +533,22 @@ function Paywall({ title, onPurchased }) {
   };
 
   return (
-    <div style={card} className="rounded-2xl p-6 text-center mt-4">
-      <div style={{ background: c.greenDark }} className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4">
-        <Lock size={20} style={{ color: c.green }} />
-      </div>
-      <p style={{ color: c.text }} className="text-base font-medium mb-2">{title || "This is a Pro feature"}</p>
-      <p style={{ color: c.textSecondary }} className="text-sm mb-5">
-        Pro unlocks ranked FTA opportunities, Early Goal Hunter, Chaos Factor and your paper-tracking log.
+    <div style={heroCard} className="rounded-2xl p-6 mt-4 max-w-[520px]">
+      <p style={{ color: c.green, letterSpacing: "0.16em" }} className="text-[11px] font-bold uppercase mb-3 flex items-center gap-2">
+        <Lock size={13} /> {title || "This is a Pro feature"}
       </p>
+      <div className="flex items-end gap-2 mb-1">
+        <span style={{ color: c.text }} className="num text-5xl font-bold tracking-tight leading-none">{PRO_PRICE}</span>
+        <span style={{ color: c.textSecondary }} className="text-sm mb-1">/ month</span>
+      </div>
+      <p style={{ color: c.textSecondary }} className="text-xs mb-5">Cancel anytime.</p>
+      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 mb-6 text-left">
+        {["Ranked FTA picks, next 24h", "Best UK prices + est. lay", "Early Goal Hunter", "Chaos Factor", "Paper-bet tracker", "2-up & free-bet calculator"].map((f) => (
+          <li key={f} className="flex items-center gap-2 text-sm" style={{ color: c.text }}>
+            <Check size={15} style={{ color: c.green, flexShrink: 0 }} /> {f}
+          </li>
+        ))}
+      </ul>
 
       {isNative ? (
         <>
@@ -414,7 +557,7 @@ function Paywall({ title, onPurchased }) {
             <p style={{ color: c.textSecondary }} className="text-xs mb-3">No subscription options available right now.</p>
           )}
           {(packages || []).map((pkg) => (
-            <button key={pkg.identifier} disabled={busy} onClick={() => buy(pkg)} style={{ background: c.green, color: c.greenDark, opacity: busy ? 0.6 : 1 }} className="w-full rounded-xl py-3 text-sm font-medium mb-2">
+            <button key={pkg.identifier} disabled={busy} onClick={() => buy(pkg)} style={{ ...primaryBtn, opacity: busy ? 0.6 : 1 }} className="w-full rounded-xl py-3 text-sm font-medium mb-2">
               {pkg.product?.title || "Upgrade to Pro"} — {pkg.product?.priceString}
             </button>
           ))}
@@ -426,8 +569,8 @@ function Paywall({ title, onPurchased }) {
             By subscribing you agree to the <a href={TERMS_URL} style={{ color: c.cyan }}>Terms</a> and ask us to
             start Pro immediately, so the 14-day cancellation right ends once access begins. Cancel any time.
           </p>
-          <button disabled={busy} onClick={() => openWebCheckout(me.purchase_url)} style={{ background: c.green, color: c.greenDark }} className="w-full rounded-xl py-3 text-sm font-medium mb-2">
-            Subscribe to Pro
+          <button disabled={busy} onClick={() => openWebCheckout(me.purchase_url)} style={primaryBtn} className="w-full rounded-xl py-3 text-sm font-semibold mb-2">
+            Start Pro — {PRO_PRICE}/month
           </button>
           <button disabled={busy} onClick={checkAgain} style={{ color: c.cyan }} className="text-xs font-medium mt-1">
             {busy ? "Checking…" : "Already paid? Check again"}
@@ -490,20 +633,18 @@ function SignInPage({ onSignedIn }) {
   return (
     <div style={{ background: "radial-gradient(700px 420px at 50% 18%, rgba(54,233,143,0.14), rgba(75,199,255,0.05) 45%, transparent 70%), " + c.bg, minHeight: "100vh" }} className="flex flex-col justify-center px-6">
       <div className="max-w-[380px] w-full mx-auto">
-        <div className="flex flex-col items-center mb-8 text-center">
-          <div style={{ background: "rgba(54,233,143,0.10)", border: "1px solid rgba(54,233,143,0.25)", boxShadow: "0 0 40px rgba(54,233,143,0.25)" }} className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4">
-            <img src={LOGO_SRC} alt="" className="h-9 w-auto" />
-          </div>
-          <span className="text-2xl font-bold tracking-tight"><span style={{ color: c.text }}>Turnaround</span><span style={{ color: c.green }}>IQ</span></span>
-          <p style={{ color: c.textSecondary }} className="text-sm mt-2">Football intelligence for 2-up offers</p>
+        <div className="flex flex-col items-center mb-9 text-center">
+          <Logo size={64} glow />
+          <div className="mt-5"><Wordmark size="lg" tagline /></div>
+          <p style={{ color: c.textSecondary }} className="text-sm mt-5">Find football's most <span style={{ color: c.green }}>fragile leads.</span></p>
         </div>
         <div style={card} className="rounded-2xl p-6">
           {step === "email" ? (
             <form onSubmit={send} className="flex flex-col gap-3">
-              <p style={{ color: c.text }} className="text-lg font-semibold">Sign in</p>
+              <p style={{ color: c.text }} className="text-xl font-bold tracking-tight">Sign in</p>
               <p style={{ color: c.textSecondary }} className="text-sm">We'll email you a 6-digit code. No password needed.</p>
               <input type="email" autoComplete="email" inputMode="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} className="rounded-xl px-4 py-3 text-base" />
-              <button type="submit" disabled={busy || !email} style={{ background: c.green, color: c.greenDark, opacity: busy || !email ? 0.6 : 1 }} className="rounded-xl py-3 text-sm font-medium flex items-center justify-center gap-2">
+              <button type="submit" disabled={busy || !email} style={{ ...primaryBtn, opacity: busy || !email ? 0.55 : 1 }} className="rounded-xl py-3 text-sm font-medium flex items-center justify-center gap-2">
                 <Mail size={16} /> {busy ? "Sending…" : "Email me a code"}
               </button>
             </form>
@@ -512,7 +653,7 @@ function SignInPage({ onSignedIn }) {
               <p style={{ color: c.text }} className="text-base font-medium">Check your email</p>
               <p style={{ color: c.textSecondary }} className="text-sm">Enter the code sent to {email}.</p>
               <input autoComplete="one-time-code" inputMode="numeric" maxLength={6} placeholder="123456" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} style={{ ...inputStyle, letterSpacing: "0.4em" }} className="rounded-xl px-4 py-3 text-xl text-center" />
-              <button type="submit" disabled={busy || code.length !== 6} style={{ background: c.green, color: c.greenDark, opacity: busy || code.length !== 6 ? 0.6 : 1 }} className="rounded-xl py-3 text-sm font-medium">
+              <button type="submit" disabled={busy || code.length !== 6} style={{ ...primaryBtn, opacity: busy || code.length !== 6 ? 0.55 : 1 }} className="rounded-xl py-3 text-sm font-medium">
                 {busy ? "Checking…" : "Sign in"}
               </button>
               <button type="button" onClick={() => { setStep("email"); setCode(""); }} style={{ color: c.cyan }} className="text-xs font-medium">Use a different email / resend</button>
@@ -536,75 +677,121 @@ function SignInPage({ onSignedIn }) {
 // ============================================================
 function Metric({ label, value, tone }) {
   return (
-    <div>
-      <p style={{ color: c.textMuted }} className="text-[11px] mb-0.5">{label}</p>
+    <div className="min-w-0">
+      <p style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mb-1">{label}</p>
       <p style={{ color: tone || c.text }} className="num text-sm font-semibold">{value}</p>
     </div>
   );
 }
 
-function OpportunityCard({ o, onClick, wide }) {
-  const depth = depthLabel(o.confidence);
-  const tone = ftaTone(o.fta_pct);
-  const fill = Math.max(4, Math.min(100, ((o.fta_pct || 0) / 5) * 100));
+function kickoffParts(iso) {
+  const d = new Date(iso);
+  if (!iso || isNaN(d.getTime())) return { time: "TBC", day: "" };
+  const full = formatKickoff(iso);
+  return { time: d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), day: full.split(" · ")[0] };
+}
+
+function FtaBox({ value, highlight }) {
+  const tone = ftaTone(value);
   return (
-    <button
-      onClick={() => onClick(o)}
-      style={{ ...card, textAlign: "left" }}
-      className={"rounded-2xl p-4 flex flex-col gap-3 " + (wide ? "w-full" : "w-[272px] flex-shrink-0")}
-    >
+    <div style={{ background: highlight ? "rgba(54,233,143,0.08)" : "rgba(255,255,255,0.02)", border: "1px solid " + (highlight ? "rgba(54,233,143,0.40)" : c.border) }} className="rounded-lg px-3 py-2 text-right flex-shrink-0 min-w-[88px]">
+      <BigNum value={value} tone={tone} size="text-[22px]" />
+      <p style={{ color: c.textMuted, letterSpacing: "0.1em" }} className="text-[9px] font-semibold uppercase mt-1">FTA chance</p>
+    </div>
+  );
+}
+
+function PriceLine({ o }) {
+  if (o.not_at_my_books) return <p style={{ color: c.orange }} className="text-xs">Not priced at your bookmakers yet</p>;
+  if (o.odds_estimated || !o.back_odds) return <p style={{ color: c.textMuted }} className="text-xs">Prices not in yet — tap to enter your own</p>;
+  return (
+    <div className="flex items-baseline gap-4 text-xs min-w-0">
+      <span className="flex items-baseline gap-1.5 min-w-0">
+        <span style={{ color: c.textMuted }}>Book</span>
+        <span style={{ color: c.green }} className="num text-sm font-semibold">{Number(o.back_odds).toFixed(2)}</span>
+        <span style={{ color: c.textSecondary }} className="truncate">{o.bookmaker}</span>
+      </span>
+      <span className="flex items-baseline gap-1.5 flex-shrink-0">
+        <span style={{ color: c.textMuted }}>Lay{o.estimated_lay ? " est." : ""}</span>
+        <span style={{ color: c.cyan }} className="num text-sm font-semibold">{Number(o.lay_odds).toFixed(2)}</span>
+      </span>
+    </div>
+  );
+}
+
+function OpportunityCard({ o, onClick, highlight }) {
+  const k = kickoffParts(o.kickoff);
+  return (
+    <button onClick={() => onClick(o)} style={{ ...(highlight ? accentCard : card), textAlign: "left" }} className="w-full rounded-xl p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span style={{ background: "rgba(75,199,255,0.10)", color: c.cyan }} className="text-[11px] font-medium px-2 py-1 rounded-full truncate">
-          {formatKickoff(o.kickoff)}
+        <span className="flex items-baseline gap-2">
+          <span style={{ color: c.text }} className="num text-sm font-bold">{k.time}</span>
+          <span style={{ color: c.textMuted }} className="text-xs">{k.day}</span>
         </span>
-        <span style={{ color: c.textMuted }} className="text-[11px] truncate">{o.league}</span>
+        <span style={{ color: c.textMuted, letterSpacing: "0.06em" }} className="text-[10px] font-semibold uppercase truncate">{o.league}</span>
       </div>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p style={{ color: c.text }} className="text-[15px] font-semibold leading-snug truncate">{o.home_team}</p>
-          <p style={{ color: c.textSecondary }} className="text-sm leading-snug truncate">vs {o.away_team}</p>
-          <p style={{ color: c.textSecondary }} className="text-xs mt-1.5 truncate">
-            2-up team <span style={{ color: c.text }} className="font-medium">{o.team}</span>
-          </p>
+          <p style={{ color: c.text }} className="text-base font-semibold leading-snug truncate">{o.home_team}</p>
+          <p style={{ color: c.textSecondary }} className="text-sm leading-snug truncate"><span style={{ color: c.textMuted }}>vs</span> {o.away_team}</p>
+          <p style={{ color: c.textMuted }} className="text-xs mt-1.5 truncate">2-up team <span style={{ color: c.green }} className="font-medium">{o.team}</span></p>
         </div>
-        <div className="text-right flex-shrink-0">
-          <p style={{ color: tone }} className="num text-2xl font-bold leading-none">{pct(o.fta_pct, 2)}</p>
-          <p style={{ color: c.textMuted }} className="text-[11px] mt-1">FTA chance</p>
-          {vsAverage(o.fta_pct) && (
-            <span style={{ background: tone === c.textSecondary ? "rgba(160,168,192,0.12)" : tone === c.green ? "rgba(54,233,143,0.12)" : "rgba(75,199,255,0.12)", color: tone }} className="num inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-md mt-1">
-              {vsAverage(o.fta_pct)}
-            </span>
-          )}
-        </div>
+        <FtaBox value={o.fta_pct} highlight={highlight} />
       </div>
-      <div style={{ background: "rgba(255,255,255,0.06)" }} className="h-1 rounded-full overflow-hidden">
-        <div style={{ width: fill + "%", background: "linear-gradient(90deg, " + c.cyan + ", " + tone + ")" }} className="h-full rounded-full" />
-      </div>
-      <div style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.04)" }} className="grid grid-cols-3 gap-2 text-center rounded-xl py-2">
+      <div className="grid grid-cols-3 gap-2">
         <Metric label="Goes 2 up" value={pct(o.two_up_pct, 0)} />
         <Metric label="Then fails" value={pct(o.fail_given_2up_pct ?? o.turnaround_pct, 1)} />
         <Metric label="Usual 2-up" value={o.usual_2up_minute ? Math.round(o.usual_2up_minute) + "'" : "—"} />
       </div>
-      {o.not_at_my_books && (
-        <p style={{ color: c.orange }} className="text-xs truncate">Not priced at your bookmakers yet</p>
-      )}
-      {!o.odds_estimated && o.back_odds && (
-        <div className="flex items-center gap-2 text-xs min-w-0">
-          <span style={{ color: c.textMuted }}>Back</span>
-          <span style={{ color: c.green }} className="num font-semibold">{Number(o.back_odds).toFixed(2)}</span>
-          <span style={{ color: c.textSecondary }} className="truncate">{o.bookmaker}</span>
-          <span style={{ color: c.border }}>|</span>
-          <span style={{ color: c.textMuted }}>Lay{o.estimated_lay ? " est." : ""}</span>
-          <span style={{ color: c.cyan }} className="num font-semibold">{Number(o.lay_odds).toFixed(2)}</span>
-        </div>
-      )}
-      <div style={{ borderTop: "1px solid " + c.border }} className="flex items-center justify-between pt-3">
-        <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: depth.tone }}>
-          <span style={{ background: depth.tone }} className="w-1.5 h-1.5 rounded-full" />{depth.label}
-        </span>
-        <span style={{ color: c.cyan }} className="flex items-center gap-1 text-xs font-medium">Analysis <ChevronRight size={14} /></span>
+      <div style={{ borderTop: "1px solid " + c.border }} className="flex items-center justify-between gap-3 pt-3">
+        <PriceLine o={o} />
+        <DepthBars score={o.confidence} />
       </div>
     </button>
+  );
+}
+
+// Desktop: dense sortable-looking table like a trading screen
+function OpportunityTable({ list, onOpen }) {
+  const th = { color: c.textMuted, letterSpacing: "0.1em" };
+  return (
+    <div style={card} className="rounded-xl overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr style={{ borderBottom: "1px solid " + c.border }}>
+            {["Kick-off", "Match", "Goes 2 up", "Then fails", "FTA chance", "Book", "Lay est.", "Data"].map((h, i) => (
+              <th key={h} style={th} className={"text-[10px] font-semibold uppercase py-3 px-4 " + (i < 2 ? "text-left" : i === 7 ? "text-left" : "text-right")}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((o, i) => {
+            const k = kickoffParts(o.kickoff);
+            const priced = !o.odds_estimated && o.back_odds;
+            return (
+              <tr key={oppKey(o)} onClick={() => onOpen(o)} style={{ borderBottom: "1px solid " + c.border, background: i === 0 ? "rgba(54,233,143,0.04)" : "transparent" }} className="cursor-pointer hover:bg-white/[0.02]">
+                <td className="py-3 px-4 whitespace-nowrap">
+                  <p style={{ color: c.text }} className="num font-semibold">{k.time}</p>
+                  <p style={{ color: c.textMuted }} className="text-xs">{k.day}</p>
+                </td>
+                <td className="py-3 px-4">
+                  <p style={{ color: c.text }} className="font-semibold">{o.home_team} <span style={{ color: c.textMuted }} className="font-normal">vs</span> {o.away_team}</p>
+                  <p style={{ color: c.textMuted }} className="text-xs">{o.league} · 2-up team <span style={{ color: c.green }}>{o.team}</span></p>
+                </td>
+                <td style={{ color: c.text }} className="num py-3 px-4 text-right">{pct(o.two_up_pct, 0)}</td>
+                <td style={{ color: c.text }} className="num py-3 px-4 text-right">{pct(o.fail_given_2up_pct ?? o.turnaround_pct, 1)}</td>
+                <td className="py-3 px-4 text-right"><BigNum value={o.fta_pct} tone={ftaTone(o.fta_pct)} size="text-lg" /></td>
+                <td className="py-3 px-4 text-right whitespace-nowrap">
+                  {priced ? (<><p style={{ color: c.green }} className="num font-semibold">{Number(o.back_odds).toFixed(2)}</p><p style={{ color: c.textMuted }} className="text-xs">{o.bookmaker}</p></>) : <span style={{ color: c.textMuted }}>—</span>}
+                </td>
+                <td style={{ color: c.cyan }} className="num py-3 px-4 text-right font-semibold">{priced ? Number(o.lay_odds).toFixed(2) : "—"}</td>
+                <td className="py-3 px-4"><DepthBars score={o.confidence} /></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -754,7 +941,7 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
           </p>
         )}
 
-        <button disabled={trackState === "saving" || trackState === "saved"} onClick={track} style={{ background: c.green, color: c.greenDark, opacity: trackState === "saved" ? 0.6 : 1 }} className="w-full rounded-xl py-3 flex items-center justify-center gap-2 text-sm font-medium">
+        <button disabled={trackState === "saving" || trackState === "saved"} onClick={track} style={{ ...primaryBtn, opacity: trackState === "saved" ? 0.6 : 1 }} className="w-full rounded-xl py-3 flex items-center justify-center gap-2 text-sm font-medium">
           <Bookmark size={16} /> {trackState === "saved" ? "Tracked in My Bets" : trackState === "saving" ? "Saving…" : "Track (paper)"}
         </button>
         {trackState && !["saving", "saved"].includes(trackState) && <p style={{ color: c.red }} className="text-xs text-center mt-2">{trackState}</p>}
@@ -767,6 +954,52 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
 // ============================================================
 // PAGES
 // ============================================================
+function StatTile({ label, children, sub }) {
+  return (
+    <div style={card} className="rounded-xl px-4 py-3.5 min-w-0">
+      <p style={{ color: c.textMuted, letterSpacing: "0.12em" }} className="text-[10px] font-semibold uppercase mb-2 truncate">{label}</p>
+      <div className="truncate">{children}</div>
+      {sub && <p style={{ color: c.textMuted }} className="text-[11px] mt-1.5 truncate">{sub}</p>}
+    </div>
+  );
+}
+
+function BestOpportunity({ o, onOpen }) {
+  const k = kickoffParts(o.kickoff);
+  return (
+    <div style={heroCard} className="rounded-2xl p-5 lg:p-6">
+      <div className="flex items-center justify-between mb-4">
+        <p style={{ color: c.green, letterSpacing: "0.16em" }} className="text-[11px] font-bold uppercase flex items-center gap-2">
+          <span style={{ background: c.green, boxShadow: "0 0 10px " + c.green }} className="w-1.5 h-1.5 rounded-full" /> Best opportunity
+        </p>
+        <span style={{ color: c.textSecondary }} className="num text-xs">{k.day} · {k.time}</span>
+      </div>
+      <p style={{ color: c.text }} className="text-xl lg:text-2xl font-bold tracking-tight leading-tight">{o.home_team} <span style={{ color: c.textMuted }} className="font-medium">vs</span> {o.away_team}</p>
+      <p style={{ color: c.textSecondary }} className="text-sm mt-1">{o.league} · 2-up team <span style={{ color: c.green }} className="font-medium">{o.team}</span></p>
+      <div className="grid grid-cols-3 gap-3 my-5">
+        <div>
+          <BigNum value={o.fta_pct} tone={c.green} size="text-[28px] lg:text-4xl" />
+          <p style={{ color: c.textSecondary }} className="text-[11px] mt-1.5 leading-tight">FTA chance<br /><span style={{ color: c.textMuted }}>2 up, then no win</span></p>
+        </div>
+        <div>
+          <BigNum value={o.two_up_pct} dp={1} tone={c.cyan} size="text-[28px] lg:text-4xl" />
+          <p style={{ color: c.textSecondary }} className="text-[11px] mt-1.5 leading-tight">Goes<br />2 goals up</p>
+        </div>
+        <div>
+          <BigNum value={o.fail_given_2up_pct ?? o.turnaround_pct} dp={1} tone={c.orange} size="text-[28px] lg:text-4xl" />
+          <p style={{ color: c.textSecondary }} className="text-[11px] mt-1.5 leading-tight">Lead then<br />fails to win</p>
+        </div>
+      </div>
+      <div style={{ borderTop: "1px solid rgba(54,233,143,0.18)" }} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-4">
+        <PriceLine o={o} />
+        <button onClick={() => onOpen(o)} style={{ color: c.green, border: "1px solid rgba(54,233,143,0.4)" }} className="flex-shrink-0 text-xs font-semibold px-3 py-2.5 rounded-lg flex items-center justify-center gap-1">
+          Analysis <ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
   const paper = me?.paper || null;
   const list = opps.data?.opportunities || [];
@@ -779,15 +1012,12 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
   const topLeague = Object.entries(leagues)
     .map(([lg, v]) => [lg, v.reduce((a, b) => a + b, 0) / v.length])
     .sort((a, b) => b[1] - a[1])[0];
+  const profit = paper?.total_profit || 0;
 
   if (!entitled) {
     return (
       <PageShell activeTab="dashboard" onNavigate={nav} entitled={entitled}>
-        <p style={{ color: c.text }} className="text-2xl font-semibold tracking-tight mb-1">Welcome to TurnaroundIQ</p>
-        <p style={{ color: c.textSecondary }} className="text-sm">
-          Football intelligence for 2-up offers: the chance a team goes two goals up and still fails to win,
-          plus early-goal and chaos signals across 25 leagues.
-        </p>
+        <PageTitle title={<>The edge is in the <span style={{ color: c.green }}>comeback.</span></>} subtitle="TurnaroundIQ finds the fixtures where a team is likely to go two goals up and still fail to win — the moments 2-up offers pay out early." />
         <Paywall title="Unlock TurnaroundIQ Pro" onPurchased={onPurchased} />
         <Disclaimer />
       </PageShell>
@@ -796,40 +1026,51 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
 
   return (
     <PageShell activeTab="dashboard" onNavigate={nav} entitled={entitled}>
-      <div style={heroCard} className="rounded-3xl p-5 mb-6">
-        <p style={{ color: c.textSecondary }} className="text-xs uppercase tracking-wider mb-2">Paper profit · tracked bets</p>
-        <p style={{ color: (paper?.total_profit || 0) >= 0 ? c.text : c.red }} className="num text-4xl font-bold tracking-tight mb-5">{money(paper?.total_profit || 0)}</p>
-        <div className="grid grid-cols-3 gap-3">
-          <StatBox label="Open" value={String(paper?.open ?? 0)} />
-          <StatBox label="Settled" value={String(paper?.settled ?? 0)} />
-          <StatBox label="ROI" value={paper?.roi_pct == null ? "—" : pct(paper.roi_pct)} tone={(paper?.roi_pct || 0) >= 0 ? c.green : c.red} />
-        </div>
+      <div className="hidden lg:block"><PageTitle title="Dashboard" subtitle="Early-payout (2-up) opportunities for games kicking off in the next 24 hours." /></div>
+      <div className="no-scrollbar flex gap-3 overflow-x-auto -mx-4 px-4 mb-6 lg:mx-0 lg:px-0 lg:grid lg:grid-cols-4 lg:overflow-visible [&>*]:min-w-[140px] [&>*]:flex-shrink-0 lg:[&>*]:min-w-0">
+        <StatTile label="Top FTA" sub={top ? top.team : "—"}><BigNum value={top?.fta_pct} tone={c.green} /></StatTile>
+        <StatTile label="Average FTA" sub={list.length + " picks"}><BigNum value={avgFta} tone={c.cyan} /></StatTile>
+        <StatTile label="Opportunities" sub="Next 24 hours"><span style={{ color: c.text }} className="num text-2xl font-bold">{list.length}</span></StatTile>
+        <StatTile label="Paper P/L" sub={(paper?.settled ?? 0) + " settled · " + (paper?.open ?? 0) + " open"}>
+          <span style={{ color: profit >= 0 ? c.green : c.red }} className="num text-2xl font-bold">{money(profit)}</span>
+        </StatTile>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto mb-6 -mx-1 px-1">
-        <KpiCard label="Top FTA" value={top ? pct(top.fta_pct, 2) : "—"} tone={c.green} />
-        <KpiCard label="Average FTA" value={avgFta == null ? "—" : pct(avgFta, 2)} tone={c.cyan} />
-        <KpiCard label="Opportunities" value={String(list.length)} tone={c.text} />
-      </div>
-
-      <div className="flex items-center justify-between mb-3">
-        <p style={{ color: c.text }} className="text-base font-semibold">Top opportunities</p>
-        <button onClick={() => nav("opportunities")} style={{ color: c.cyan }} className="text-xs font-medium">View all</button>
-      </div>
       {opps.loading && <Loading />}
       {opps.error && <ErrorBox error={opps.error} onRetry={opps.reload} />}
-      {!opps.loading && !opps.error && list.length === 0 && <Empty>No upcoming fixtures right now.</Empty>}
-      <div className="flex gap-3 overflow-x-auto mb-6 -mx-1 px-1">
-        {list.slice(0, 4).map((o) => <OpportunityCard key={oppKey(o)} o={o} onClick={onOpen} />)}
-      </div>
+      {!opps.loading && !opps.error && list.length === 0 && <Empty>No games in our leagues kick off in the next 24 hours.</Empty>}
 
-      <div style={card} className="rounded-2xl p-5">
-        <p style={{ color: c.text }} className="text-sm font-medium mb-4">Snapshot</p>
-        <div className="grid grid-cols-2 gap-4">
-          <StatBox label="Highest-rated league" value={topLeague ? topLeague[0] : "—"} />
-          <StatBox label="Top pick" value={top ? top.team : "—"} />
-          <StatBox label="Paper staked" value={money(paper?.staked || 0)} />
-          <StatBox label="FTA hits (paper)" value={String(paper?.fta_hits ?? 0)} tone={c.green} />
+      <div className="lg:grid lg:grid-cols-[1.35fr_1fr] lg:gap-6">
+        <div>
+          {top && <div className="mb-6"><BestOpportunity o={top} onOpen={onOpen} /></div>}
+          {list.length > 1 && (
+            <>
+              <SectionLabel action="View all" onAction={() => nav("opportunities")}>Top opportunities</SectionLabel>
+              <div className="flex flex-col gap-3 mb-6">
+                {list.slice(1, 4).map((o) => <OpportunityCard key={oppKey(o)} o={o} onClick={onOpen} />)}
+              </div>
+            </>
+          )}
+        </div>
+        <div>
+          <SectionLabel>Paper performance</SectionLabel>
+          <div style={card} className="rounded-2xl p-5 mb-6">
+            <p style={{ color: c.textMuted, letterSpacing: "0.12em" }} className="text-[10px] font-semibold uppercase mb-2">Tracked paper bets</p>
+            <p style={{ color: profit >= 0 ? c.text : c.red }} className="num text-4xl font-bold tracking-tight mb-5">{money(profit)}</p>
+            <div className="grid grid-cols-3 gap-3">
+              <Metric label="Open" value={String(paper?.open ?? 0)} />
+              <Metric label="Settled" value={String(paper?.settled ?? 0)} />
+              <Metric label="ROI" value={paper?.roi_pct == null ? "—" : pct(paper.roi_pct)} tone={(paper?.roi_pct || 0) >= 0 ? c.green : c.red} />
+            </div>
+            <button onClick={() => nav("bets")} style={{ color: c.green }} className="text-xs font-semibold mt-5 flex items-center gap-1">Open my bets <ChevronRight size={14} /></button>
+          </div>
+          <SectionLabel>Snapshot</SectionLabel>
+          <div style={card} className="rounded-2xl p-5 mb-2 grid grid-cols-2 gap-5">
+            <Metric label="Highest-rated league" value={topLeague ? topLeague[0] : "—"} />
+            <Metric label="FTA hits (paper)" value={String(paper?.fta_hits ?? 0)} tone={c.green} />
+            <Metric label="Paper staked" value={money(paper?.staked || 0)} />
+            <Metric label="Picks above average" value={String(list.filter((o) => (o.fta_pct || 0) > 2).length)} />
+          </div>
         </div>
       </div>
       <Disclaimer />
@@ -961,7 +1202,7 @@ function BookmakerFilter({ opps }) {
           {error && <p style={{ color: c.red }} className="text-xs mt-2">{error}</p>}
           <div className="flex gap-2 mt-3">
             <button onClick={() => save([])} disabled={saving} style={{ border: "1px solid " + c.border, color: c.textSecondary }} className="flex-1 rounded-lg py-2 text-xs font-medium">Any bookmaker</button>
-            <button onClick={() => save(selected)} disabled={saving || available === null} style={{ background: c.green, color: c.greenDark }} className="flex-1 rounded-lg py-2 text-xs font-medium">{saving ? "Saving…" : "Save"}</button>
+            <button onClick={() => save(selected)} disabled={saving || available === null} style={primaryBtn} className="flex-1 rounded-lg py-2 text-xs font-semibold">{saving ? "Saving…" : "Save"}</button>
           </div>
         </div>
       )}
@@ -977,31 +1218,35 @@ function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
 
   return (
     <PageShell activeTab="opportunities" onNavigate={nav} entitled={entitled}>
-      <p style={{ color: c.text }} className="text-2xl font-semibold tracking-tight mb-1">Opportunities</p>
-      <p style={{ color: c.textSecondary }} className="text-sm mb-4">
-        Games in the next 24 hours, ranked by FTA chance: the team goes 2 goals up <i>and</i> fails to win. Average is about 2%.
-      </p>
-      {entitled && !opps.needsPro && <RefreshOddsButton opps={opps} />}
-      {entitled && !opps.needsPro && <BookmakerFilter opps={opps} />}
+      <PageTitle
+        title="Opportunities"
+        subtitle={<>Games in the next 24 hours, ranked by FTA chance — the team goes 2 goals up <i>and</i> fails to win. The average is about 2%.</>}
+      />
+      {entitled && !opps.needsPro && (
+        <div className="lg:grid lg:grid-cols-2 lg:gap-4">
+          <BookmakerFilter opps={opps} />
+          <RefreshOddsButton opps={opps} />
+        </div>
+      )}
       {(opps.needsPro || !entitled) && <Paywall title="Opportunities is a Pro feature" onPurchased={onPurchased} />}
       {entitled && opps.loading && <Loading />}
       {entitled && opps.error && <ErrorBox error={opps.error} onRetry={opps.reload} />}
       {entitled && opps.data && (
         <>
-          <div className="flex gap-2 overflow-x-auto mb-5 -mx-1 px-1">
-            {leagues.map((lg) => {
-              const active = lg === league;
-              return (
-                <button key={lg} onClick={() => setLeague(lg)} style={{ background: active ? c.green : c.card, border: "1px solid " + (active ? c.green : c.border), color: active ? c.greenDark : c.textSecondary }} className="flex-shrink-0 text-xs font-medium px-3 py-2 rounded-full whitespace-nowrap">
-                  {lg}
-                </button>
-              );
-            })}
+          <div className="no-scrollbar flex gap-2 overflow-x-auto mb-5 -mx-1 px-1">
+            {leagues.map((lg) => (
+              <button key={lg} onClick={() => setLeague(lg)} style={chip(lg === league)} className="flex-shrink-0 text-xs font-semibold px-3.5 py-2 rounded-lg whitespace-nowrap">
+                {lg}
+              </button>
+            ))}
           </div>
-          <div className="flex flex-col gap-3">
-            {filtered.map((o) => <OpportunityCard key={oppKey(o)} o={o} onClick={onOpen} wide />)}
-            {filtered.length === 0 && <Empty>{list.length === 0 ? "No games in our leagues kick off in the next 24 hours." : "No opportunities match this filter right now."}</Empty>}
+          {filtered.length > 0 && (
+            <div className="hidden lg:block mb-2"><OpportunityTable list={filtered} onOpen={onOpen} /></div>
+          )}
+          <div className="flex flex-col gap-3 lg:hidden">
+            {filtered.map((o, i) => <OpportunityCard key={oppKey(o)} o={o} onClick={onOpen} highlight={i === 0 && league === "All leagues"} />)}
           </div>
+          {filtered.length === 0 && <Empty>{list.length === 0 ? "No games in our leagues kick off in the next 24 hours." : "No opportunities match this filter right now."}</Empty>}
         </>
       )}
       <Disclaimer />
@@ -1020,8 +1265,7 @@ function EarlyGoalHunterPage({ nav, entitled, onPurchased }) {
   const ranked = [...(q.data?.matches || [])].sort((a, b) => b.hunter_score - a.hunter_score);
   return (
     <PageShell activeTab="menu" onNavigate={nav} entitled={entitled}>
-      <p style={{ color: c.text }} className="text-2xl font-semibold tracking-tight mb-1">Early Goal Hunter</p>
-      <p style={{ color: c.textSecondary }} className="text-sm mb-4">Fixtures most likely to see an early goal. A separate signal from FTA.</p>
+      <PageTitle title="Early Goal Hunter" subtitle="Fixtures most likely to see an early goal. A separate signal from FTA." />
       {q.needsPro && <Paywall onPurchased={onPurchased} />}
       {q.loading && <Loading />}
       {q.error && <ErrorBox error={q.error} onRetry={q.reload} />}
@@ -1066,8 +1310,7 @@ function ChaosFactorPage({ nav, entitled, onPurchased }) {
   const ranked = [...(q.data?.matches || [])].sort((a, b) => b.chaos_index - a.chaos_index);
   return (
     <PageShell activeTab="menu" onNavigate={nav} entitled={entitled}>
-      <p style={{ color: c.text }} className="text-2xl font-semibold tracking-tight mb-1">Chaos Factor</p>
-      <p style={{ color: c.textSecondary }} className="text-sm mb-4">Unpredictability: O2.5, BTTS, early goals and instability combined.</p>
+      <PageTitle title="Chaos Factor" subtitle="Unpredictability: over 2.5 goals, both teams to score, early goals and instability combined." />
       {q.needsPro && <Paywall onPurchased={onPurchased} />}
       {q.loading && <Loading />}
       {q.error && <ErrorBox error={q.error} onRetry={q.reload} />}
@@ -1122,7 +1365,7 @@ function ChaosFactorPage({ nav, entitled, onPurchased }) {
 function LiveMonitorPage({ nav, entitled }) {
   return (
     <PageShell activeTab="live" onNavigate={nav} entitled={entitled}>
-      <p style={{ color: c.text }} className="text-xl font-medium mb-4">Live monitoring</p>
+      <PageTitle title="Live monitor" />
       <div style={card} className="rounded-2xl p-6 text-center">
         <RadioTower size={28} style={{ color: c.cyan }} className="mx-auto mb-3" />
         <p style={{ color: c.text }} className="text-base font-medium mb-2">Coming soon</p>
@@ -1169,7 +1412,7 @@ function MyBetsPage({ nav, entitled, onPurchased, reloadMe }) {
   return (
     <PageShell activeTab="bets" onNavigate={nav} entitled={entitled}>
       <div className="flex items-center justify-between mb-4">
-        <p style={{ color: c.text }} className="text-xl font-medium">My bets (paper)</p>
+        <h1 style={{ color: c.text }} className="text-[26px] lg:text-3xl font-bold tracking-tight">My bets <span style={{ color: c.textMuted }} className="text-base font-medium">paper</span></h1>
         {entitled && (
           <button onClick={settleNow} disabled={settling} style={{ color: c.cyan }} className="text-xs font-medium flex items-center gap-1">
             <RefreshCw size={12} /> {settling ? "Settling…" : "Settle finished"}
@@ -1339,7 +1582,7 @@ function CalculatorPage({ nav, entitled, prefs }) {
   return (
     <PageShell activeTab="menu" onNavigate={nav} entitled={entitled}>
       <div className="flex items-center justify-between mb-4">
-        <p style={{ color: c.text }} className="text-xl font-medium">Calculator</p>
+        <h1 style={{ color: c.text }} className="text-[26px] lg:text-3xl font-bold tracking-tight">Calculator</h1>
         <button onClick={reset} style={{ color: c.textSecondary }} className="flex items-center gap-1 text-xs font-medium"><RotateCcw size={14} /> Reset</button>
       </div>
       <div className="flex gap-2 overflow-x-auto mb-5 -mx-1 px-1">
@@ -1427,7 +1670,7 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
 
   return (
     <PageShell activeTab="menu" onNavigate={nav} entitled={entitled}>
-      <p style={{ color: c.text }} className="text-xl font-medium mb-5">Settings</p>
+      <PageTitle title="Settings" />
 
       <div style={card} className="rounded-2xl p-4 mb-5 flex items-center gap-3">
         <div style={{ background: c.cardAlt, border: "1px solid " + c.border }} className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0">
@@ -1492,7 +1735,7 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
             <input type="number" inputMode="decimal" value={risk} onChange={(e) => setRisk(e.target.value)} style={{ background: "transparent", color: c.text, width: 40 }} className="text-sm text-right" />
             <span style={{ color: c.textSecondary }} className="text-sm">% of bankroll</span></div>
         </div>
-        <button onClick={save} style={{ background: c.green, color: c.greenDark }} className="rounded-xl py-2 text-sm font-medium">Save preferences</button>
+        <button onClick={save} style={primaryBtn} className="rounded-xl py-2.5 text-sm font-semibold">Save preferences</button>
         {saved && <p style={{ color: saved === "Saved" ? c.green : c.red }} className="text-xs text-center">{saved}</p>}
       </div>
 

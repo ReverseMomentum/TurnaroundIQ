@@ -45,6 +45,7 @@ import {
   clearSession,
   finishSignIn,
   getPackages,
+  getSession,
   initPurchases,
   isNative,
   manageSubscription,
@@ -1387,6 +1388,5 @@ export default function App() {
 
 // After web sign-in the session token is already set on the API client.
 async function initPurchasesToken() {
-  const { getSession } = await import("./lib/purchases");
   return getSession();
 }

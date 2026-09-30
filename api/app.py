@@ -406,6 +406,7 @@ def fixtures_from_upcoming(limit=40, hours=None, bookmakers=None):
         home = pair["home_team"]
         away = pair["away_team"]
         row = stored.get(str(pair.get("match_id")))
+        market = {"market_over25": (row or {}).get("over25"), "market_under25": (row or {}).get("under25")}
         base = {
             "match_id": pair.get("match_id"),
             "match": f"{home} vs {away}",
@@ -417,6 +418,7 @@ def fixtures_from_upcoming(limit=40, hours=None, bookmakers=None):
             "back_odds": DEFAULT_BACK_ODDS,
             "lay_odds": None,
             "odds_estimated": True,
+            **market,
         }
         fixtures.append(_with_prices({**base, "team": home, "is_home": True}, row, True, bookmakers))
         fixtures.append(_with_prices({**base, "team": away, "is_home": False}, row, False, bookmakers))

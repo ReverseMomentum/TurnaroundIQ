@@ -2,7 +2,7 @@
 """
 Historical backfill from api-sports.io -> data/ginf_apisports.csv + data/events_apisports.csv.
 
-Default: every league in constants.SUPPORTED_LEAGUE_IDS, the last 5
+Default: every league in constants.SUPPORTED_LEAGUE_IDS, the last 10
 completed seasons. The in-progress season is left to the live results
 collector (it already fetches those matches) unless --include-current.
 
@@ -43,7 +43,7 @@ from collectors import apisports as af
 from constants import SUPPORTED_LEAGUE_IDS
 from team_normalizer import normalize_team
 
-DEFAULT_SEASONS = 5
+DEFAULT_SEASONS = 10  # more history steadies the rare "fail once 2-up" rates
 BATCH = 20
 EXIT_PARTIAL = 3
 DATA_DIR = PROJECT_ROOT / "data"
@@ -379,7 +379,7 @@ def main(argv=None):
     parser.add_argument("--season", type=int, action="append",
                         help="Explicit season year(s); overrides --seasons")
     parser.add_argument("--seasons", type=int, default=DEFAULT_SEASONS,
-                        help="Completed seasons per league (default 5)")
+                        help="Completed seasons per league (default 10)")
     parser.add_argument("--include-current", action="store_true",
                         help="Also collect the in-progress season (live collector covers it)")
     parser.add_argument("--refresh-seasons", action="store_true",

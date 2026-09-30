@@ -302,6 +302,7 @@ def analyze_match_events(home_team, away_team, events, official_home=None, offic
     home_second_half_for = home_second_half_against = 0
     away_first_half_for = away_first_half_against = 0
     away_second_half_for = away_second_half_against = 0
+    timeline = []  # [(minute, 1=home|2=away)] — used by the path model's behaviour features
 
     for event in events:
         if not _is_scoring_goal_event(event):
@@ -330,6 +331,7 @@ def analyze_match_events(home_team, away_team, events, official_home=None, offic
             away_score += 1
         else:
             continue
+        timeline.append((int(minute or 0), 1 if is_home_goal else 2))
 
         if first_goal_side is None:
             first_goal_side = "home" if is_home_goal else "away"
@@ -377,6 +379,7 @@ def analyze_match_events(home_team, away_team, events, official_home=None, offic
         final_away = away_score
 
     return {
+        "goal_timeline": timeline,
         "final_home": final_home,
         "final_away": final_away,
         "home_2up": int(home_2up),
@@ -406,8 +409,20 @@ def analyze_match_events(home_team, away_team, events, official_home=None, offic
     }
 
 
+LIVE_GOALS_DDL = """
+CREATE TABLE IF NOT EXISTS live_goals (
+    match_id TEXT NOT NULL, minute INTEGER, side INTEGER
+)"""
+
+
 def save_result(fixture_id, league, home_team, away_team, analysis, match_date=None):
     conn = get_db()
+    conn.execute(LIVE_GOALS_DDL)
+    conn.execute("DELETE FROM live_goals WHERE match_id = ?", (str(fixture_id),))
+    conn.executemany(
+        "INSERT INTO live_goals (match_id, minute, side) VALUES (?,?,?)",
+        [(str(fixture_id), m, side) for m, side in analysis.get("goal_timeline") or []],
+    )
     conn.execute(
         """
         INSERT INTO match_results (

@@ -291,3 +291,19 @@ def test_feature_pages_24h_window_and_score_floor(monkeypatch):
     assert [m["match_id"] for m in chaos["matches"]] == ["s"]
     # old behaviour without the params is unchanged
     assert len(app_module.early_goal_feature(authorization="x", limit=50)["matches"]) == 3
+
+
+def test_over_under_parsed_prefers_pinnacle_and_is_stored(fresh_table):
+    def ou_bk(name, over, under):
+        return {"name": name, "bets": [{"id": 5, "name": "Goals Over/Under", "values": [
+            {"value": "Over 1.5", "odd": "1.3"}, {"value": "Over 2.5", "odd": str(over)},
+            {"value": "Under 2.5", "odd": str(under)}]}]}
+    books = [ou_bk("Bet365", 1.90, 1.90), ou_bk("Pinnacle", 1.85, 2.02), ou_bk("1xBet", 2.0, 1.8)]
+    assert oa.parse_over_under(books) == (1.85, 2.02)
+    assert oa.parse_over_under(books[:1] + books[2:]) == (1.95, 1.85)  # median without Pinnacle
+    assert oa.parse_over_under([]) == (None, None)
+    oa.save(fresh_table, "ou1", None, oa.parse_bookmakers(BOOKS), oa.parse_over_under(books))
+    fresh_table.commit()
+    fresh_table.close()
+    row = oa.load_odds(["ou1"])["ou1"]
+    assert (row["over25"], row["under25"]) == (1.85, 2.02)

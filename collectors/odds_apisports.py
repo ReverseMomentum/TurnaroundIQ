@@ -60,9 +60,11 @@ CREATE TABLE IF NOT EXISTS fixture_odds (
     draw_back REAL,
     fair_source TEXT,
     books_json TEXT,
-    updated_at TEXT
+    updated_at TEXT,
+    over25 REAL, under25 REAL
 )
 """
+OVER_UNDER = 5  # api-sports bet id "Goals Over/Under"
 
 # Betfair price ladder: (upper bound, tick size)
 _LADDER = [(2, 0.01), (3, 0.02), (4, 0.05), (6, 0.1), (10, 0.2), (20, 0.5),
@@ -146,21 +148,51 @@ def summarise(books: dict) -> dict | None:
     return row
 
 
+def parse_over_under(bookmakers):
+    """Consensus over/under 2.5 goals prices: Pinnacle if quoted, else the median across books."""
+    sets = {}
+    for bk in bookmakers or []:
+        for bet in bk.get("bets") or []:
+            if bet.get("id") != OVER_UNDER and "over/under" not in (bet.get("name") or "").lower():
+                continue
+            o = u = None
+            for v in bet.get("values") or []:
+                label = str(v.get("value")).strip().lower()
+                if label == "over 2.5":
+                    o = _to_float(v.get("odd"))
+                elif label == "under 2.5":
+                    u = _to_float(v.get("odd"))
+            if o and u:
+                sets[bk.get("name") or ""] = (o, u)
+    if not sets:
+        return None, None
+    sharp = [v for n, v in sets.items() if _key(n) in SHARP_BOOKS]
+    if sharp:
+        return sharp[0]
+    return (statistics.median(v[0] for v in sets.values()),
+            statistics.median(v[1] for v in sets.values()))
+
+
 def ensure_table(conn):
     conn.execute(DDL)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(fixture_odds)")}
+    for col in ("over25", "under25"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE fixture_odds ADD COLUMN {col} REAL")
 
 
-def save(conn, match_id, kickoff, books):
+def save(conn, match_id, kickoff, books, over_under=(None, None)):
     row = summarise(books)
     if not row:
         return False
     conn.execute(
         """INSERT OR REPLACE INTO fixture_odds (match_id, kickoff, home_back, home_book,
                home_lay_est, away_back, away_book, away_lay_est, draw_back, fair_source,
-               books_json, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+               books_json, updated_at, over25, under25) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (str(match_id), kickoff, row["home_back"], row["home_book"], row["home_lay_est"],
          row["away_back"], row["away_book"], row["away_lay_est"], row["draw_back"],
-         row["fair_source"], json.dumps(books), datetime.now(timezone.utc).isoformat()),
+         row["fair_source"], json.dumps(books), datetime.now(timezone.utc).isoformat(),
+         over_under[0], over_under[1]),
     )
     return True
 
@@ -173,10 +205,11 @@ def load_odds(match_ids, max_age_hours=MAX_AGE_HOURS) -> dict:
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).isoformat()
     try:
         conn = get_db()
+        ensure_table(conn)  # adds new columns on older installs before we read them
         q = ",".join("?" * len(ids))
         cur = conn.execute(
             f"""SELECT match_id, home_back, home_book, home_lay_est, away_back, away_book,
-                       away_lay_est, fair_source, updated_at, books_json
+                       away_lay_est, fair_source, updated_at, books_json, over25, under25
                 FROM fixture_odds WHERE match_id IN ({q}) AND updated_at >= ?""",
             (*ids, cutoff),
         )
@@ -324,12 +357,14 @@ def refresh(hours=24, max_calls=200, skip_minutes=15, log=print):
             if summary["calls"] >= max_calls:
                 summary["stopped"] = f"max_calls {max_calls}"
                 break
-            payload = api_get("/odds", {"fixture": fixture_id, "bet": MATCH_WINNER})
+            # no bet filter: one call returns match winner AND over/under together
+            payload = api_get("/odds", {"fixture": fixture_id})
             summary["calls"] += 1
-            books = {}
+            books, all_books = {}, []
             for item in payload.get("response") or []:
                 books.update(parse_bookmakers(item.get("bookmakers")))
-            if save(conn, fixture_id, kickoff, books):
+                all_books.extend(item.get("bookmakers") or [])
+            if save(conn, fixture_id, kickoff, books, parse_over_under(all_books)):
                 summary["saved"] += 1
             else:
                 summary["no_odds"] += 1

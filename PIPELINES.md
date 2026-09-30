@@ -17,7 +17,7 @@ python -u run.py health
 | `backup` | dated copy of `two_up.db` in `backups/` |
 | `health` | row counts, freshness, backup age; exit 0/1/2 |
 
-### FTA model (V5 "path" model)
+### FTA model (V6 "path" model)
 
 FTA% served to the app is the **full event**: the team goes 2 goals up **and**
 fails to win. It is the product of two models:
@@ -32,6 +32,25 @@ minute. Responses also carry `two_up_pct`, `fail_given_2up_pct`,
 0–100, not a probability). Bands: `elite_4plus`, `high_3_4`, `mid_2_3`,
 `low_1_2`, `micro_under_1`. The old conditional model is still available via
 `run.py train --legacy` / `models/walk_forward.py`.
+
+V6 additions (each kept only if it wins on held-back matches at train time):
+
+- **Behaviour inputs** — late goals conceded / scored (76'+), points kept when
+  leading, points and goals the opponent gets while behind, share of 2-ups
+  before the hour. Need goal minutes: historical events, and live results from
+  the `live_goals` table (filled by the results collector from now on).
+- **Over/under 2.5** — de-margined market P(over); historical from
+  football-data (`collectors/odds_history_fd.py`), live from the api-sports odds
+  call. A separate model variant is used only when a fixture has O/U prices.
+- **Calibration** — Platt scaling of the full-event FTA% fitted on walk-forward
+  (out-of-sample) predictions. `walk-forward` prints raw vs calibrated bands,
+  calibrating each fold only on earlier folds.
+
+```bash
+python -u run.py model-compare   # V5 inputs vs + behaviour vs + over/under, walk-forward
+python -u run.py train           # picks the input set, calibrates, saves fta_path_model.pkl
+python -u run.py walk-forward    # honest check of the trained input set
+```
 
 ### Odds experiment (free historical odds)
 

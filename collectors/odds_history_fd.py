@@ -36,7 +36,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from database import get_db
 from team_normalizer import match_key, normalize_team
 
-FIRST_SEASON = 2020
+FIRST_SEASON = 2015  # matches the 10-season api-sports backfill
 CACHE = PROJECT_ROOT / "data" / "football_data"
 BASE = "https://www.football-data.co.uk"
 
@@ -61,13 +61,35 @@ PRICE_SETS = [
     ("pinnacle_close", "PSCH", "PSCD", "PSCA"),
 ]
 
+OU_SETS = [  # over / under 2.5 goals: market average, then Bet365, then Pinnacle, then closing
+    ("Avg>2.5", "Avg<2.5"), ("BbAv>2.5", "BbAv<2.5"), ("B365>2.5", "B365<2.5"),
+    ("P>2.5", "P<2.5"), ("AvgC>2.5", "AvgC<2.5"), ("PC>2.5", "PC<2.5"),
+]
+
 DDL = """
 CREATE TABLE IF NOT EXISTS match_odds (
     match_id TEXT PRIMARY KEY,
     odds_h REAL, odds_d REAL, odds_a REAL,
-    source TEXT, fd_home TEXT, fd_away TEXT, match_score REAL
+    source TEXT, fd_home TEXT, fd_away TEXT, match_score REAL,
+    over25 REAL, under25 REAL
 )
 """
+
+
+def ensure_table(conn):
+    conn.execute(DDL)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(match_odds)")}
+    for col in ("over25", "under25"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE match_odds ADD COLUMN {col} REAL")
+
+
+def pick_ou(row):
+    for o, u in OU_SETS:
+        po, pu = _f(row.get(o)), _f(row.get(u))
+        if po and pu:
+            return po, pu
+    return None, None
 
 
 def season_codes():
@@ -150,7 +172,7 @@ def download_rows(refresh_current=True, no_download=False):
             away = row.get("AwayTeam") or row.get("Away") or ""
             prices = pick_prices(row)
             if home and away and prices:
-                yield (league, d, home, away) + prices
+                yield (league, d, home, away) + prices + pick_ou(row)
 
 
 def _sim(a, b):
@@ -181,7 +203,8 @@ def link(conn, rows):
         stats[league]["ours"] += len(items)
     taken = set()
     out = []
-    for league, d, home, away, source, oh, od, oa in rows:
+    for league, d, home, away, source, oh, od, oa, *ou in rows:
+        over25, under25 = (ou + [None, None])[:2]
         stats[league]["rows"] += 1
         best = None
         for delta in (0, -1, 1):
@@ -195,10 +218,12 @@ def link(conn, rows):
         if best:
             taken.add(best[1])
             stats[league]["linked"] += 1
-            out.append((best[1], oh, od, oa, source, home, away, round(best[0], 3)))
-    conn.execute(DDL)
+            out.append((best[1], oh, od, oa, source, home, away, round(best[0], 3), over25, under25))
+    ensure_table(conn)
     conn.execute("DELETE FROM match_odds")
-    conn.executemany("INSERT OR REPLACE INTO match_odds VALUES (?,?,?,?,?,?,?,?)", out)
+    conn.executemany(
+        """INSERT OR REPLACE INTO match_odds (match_id, odds_h, odds_d, odds_a, source,
+               fd_home, fd_away, match_score, over25, under25) VALUES (?,?,?,?,?,?,?,?,?,?)""", out)
     conn.commit()
     return stats, len(out)
 
@@ -212,9 +237,11 @@ def main(argv=None):
     conn = get_db()
     total_hist = conn.execute("SELECT COUNT(*) FROM historical_matches").fetchone()[0]
     stats, n = link(conn, rows)
+    n_ou = conn.execute("SELECT COUNT(*) FROM match_odds WHERE over25 IS NOT NULL").fetchone()[0]
     conn.close()
     print(f"\nLinked {n} of {total_hist} historical matches "
           f"({100 * n / max(total_hist, 1):.0f}%)")
+    print(f"  of those, {n_ou} also have over/under 2.5 prices")
     print("  % of OUR matches that got odds (football-data also covers seasons we don't hold)")
     print("  league                    matches  with odds")
     for league in sorted(stats):

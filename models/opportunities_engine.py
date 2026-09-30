@@ -211,8 +211,11 @@ def build_opportunity(fixture, stake=40, commission=2):
     joint_pct = (hist_two_up * hist_turnaround) / 100.0 if hist_two_up and hist_turnaround else 0.0
 
     # FTA% = P(goes 2 up) x P(fails to win | 2 up): the full event.
+    market = None
+    if fixture.get("market_over25") and fixture.get("market_under25"):
+        market = {"over25": fixture["market_over25"], "under25": fixture["market_under25"]}
     prediction = fta_path_model.predict_fixture(
-        team, opponent, fixture.get("league") or "", is_home,
+        team, opponent, fixture.get("league") or "", is_home, market=market,
     )
     if prediction:
         fta_pct = float(prediction["fta_pct"])

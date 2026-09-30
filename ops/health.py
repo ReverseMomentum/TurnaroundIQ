@@ -26,7 +26,7 @@ from constants import API_FOOTBALL_KEY
 from database import DB_NAME
 from ops.backup import CORE_TABLES, list_backups
 
-# FTA path model (V5). Without it the app falls back to profile rates.
+# FTA path model (V6). Without it the app falls back to profile rates.
 MODEL_FILE = ROOT / "fta_path_model.pkl"
 MAX_RESULTS_AGE_H = float(os.environ.get("HEALTH_MAX_RESULTS_AGE_HOURS", "72"))
 MAX_BACKUP_AGE_H = float(os.environ.get("HEALTH_MAX_BACKUP_AGE_HOURS", "36"))

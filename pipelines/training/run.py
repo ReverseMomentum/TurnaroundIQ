@@ -1,5 +1,5 @@
 """
-Training pipeline — FTA path model (V5).
+Training pipeline — FTA path model (V6).
 
     python -u run.py train             # backup, then fit fta_path_model.pkl
     python -u run.py train --legacy    # also rebuild the old fta_model.pkl
@@ -35,7 +35,7 @@ def main():
     except BackupError as exc:
         warn(f"Backup failed ({exc}) — not training without a backup")
         raise SystemExit(1)
-    step("Train FTA path model (V5: P(2-up) x P(fail | 2-up), point-in-time)")
+    step("Train FTA path model (V6: P(2-up) x P(fail | 2-up), point-in-time, calibrated; tests behaviour + over/under inputs)")
     run_script("models/fta_path_model.py", ["train"])
     if "--legacy" in sys.argv:
         step("Legacy: build training_data + retrain fta_model.pkl")

@@ -32,7 +32,8 @@ PIPELINES = {
 
 API_COMMANDS = {"api", "api-restart", "restart-api"}
 WALK_COMMANDS = {"walk-forward", "walkforward", "wf"}
-USAGE = ("Usage: python -u run.py [live|historical|train|api|walk-forward|"
+COMPARE_COMMANDS = {"model-compare", "compare"}
+USAGE = ("Usage: python -u run.py [live|historical|train|api|walk-forward|model-compare|"
          "backup|restore|restore-drill|health]")
 
 
@@ -49,8 +50,8 @@ def restart_api():
     sys.exit(result.returncode)
 
 
-def run_walk_forward():
-    # FTA path model (V5); the old conditional model: models/walk_forward.py
+def run_walk_forward(command="walk-forward"):
+    # FTA path model; the old conditional model: models/walk_forward.py
     script = ROOT / "models" / "fta_path_model.py"
     if not script.is_file():
         print(f"Missing {script}")
@@ -58,7 +59,7 @@ def run_walk_forward():
     # Pass through extra args after the command name
     extra = sys.argv[2:]
     result = subprocess.run(
-        [sys.executable, "-u", str(script), "walk-forward", *extra],
+        [sys.executable, "-u", str(script), command, *extra],
         cwd=str(ROOT),
     )
     sys.exit(result.returncode)
@@ -89,6 +90,9 @@ def main():
         return
     if cmd in WALK_COMMANDS:
         run_walk_forward()
+        return
+    if cmd in COMPARE_COMMANDS:
+        run_walk_forward("compare")
         return
     if cmd not in PIPELINES:
         print(USAGE)

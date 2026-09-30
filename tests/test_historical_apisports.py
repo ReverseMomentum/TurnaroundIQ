@@ -106,10 +106,12 @@ def run(*extra):
     return bf.main(["--league-id", "39", *extra])
 
 
-def test_season_selection_last_five_completed():
+def test_season_selection_last_completed():
     seasons = [{"year": y, "current": y == 2026, "events_covered": True}
-               for y in range(2026, 2017, -1)]
-    assert [s["year"] for s in bf.pick_seasons(seasons)] == [2025, 2024, 2023, 2022, 2021]
+               for y in range(2026, 2012, -1)]
+    assert bf.DEFAULT_SEASONS == 10
+    assert [s["year"] for s in bf.pick_seasons(seasons)] == list(range(2025, 2015, -1))
+    assert [s["year"] for s in bf.pick_seasons(seasons, 5)] == [2025, 2024, 2023, 2022, 2021]
     assert [s["year"] for s in bf.pick_seasons(seasons, 5, True)] == [2026, 2025, 2024, 2023, 2022, 2021]
 
 
@@ -125,9 +127,10 @@ def test_backfill_writes_validated_matches(api):
     assert list(og["side"]) == [1] and list(og["event_team"]) == ["Liverpool"]
     skipped = pd.read_csv(bf.SKIPPED)
     assert list(skipped["id_odsp"]) == ["af-3"]
-    # exactly the last 5 completed seasons were listed
+    # exactly the last DEFAULT_SEASONS completed seasons the league offers were listed
     listed = sorted(p["season"] for path, p in api.calls if path == "/fixtures" and "season" in p)
-    assert listed == [2021, 2022, 2023, 2024, 2025]
+    # the fake league offers 2019-2025 completed: fewer than 10, so all of them
+    assert listed == [2019, 2020, 2021, 2022, 2023, 2024, 2025]
 
 
 def test_resume_makes_no_event_calls(api):

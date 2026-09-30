@@ -1,5 +1,5 @@
 """
-FTA path model (V5) — the full event, built point-in-time.
+FTA path model (V6) — the full event, built point-in-time, calibrated.
 
     FTA% = P(team goes 2 goals up)  x  P(team fails to win | went 2 up)
            (stage A, all team-sides)   (stage B, sides that went 2 up)
@@ -10,6 +10,12 @@ walk-forward numbers are honest and training matches what the app sees.
 
     python -u models/fta_path_model.py train          # fit + save fta_path_model.pkl
     python -u models/fta_path_model.py walk-forward   # chronological check vs baseline
+    python -u models/fta_path_model.py compare        # base vs +behaviour vs +over/under
+
+Training tests each candidate input set on the same held-back matches and keeps
+an addition only if it improves out-of-sample log loss. The full-event FTA% is
+then calibrated (Platt scaling fitted on walk-forward, out-of-sample predictions)
+so a displayed 2.4% means roughly 2.4% of such games turn around.
 
 Serving: predict_fixture(team, opponent, league, is_home) rebuilds team
 state from the DB (cached STATE_TTL seconds), so new live results count
@@ -37,9 +43,11 @@ from database import get_db
 from team_normalizer import normalize_team
 
 MODEL_FILE = PROJECT_ROOT / "fta_path_model.pkl"
-VERSION = "V5-path"
+VERSION = "V6-path"
 HALF_LIFE_DAYS = 365.0
 EARLY_MINUTE = 30
+LATE_MINUTE = 75        # "late" goals: 76th minute onwards
+EARLY_2UP_MINUTE = 60   # 2-ups before this leave the opponent lots of time
 STATE_TTL = 3600
 MIN_ROWS_A = 2000
 
@@ -48,7 +56,7 @@ K_RATE = 10.0      # per-match rates (2-up, early goals, …)
 K_COND = 12.0      # rates conditional on going 2-up / 2-down (rarer)
 K_MINUTE = 5.0
 
-FEATURES = [
+BASE_FEATURES = [
     "is_home",
     "t_2up_rate", "o_2down_rate",
     "t_fail_rate", "o_rescue_rate",
@@ -61,6 +69,18 @@ FEATURES = [
     "t_log_n", "o_log_n",
     "naive_path",
 ]
+# How teams behave around leads (mostly informs stage B: fail once 2-up).
+BEHAVIOUR_FEATURES = [
+    "t_late_ga",      # goals the team concedes from the 76th minute, per match
+    "o_late_gf",      # goals the opponent scores from the 76th minute, per match
+    "t_lead_pts",     # points the team takes from matches it led
+    "o_trail_pts",    # points the opponent takes from matches it trailed
+    "o_chase_gf",     # goals the opponent scores while behind, per match
+    "t_2up_early",    # share of the team's 2-up leads that came before the hour
+]
+# Market's over/under 2.5 goals view (de-margined P(over)); only where quoted.
+OU_FEATURES = ["mkt_over25"]
+FEATURES = BASE_FEATURES  # default until train() picks a set
 # Market odds (de-margined 1X2 probabilities from the team's point of view).
 # Only used by the odds experiment until a live odds feed exists.
 ODDS_FEATURES = ["mkt_win", "mkt_draw", "mkt_lose"]
@@ -81,16 +101,21 @@ def _day(value):
 def _side_outcomes(goals, fh, fa):
     """goals: [(minute, side)] chronological -> per-side outcome dicts."""
     hs = as_ = 0
-    out = {1: {"up2": 0, "minute": None, "early_for": 0, "ht_for": 0, "led": 0},
-           2: {"up2": 0, "minute": None, "early_for": 0, "ht_for": 0, "led": 0}}
+    blank = {"up2": 0, "minute": None, "early_for": 0, "ht_for": 0, "led": 0,
+             "late_for": 0, "chase_for": 0, "timeline": 1}
+    out = {1: dict(blank), 2: dict(blank)}
     for minute, side in goals:
         minute = int(minute or 0)
+        if side not in (1, 2):
+            continue
+        if (side == 1 and hs < as_) or (side == 2 and as_ < hs):
+            out[side]["chase_for"] += 1
+        if minute > LATE_MINUTE:
+            out[side]["late_for"] += 1
         if side == 1:
             hs += 1
-        elif side == 2:
-            as_ += 1
         else:
-            continue
+            as_ += 1
         if minute <= EARLY_MINUTE:
             out[side]["early_for"] += 1
         if minute <= 45:
@@ -112,11 +137,24 @@ def load_matches(conn=None):
     conn = conn or get_db()
     matches = {}
     odds = {}
+    ou = {}
     try:
         odds = {mid: (h, d, a) for mid, h, d, a in conn.execute(
             "SELECT match_id, odds_h, odds_d, odds_a FROM match_odds")}
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(match_odds)")}
+        if "over25" in cols:
+            ou = {mid: (o, u) for mid, o, u in conn.execute(
+                "SELECT match_id, over25, under25 FROM match_odds WHERE over25 IS NOT NULL")}
     except Exception:
         pass  # no odds collected (collectors/odds_history_fd.py)
+    live_goals = defaultdict(list)
+    try:
+        for mid, minute, side in conn.execute(
+            "SELECT match_id, minute, side FROM live_goals ORDER BY match_id, minute"
+        ):
+            live_goals[str(mid)].append((minute, side))
+    except Exception:
+        pass  # older installs: live results have no goal timelines yet
     try:
         events = defaultdict(list)
         for mid, minute, side in conn.execute(
@@ -138,7 +176,7 @@ def load_matches(conn=None):
             matches[(day, home, away)] = {
                 "day": day, "league": league or "", "home": home, "away": away,
                 "fh": int(fh), "fa": int(fa), "sides": _side_outcomes(goals, fh, fa),
-                "odds": odds.get(mid),
+                "odds": odds.get(mid), "ou": ou.get(mid),
             }
     except Exception as exc:
         print(f"[path-model] historical tables unavailable: {exc}")
@@ -147,13 +185,13 @@ def load_matches(conn=None):
         cols = {r[1] for r in conn.execute("PRAGMA table_info(match_results)")}
         date_expr = "COALESCE(match_date, processed_at)" if "match_date" in cols else "processed_at"
         rows = conn.execute(
-            f"""SELECT {date_expr}, league, home_team, away_team, final_home, final_away,
+            f"""SELECT match_id, {date_expr}, league, home_team, away_team, final_home, final_away,
                    home_2up, away_2up, home_lead_minute, away_lead_minute,
                    home_early_goal, away_early_goal,
                    home_first_half_for, away_first_half_for, home_led, away_led
                FROM match_results"""
         ).fetchall()
-        for (d, league, home, away, fh, fa, h2, a2, hm, am,
+        for (mid, d, league, home, away, fh, fa, h2, a2, hm, am,
              he, ae, hht, aht, hl, al) in rows:
             day = _day(d)
             if day is None or fh is None or fa is None:
@@ -162,15 +200,21 @@ def load_matches(conn=None):
             key = (day, home, away)
             if key in matches:
                 continue
+            timeline = live_goals.get(str(mid), [])
+            if timeline and len(timeline) == int(fh) + int(fa):
+                sides = _side_outcomes(timeline, fh, fa)
+            else:  # summary only: behaviour features that need goal minutes skip it
+                sides = {
+                    1: {"up2": int(h2 or 0), "minute": hm if h2 else None,
+                        "early_for": int(he or 0), "ht_for": int(hht or 0), "led": int(hl or 0),
+                        "late_for": 0, "chase_for": 0, "timeline": 0},
+                    2: {"up2": int(a2 or 0), "minute": am if a2 else None,
+                        "early_for": int(ae or 0), "ht_for": int(aht or 0), "led": int(al or 0),
+                        "late_for": 0, "chase_for": 0, "timeline": 0},
+                }
             matches[key] = {
                 "day": day, "league": league or "", "home": home, "away": away,
-                "fh": int(fh), "fa": int(fa),
-                "sides": {
-                    1: {"up2": int(h2 or 0), "minute": hm if h2 else None,
-                        "early_for": int(he or 0), "ht_for": int(hht or 0), "led": int(hl or 0)},
-                    2: {"up2": int(a2 or 0), "minute": am if a2 else None,
-                        "early_for": int(ae or 0), "ht_for": int(aht or 0), "led": int(al or 0)},
-                },
+                "fh": int(fh), "fa": int(fa), "sides": sides,
             }
     except Exception as exc:
         print(f"[path-model] match_results unavailable: {exc}")
@@ -182,7 +226,10 @@ def load_matches(conn=None):
 # --- decayed team / league state ------------------------------------------------
 
 TEAM_KEYS = ("n", "up2", "fail", "minute_sum", "down2", "rescue", "gf", "ga",
-             "early_for", "early_against", "ht_for", "ht_against", "led", "led_kept")
+             "early_for", "early_against", "ht_for", "ht_against", "led", "led_kept",
+             # behaviour (tl_n = matches with a goal timeline)
+             "tl_n", "late_gf", "late_ga", "chase_gf", "led_pts", "trailed", "trail_pts",
+             "up2_early")
 
 
 class Decayed:
@@ -220,8 +267,14 @@ def _league_rates(lg):
     goals = lg.gf / n if lg.n else 1.4
     early = lg.early_for / n if lg.n else 0.3
     keep = lg.led_kept / lg.led if lg.led else 0.6
+    tl = lg.tl_n
     return {"up2": up2, "fail": fail, "minute": minute,
-            "goals": goals, "early": early, "keep": keep}
+            "goals": goals, "early": early, "keep": keep,
+            "late": lg.late_gf / tl if tl else 0.3,
+            "chase": lg.chase_gf / tl if tl else 0.25,
+            "lead_pts": lg.led_pts / lg.led if lg.led else 2.2,
+            "trail_pts": lg.trail_pts / lg.trailed if lg.trailed else 0.6,
+            "up2_early": lg.up2_early / lg.up2 if lg.up2 else 0.5}
 
 
 def features_for(t, o, lg, is_home):
@@ -255,6 +308,12 @@ def features_for(t, o, lg, is_home):
         "t_log_n": math.log1p(t.raw_n),
         "o_log_n": math.log1p(o.raw_n),
         "naive_path": math.sqrt(max(t_2up * o_2down, 0.0)) * (t_fail + o_rescue) / 2,
+        "t_late_ga": _shrink(t.late_ga, t.tl_n, L["late"], K_RATE),
+        "o_late_gf": _shrink(o.late_gf, o.tl_n, L["late"], K_RATE),
+        "t_lead_pts": _shrink(t.led_pts, t.led, L["lead_pts"], K_RATE),
+        "o_trail_pts": _shrink(o.trail_pts, o.trailed, L["trail_pts"], K_RATE),
+        "o_chase_gf": _shrink(o.chase_gf, o.tl_n, L["chase"], K_RATE),
+        "t_2up_early": _shrink(t.up2_early, t.up2, L["up2_early"], K_COND),
     }
 
 
@@ -265,6 +324,8 @@ def _update(teams, leagues, m):
                                          (2, m["away"], 1, m["fa"], m["fh"])):
         s, o = m["sides"][side], m["sides"][opp_side]
         won = gf > ga
+        pts = 3 if won else 1 if gf == ga else 0
+        tl = int(bool(s.get("timeline")))
         vals = dict(
             n=1, up2=s["up2"], fail=int(bool(s["up2"]) and not won),
             minute_sum=(float(s["minute"]) if s["up2"] and s["minute"] else 0.0),
@@ -273,6 +334,14 @@ def _update(teams, leagues, m):
             early_against=min(o["early_for"], 1),
             ht_for=s["ht_for"], ht_against=o["ht_for"],
             led=s["led"], led_kept=int(bool(s["led"]) and won),
+            tl_n=tl,
+            late_gf=s.get("late_for", 0) if tl else 0,
+            late_ga=o.get("late_for", 0) if tl else 0,
+            chase_gf=s.get("chase_for", 0) if tl else 0,
+            led_pts=pts if s["led"] else 0,
+            trailed=int(bool(o["led"])),
+            trail_pts=pts if o["led"] else 0,
+            up2_early=int(bool(s["up2"]) and (s["minute"] or 99) < EARLY_2UP_MINUTE),
         )
         teams[team].decay_to(day)
         teams[team].add(**vals)
@@ -291,6 +360,15 @@ def _odds_features(odds, side):
     ph, pd, pa = (x / total for x in inv)
     win, lose = (ph, pa) if side == 1 else (pa, ph)
     return {"mkt_win": win, "mkt_draw": pd, "mkt_lose": lose, "has_odds": 1}
+
+
+def _ou_features(ou):
+    """De-margined P(over 2.5 goals); NaN when not quoted."""
+    try:
+        io, iu = 1.0 / float(ou[0]), 1.0 / float(ou[1])
+        return {"mkt_over25": io / (io + iu), "has_ou": 1}
+    except (TypeError, ValueError, ZeroDivisionError, IndexError):
+        return {"mkt_over25": float("nan"), "has_ou": 0}
 
 
 def replay(matches, collect=True):
@@ -319,6 +397,7 @@ def replay(matches, collect=True):
                 f.update(day=day, team=team, league=m["league"],
                          up2=int(s["up2"]), fail=int(bool(s["up2"]) and not won))
                 f.update(_odds_features(m.get("odds"), side))
+                f.update(_ou_features(m.get("ou")))
                 rows.append(f)
         _update(teams, leagues, m)
     return rows, teams, leagues
@@ -376,32 +455,150 @@ def _metrics(y, p):
     return out
 
 
+def _fit_pair(rows, feats):
+    Xa, ya, _ = _xy(rows, "up2", feats=feats)
+    Xb, yb, _ = _xy(rows, "fail", where=lambda r: r["up2"] == 1, feats=feats)
+    ma, _ = _fit_stage(Xa, ya)
+    mb, _ = _fit_stage(Xb, yb)
+    return ma, mb, ya, yb
+
+
+def _sigmoid(z):
+    return 1.0 / (1.0 + np.exp(-z))
+
+
+MIN_CAL_SLOPE = 0.25  # calibration may shrink the spread, never flatten or flip the ranking
+
+
+def platt_fit(y, p):
+    """Two-parameter calibration of full-event probabilities: logit(p') = a*logit(p) + b.
+
+    If the fitted slope is below MIN_CAL_SLOPE (the model barely ranks out of
+    sample), the slope is held at the floor and only the level is refitted so the
+    average matches reality — picks keep their order instead of collapsing to one number.
+    """
+    from sklearn.linear_model import LogisticRegression
+    y = np.asarray(y, dtype=int)
+    z = _logit(p)
+    lr = LogisticRegression(C=1e4, max_iter=1000)
+    lr.fit(z.reshape(-1, 1), y)
+    a, b = float(lr.coef_[0][0]), float(lr.intercept_[0])
+    if a < MIN_CAL_SLOPE:
+        a = MIN_CAL_SLOPE
+        target = y.mean()
+        lo, hi = -20.0, 20.0
+        for _ in range(80):  # bisection: mean(sigmoid(a*z + b)) == observed rate
+            b = (lo + hi) / 2
+            if _sigmoid(a * z + b).mean() > target:
+                hi = b
+            else:
+                lo = b
+    return a, b
+
+
+def platt_apply(ab, p):
+    if not ab:
+        return np.asarray(p, dtype=float)
+    a, b = ab
+    return _sigmoid(a * _logit(p) + b)
+
+
+def _band_table(y, p, title):
+    """Predicted vs actual by predicted-FTA band (p as fractions)."""
+    p = np.asarray(p) * 100
+    y = np.asarray(y)
+    print(title)
+    print("  band      |     n  | predicted | actual")
+    gap = 0.0
+    for lo, hi in zip(FULL_BANDS[:-1], FULL_BANDS[1:]):
+        mask = (p >= lo) & (p < hi)
+        if mask.sum():
+            print(f"  {lo:>3.0f}-{hi:<4.0f}% | {mask.sum():>6} | {p[mask].mean():>8.2f}% | "
+                  f"{100 * y[mask].mean():>5.2f}%")
+            gap += mask.sum() * abs(p[mask].mean() - 100 * y[mask].mean())
+    ece = gap / max(len(p), 1)
+    print(f"  average gap between predicted and actual: {ece:.2f} points")
+    return ece
+
+
+def _choose(label_a, ha, label_b, hb):
+    """Keep the extra inputs only if they improve out-of-sample log loss without hurting ranking."""
+    better = hb["log_loss"] < ha["log_loss"] - 1e-5 and hb["auc"] >= ha["auc"] - 0.002
+    print(f"  {label_a:<24} log loss {ha['log_loss']:.5f}  AUC {ha['auc']:.3f}")
+    print(f"  {label_b:<24} log loss {hb['log_loss']:.5f}  AUC {hb['auc']:.3f}"
+          f"  -> {'KEEP' if better else 'drop'}")
+    return better
+
+
 def train(save=True):
     matches = load_matches()
     rows, _, _ = replay(matches)
-    Xa, ya, _ = _xy(rows, "up2")
-    Xb, yb, _ = _xy(rows, "fail", where=lambda r: r["up2"] == 1)
-    print(f"matches {len(matches)}  sides {len(ya)}  went 2-up {len(yb)} "
-          f"({100 * ya.mean():.1f}%)  failed to win once 2-up {100 * yb.mean():.1f}%")
-    if len(ya) < MIN_ROWS_A:
-        raise SystemExit(f"Only {len(ya)} team-sides — need {MIN_ROWS_A}. Run the historical pipeline.")
-    model_a, cal_a = _fit_stage(Xa, ya)
-    model_b, cal_b = _fit_stage(Xb, yb)
+    n_a = len(rows)
+    n_b = sum(r["up2"] for r in rows)
+    print(f"matches {len(matches)}  sides {n_a}  went 2-up {n_b} "
+          f"({100 * n_b / max(n_a, 1):.1f}%)  failed to win once 2-up "
+          f"{100 * sum(r['fail'] for r in rows) / max(n_b, 1):.1f}%")
+    if n_a < MIN_ROWS_A:
+        raise SystemExit(f"Only {n_a} team-sides — need {MIN_ROWS_A}. Run the historical pipeline.")
+
+    print("\nInput sets, scored on the latest 15% of matches (never trained on):")
+    h_base = _holdout_score(rows, feats=BASE_FEATURES)
+    h_beh = _holdout_score(rows, feats=BASE_FEATURES + BEHAVIOUR_FEATURES)
+    feats = list(BASE_FEATURES)
+    holdout = h_base
+    if _choose("base (V5)", h_base, "+ behaviour", h_beh):
+        feats += BEHAVIOUR_FEATURES
+        holdout = h_beh
+
+    ou_rows = [r for r in rows if r.get("has_ou")]
+    ou = None
+    print(f"\nOver/under 2.5 prices on {len(ou_rows)} of {n_a} team-sides "
+          f"({100 * len(ou_rows) / max(n_a, 1):.0f}%)")
+    ou_report = None
+    if len(ou_rows) >= MIN_ROWS_A:
+        h_c = _holdout_score(ou_rows, feats=feats)
+        h_ou = _holdout_score(ou_rows, feats=feats + OU_FEATURES)
+        use_ou = _choose("same games, no O/U", h_c, "+ over/under 2.5", h_ou)
+        ou_report = {"without": h_c, "with": h_ou, "used": use_ou}
+        if use_ou:
+            ma, mb, _, _ = _fit_pair(ou_rows, feats + OU_FEATURES)
+            _, yo, po = _walk(ou_rows, feats + OU_FEATURES, verbose=False)
+            ou = {"features": feats + OU_FEATURES, "model_a": ma, "model_b": mb,
+                  "cal_full": platt_fit(yo, po), "rows": len(ou_rows)}
+    else:
+        print("  not enough games with over/under prices to test "
+              "(run collectors/odds_history_fd.py)")
+
+    model_a, model_b, ya, yb = _fit_pair(rows, feats)
+    # Calibration from out-of-sample (walk-forward) predictions only.
+    _, y_oof, p_oof = _walk(rows, feats, verbose=False)
+    cal = platt_fit(y_oof, p_oof)
+    print()
+    ece_raw = _band_table(y_oof, p_oof, "Out-of-sample FTA% before calibration:")
+    ece_cal = _band_table(y_oof, platt_apply(cal, p_oof), "After calibration:")
+
     bundle = {
         "version": VERSION,
-        "features": FEATURES,
-        "model_a": model_a, "cal_a": cal_a,
-        "model_b": model_b, "cal_b": cal_b,
+        "features": feats,
+        "model_a": model_a, "cal_a": None,
+        "model_b": model_b, "cal_b": None,
+        "cal_full": cal,
+        "ou": ou,
         "half_life_days": HALF_LIFE_DAYS,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "rows_a": int(len(ya)), "rows_b": int(len(yb)),
         "base_2up": float(ya.mean()), "base_fail": float(yb.mean()),
         "base_full": float(np.mean([r["fail"] for r in rows])),
+        "holdout": holdout,
+        "selection": {"base": h_base, "behaviour": h_beh,
+                      "behaviour_used": feats != BASE_FEATURES, "ou": ou_report},
+        "calibration_gap": {"before": ece_raw, "after": ece_cal},
     }
-    holdout = _holdout_score(rows)
-    bundle["holdout"] = holdout
-    print(f"held-out (latest 15%): full-event AUC {holdout['auc']:.3f}  "
+    print(f"\nheld-out (latest 15%): full-event AUC {holdout['auc']:.3f}  "
           f"Brier {holdout['brier']:.4f}  skill vs flat rate {100 * holdout['skill']:+.1f}%")
+    print(f"inputs: {len(feats)} ({'with' if feats != BASE_FEATURES else 'without'} behaviour), "
+          f"over/under variant {'ON' if ou else 'off'}, calibration gap "
+          f"{ece_raw:.2f} -> {ece_cal:.2f} points")
     if save:
         joblib.dump(bundle, MODEL_FILE)
         global _bundle_cache
@@ -413,27 +610,26 @@ def train(save=True):
                 model_name="FTA_PATH", version=VERSION,
                 training_rows=int(len(ya)), brier_score=holdout["brier"],
                 log_loss=holdout["log_loss"], roc_auc=holdout["auc"],
-                notes=(f"full event = P(2up) x P(fail|2up); held-out latest 15%; "
-                       f"skill vs flat {100 * holdout['skill']:+.1f}%"),
+                notes=(f"full event = P(2up) x P(fail|2up), calibrated; held-out latest 15%; "
+                       f"behaviour {'on' if feats != BASE_FEATURES else 'off'}; "
+                       f"O/U {'on' if ou else 'off'}; skill vs flat {100 * holdout['skill']:+.1f}%"),
             )
         except Exception as exc:
             print(f"[path-model] could not record model run: {exc}")
     return bundle
 
 
-def _holdout_score(rows, frac=0.15):
+def _holdout_score(rows, frac=0.15, feats=None):
     """Fit on the earliest 85% of team-sides, score the full event on the rest."""
     from sklearn.metrics import brier_score_loss, log_loss
 
+    feats = feats or BASE_FEATURES
     rows = sorted(rows, key=lambda r: r["day"])
     cut = int(len(rows) * (1 - frac))
     train_rows, test_rows = rows[:cut], rows[cut:]
-    Xa, ya, _ = _xy(train_rows, "up2")
-    Xb, yb, _ = _xy(train_rows, "fail", where=lambda r: r["up2"] == 1)
-    ma, ca = _fit_stage(Xa, ya)
-    mb, cb = _fit_stage(Xb, yb)
-    Xt, _, sel = _xy(test_rows, "up2")
-    p = _predict_stage(ma, ca, Xt) * _predict_stage(mb, cb, Xt)
+    ma, mb, _, _ = _fit_pair(train_rows, feats)
+    Xt, _, sel = _xy(test_rows, "up2", feats=feats)
+    p = _predict_stage(ma, None, Xt) * _predict_stage(mb, None, Xt)
     y = np.array([r["fail"] for r in sel])
     m = _metrics(y, p)
     flat = float(np.mean([r["fail"] for r in train_rows]))
@@ -482,7 +678,7 @@ def _walk(rows, feats, folds=5, min_train_frac=0.3, verbose=True):
         d0 = date.fromordinal(test_rows[0]["day"]).isoformat()
         d1 = date.fromordinal(test_rows[-1]["day"]).isoformat()
         results.append({"from": d0, "to": d1, "full": m_full, "a": m_a, "b": m_b,
-                        "skill": skill})
+                        "skill": skill, "y": y_full, "p": full})
         pooled_y.extend(y_full)
         pooled_p.extend(full)
         if verbose:
@@ -500,26 +696,69 @@ def _top_lift(y, p, frac=0.1):
     return float(p[top].mean()), float(y[top].mean()), float(y[top].mean() / max(y.mean(), 1e-9))
 
 
-def walk_forward(folds=5, min_train_frac=0.3):
+def walk_forward(folds=5, min_train_frac=0.3, feats=None):
     rows, _, _ = replay(load_matches())
     if len(rows) < MIN_ROWS_A:
         raise SystemExit(f"Only {len(rows)} team-sides — need {MIN_ROWS_A}.")
-    results, y, p = _walk(rows, FEATURES, folds, min_train_frac)
-    p = p * 100
-    print("\nCalibration (all test folds) — predicted full-event % vs what happened")
-    print("  band      |     n  | predicted | actual")
-    for lo, hi in zip(FULL_BANDS[:-1], FULL_BANDS[1:]):
-        mask = (p >= lo) & (p < hi)
-        if mask.sum():
-            print(f"  {lo:>3.0f}-{hi:<4.0f}% | {mask.sum():>6} | {p[mask].mean():>8.2f}% | "
-                  f"{100 * y[mask].mean():>5.2f}%")
-    pred, hit, lift = _top_lift(y, p / 100)
+    if feats is None:
+        bundle = load_bundle()
+        feats = bundle["features"] if bundle else BASE_FEATURES
+    print(f"inputs: {len(feats)} ({'with' if len(feats) > len(BASE_FEATURES) else 'without'} behaviour)")
+    results, y, p = _walk(rows, feats, folds, min_train_frac)
+    print()
+    _band_table(y, p, "Calibration (all test folds, raw) — predicted full-event % vs what happened")
+    # Honest calibrated check: each fold is calibrated only on earlier folds.
+    yc, pc = [], []
+    for k in range(1, len(results)):
+        prior_y = np.concatenate([r["y"] for r in results[:k]])
+        prior_p = np.concatenate([r["p"] for r in results[:k]])
+        ab = platt_fit(prior_y, prior_p)
+        yc.extend(results[k]["y"])
+        pc.extend(platt_apply(ab, results[k]["p"]))
+    if yc:
+        print()
+        _band_table(np.array(yc), np.array(pc),
+                    "Calibrated (folds 2+, calibration fitted on earlier folds only):")
+    pred, hit, lift = _top_lift(y, p)
     print(f"\nTop 10% of picks: predicted {100 * pred:.2f}%, happened {100 * hit:.2f}% "
           f"(overall {100 * y.mean():.2f}%, lift x{lift:.2f})")
     aucs = [r["full"]["auc"] for r in results if r["full"]["auc"] is not None]
     print(f"Mean AUC (full event) {np.mean(aucs):.3f} ±{np.std(aucs):.3f}; "
           f"mean skill vs flat rate {100 * np.mean([r['skill'] for r in results]):+.1f}%")
     return results
+
+
+def compare(folds=5, min_train_frac=0.3):
+    """Walk-forward side by side: V5 inputs vs + behaviour (all games) and + over/under (priced games)."""
+    rows, _, _ = replay(load_matches())
+    ou_rows = [r for r in rows if r.get("has_ou")]
+
+    def run(label, data, feats):
+        res, y, p = _walk(data, feats, folds, min_train_frac, verbose=False)
+        _, hit, lift = _top_lift(y, p)
+        from sklearn.metrics import log_loss
+        return label, {
+            "auc_2up": float(np.mean([r["a"]["auc"] for r in res])),
+            "auc_fail": float(np.mean([r["b"]["auc"] for r in res if r["b"]["auc"]])),
+            "auc_full": float(np.mean([r["full"]["auc"] for r in res])),
+            "lift": lift,
+            "log_loss": float(log_loss(y, np.clip(p, 1e-6, 1 - 1e-6), labels=[0, 1])),
+        }
+
+    table = [run("V5 inputs", rows, BASE_FEATURES),
+             run("+ behaviour", rows, BASE_FEATURES + BEHAVIOUR_FEATURES)]
+    if len(ou_rows) >= MIN_ROWS_A:
+        table.append(run("priced games: + behaviour", ou_rows, BASE_FEATURES + BEHAVIOUR_FEATURES))
+        table.append(run("priced games: + over/under", ou_rows,
+                         BASE_FEATURES + BEHAVIOUR_FEATURES + OU_FEATURES))
+    print(f"team-sides {len(rows)}, with over/under prices {len(ou_rows)}")
+    print(f"\n  {'inputs':<28} {'AUC 2-up':>9} {'AUC fail':>9} {'AUC full':>9} {'top10% lift':>12} {'log loss':>10}")
+    for label, m in table:
+        print(f"  {label:<28} {m['auc_2up']:>9.3f} {m['auc_fail']:>9.3f} {m['auc_full']:>9.3f} "
+              f"{m['lift']:>11.2f}x {m['log_loss']:>10.5f}")
+    print("\nLower log loss and higher AUC / lift are better. `train` keeps an addition only "
+          "if it wins on the held-back matches.")
+    return table
 
 
 def odds_test(folds=5, min_train_frac=0.3):
@@ -535,7 +774,7 @@ def odds_test(folds=5, min_train_frac=0.3):
         raise SystemExit("Not enough matches with odds — run collectors/odds_history_fd.py")
 
     summary = {}
-    for label, feats in (("without odds", FEATURES), ("with odds", FEATURES + ODDS_FEATURES)):
+    for label, feats in (("without odds", BASE_FEATURES), ("with odds", BASE_FEATURES + ODDS_FEATURES)):
         res, y, p = _walk(with_odds, feats, folds, min_train_frac, verbose=False)
         pred, hit, lift = _top_lift(y, p)
         summary[label] = {
@@ -586,8 +825,11 @@ def data_confidence(t, o):
     return round(20 + 65 * min(1.0, depth / 60.0), 1)
 
 
-def predict_fixture(team, opponent, league, is_home, as_of=None):
-    """None if no trained model; else the full-event breakdown in percent."""
+def predict_fixture(team, opponent, league, is_home, as_of=None, market=None):
+    """None if no trained model; else the full-event breakdown in percent.
+
+    market: optional {"over25": price, "under25": price}; used only when the
+    trained bundle kept the over/under variant."""
     bundle = load_bundle()
     if bundle is None:
         return None
@@ -601,16 +843,29 @@ def predict_fixture(team, opponent, league, is_home, as_of=None):
         if s.day is not None:
             s.decay_to(day)
     f = features_for(t2, o2, lg2, is_home)
-    X = np.array([[f[k] for k in bundle["features"]]], dtype=float)
-    pa = float(_predict_stage(bundle["model_a"], bundle["cal_a"], X)[0])
-    pb = float(_predict_stage(bundle["model_b"], bundle["cal_b"], X)[0])
+    variant = bundle
+    ou_variant = bundle.get("ou")
+    if ou_variant and market:
+        f.update(_ou_features((market.get("over25"), market.get("under25"))))
+        if f.get("has_ou"):
+            variant = ou_variant
+    X = np.array([[f[k] for k in variant["features"]]], dtype=float)
+    pa = float(_predict_stage(variant["model_a"], variant.get("cal_a"), X)[0])
+    pb = float(_predict_stage(variant["model_b"], variant.get("cal_b"), X)[0])
+    full = pa * pb
+    cal = variant.get("cal_full")
+    if cal:
+        full = float(platt_apply(cal, np.array([full]))[0])
+    # keep the displayed breakdown consistent: two_up x fail = FTA
+    pb_shown = min(full / pa, 0.99) if pa > 0 else pb
     return {
         "two_up_pct": round(100 * pa, 2),
-        "fail_given_2up_pct": round(100 * pb, 2),
-        "fta_pct": round(100 * pa * pb, 2),
+        "fail_given_2up_pct": round(100 * pb_shown, 2),
+        "fta_pct": round(100 * full, 2),
         "usual_2up_minute": round(f["t_2up_minute"], 1),
         "data_confidence": data_confidence(t, o),
-        "model_version": bundle["version"],
+        "model_version": bundle["version"] + ("+ou" if variant is ou_variant else ""),
+        "calibrated": bool(cal),
     }
 
 
@@ -624,13 +879,15 @@ def _copy(s):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["train", "walk-forward", "odds-test"])
+    parser.add_argument("command", choices=["train", "walk-forward", "odds-test", "compare"])
     parser.add_argument("--folds", type=int, default=5)
     args = parser.parse_args(argv)
     if args.command == "train":
         train()
     elif args.command == "odds-test":
         odds_test(folds=args.folds)
+    elif args.command == "compare":
+        compare(folds=args.folds)
     else:
         walk_forward(folds=args.folds)
 

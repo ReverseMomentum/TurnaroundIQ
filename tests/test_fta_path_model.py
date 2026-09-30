@@ -162,3 +162,96 @@ def test_fd_odds_link_and_odds_test(sim_db):
     assert n / len(matches) > 0.95
     summary = pm.odds_test(folds=3)
     assert summary["with odds"]["auc_2up"] > summary["without odds"]["auc_2up"]
+
+
+def test_behaviour_features_present_and_bounded(sim_db):
+    rows, teams, _ = pm.replay(pm.load_matches())
+    for f in pm.BEHAVIOUR_FEATURES:
+        vals = np.array([r[f] for r in rows])
+        assert np.isfinite(vals).all(), f
+        assert vals.min() >= 0, f
+    assert max(r["t_lead_pts"] for r in rows) <= 3.0 + 1e-9
+    assert max(r["t_2up_early"] for r in rows) <= 1.0 + 1e-9
+
+
+def test_live_goal_timeline_feeds_behaviour(sim_db):
+    from collectors import results_collector as rc
+    conn = sqlite3.connect(database.DB_NAME)
+    conn.execute("DROP TABLE IF EXISTS live_goals")
+    conn.execute(rc.LIVE_GOALS_DDL)
+    conn.execute("""CREATE TABLE IF NOT EXISTS match_results (match_id TEXT, match_date TEXT,
+        processed_at TEXT, league TEXT, home_team TEXT, away_team TEXT, final_home INT,
+        final_away INT, home_2up INT, away_2up INT, home_lead_minute INT, away_lead_minute INT,
+        home_early_goal INT, away_early_goal INT, home_first_half_for INT,
+        away_first_half_for INT, home_led INT, away_led INT)""")
+    conn.execute("""INSERT INTO match_results VALUES ('live-1', '2031-01-05', NULL, 'Sim League',
+        'Live A', 'Live B', 2, 2, 1, 0, 30, 0, 0, 0, 1, 0, 1, 1)""")
+    conn.executemany("INSERT INTO live_goals VALUES ('live-1', ?, ?)",
+                     [(10, 1), (30, 1), (80, 2), (88, 2)])
+    conn.commit()
+    conn.close()
+    m = [x for x in pm.load_matches() if x["home"] == pm.normalize_team("Live A")][0]
+    home, away = m["sides"][1], m["sides"][2]
+    assert home["timeline"] == 1 and home["up2"] == 1 and home["minute"] == 30
+    assert away["late_for"] == 2 and away["chase_for"] == 2  # both scored while behind, after 75'
+
+
+def test_platt_calibration_fixes_a_skewed_forecast():
+    rng = np.random.default_rng(3)
+    true_p = rng.uniform(0.005, 0.05, 40000)
+    y = (rng.random(len(true_p)) < true_p).astype(int)
+    skewed = np.clip(true_p * 2.5, 0, 0.99)  # model overstates by 2.5x
+    ab = pm.platt_fit(y, skewed)
+    fixed = pm.platt_apply(ab, skewed)
+    assert abs(fixed.mean() - y.mean()) < abs(skewed.mean() - y.mean()) / 5
+    assert pm.platt_apply(None, skewed) is not None
+
+
+def test_train_selects_inputs_and_calibrates(sim_db):
+    bundle = pm.train()
+    assert bundle["cal_full"] and len(bundle["cal_full"]) == 2
+    sel = bundle["selection"]
+    assert {"base", "behaviour", "behaviour_used"} <= set(sel)
+    assert set(bundle["features"]) >= set(pm.BASE_FEATURES)
+    out = pm.predict_fixture("Team 03", "Team 07", "Sim League", True)
+    assert out["calibrated"] is True
+    assert out["fta_pct"] == pytest.approx(out["two_up_pct"] * out["fail_given_2up_pct"] / 100, abs=0.02)
+
+
+def test_over_under_variant_only_when_priced(sim_db, monkeypatch):
+    from collectors import odds_history_fd as fd
+    matches, _, attack = simulate(return_strength=True)
+    conn = sqlite3.connect(database.DB_NAME)
+    conn.execute("DROP TABLE IF EXISTS match_odds")
+    fd.ensure_table(conn)
+    rows = []
+    for mid, d, league, h, a, fh, fa in matches:
+        lam = np.exp(0.25 + attack[h] - attack[a]) * 1.35 + np.exp(attack[a] - attack[h]) * 1.35
+        p_under = np.exp(-lam) * (1 + lam + lam ** 2 / 2)
+        rows.append((mid, 1.05 / (1 - p_under), 1.05 / p_under))
+    conn.executemany("INSERT INTO match_odds (match_id, over25, under25) VALUES (?,?,?)", rows)
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(pm, "_choose", lambda *a, **k: True)  # force both additions on
+    bundle = pm.train()
+    assert bundle["ou"] is not None
+    assert "mkt_over25" in bundle["ou"]["features"]
+    priced = pm.predict_fixture("Team 03", "Team 07", "Sim League", True,
+                                market={"over25": 1.8, "under25": 2.0})
+    plain = pm.predict_fixture("Team 03", "Team 07", "Sim League", True)
+    assert priced["model_version"].endswith("+ou")
+    assert not plain["model_version"].endswith("+ou")
+    table = pm.compare(folds=3)
+    assert [label for label, _ in table][-1] == "priced games: + over/under"
+
+
+def test_calibration_never_flattens_the_ranking():
+    rng = np.random.default_rng(5)
+    p = rng.uniform(0.01, 0.06, 20000)
+    y = (rng.random(len(p)) < 0.03).astype(int)  # outcome unrelated to p: no ranking skill
+    a, b = pm.platt_fit(y, p)
+    assert a >= pm.MIN_CAL_SLOPE
+    out = pm.platt_apply((a, b), p)
+    assert np.all(np.diff(out[np.argsort(p)]) >= -1e-12)  # order preserved
+    assert out.std() > 0.001                                # still spread out
+    assert abs(out.mean() - y.mean()) < 0.002               # level corrected

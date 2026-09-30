@@ -19,7 +19,7 @@ How-to for each step: `deploy/RUNBOOK.md`.
 
 ### P0 actions before anything else
 
-- [ ] **Rotate** the API-Football and TheStatsAPI keys (the old ones are in git history) and put the new ones in `/etc/turnaroundiq.env`
+- [ ] **Rotate** the API-Football key (and TheStatsAPI if still used) (the old ones are in git history) and put the new ones in `/etc/turnaroundiq.env`
 - [ ] `python -u run.py backup --label first` → then do the restore drill
 - [ ] `crontab deploy/crontab.example`
 - [ ] Record current counts from `python -u run.py health` here: match_results `__` · team_stats `__` · training_data `__` · model present `__`

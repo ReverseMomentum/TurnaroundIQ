@@ -13,9 +13,10 @@ J=/root/TurnaroundIQ/scripts/cron_job.sh
 0 9,15 * * *  $J paper python -u scripts/paper_auto_products.py --products fta,early,chaos
 50 */3 * * *  $J paper-settle python -u scripts/paper_auto_products.py --settle-only
 
-# Historical backfill from TheStatsAPI: resumes nightly, capped to protect quota.
-# Exit 3 = stopped at the cap/quota (expected while backfilling; no ping URL needed).
-15 1 * * *    $J backfill python -u collectors/backfill_thestatsapi.py --max-matches 1500
+# Historical backfill from api-sports.io (5 seasons + current, all leagues).
+# Resumes nightly; stops leaving APISPORTS_RESERVE calls for live collection.
+# Exit 3 = stopped at the quota (expected until complete; no ping URL needed).
+15 1 * * *    $J backfill python -u collectors/backfill_apisports.py
 # Rebuild historical profiles weekly from everything collected (backs up first;
 # refuses to shrink historical_matches).
 40 4 * * 0    $J historical python -u run.py historical --no-fetch

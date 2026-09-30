@@ -1,15 +1,15 @@
 """
 Import historical CSVs into historical_matches / historical_events.
 
-    python -u training/import_historical_events.py                       # TheStatsAPI first, FBref fills gaps
-    python -u training/import_historical_events.py --source thestatsapi  # TheStatsAPI only
-    python -u training/import_historical_events.py --source fbref        # legacy CSVs only
+    python -u training/import_historical_events.py                     # api-sports first, older CSVs fill gaps
+    python -u training/import_historical_events.py --source apisports  # api-sports backfill only
+    python -u training/import_historical_events.py --source fbref      # legacy FBref CSVs only
     python -u training/import_historical_events.py --allow-shrink        # accept fewer matches than now
 
-The same fixture from two sources is imported once (TheStatsAPI wins), so
+The same fixture from two sources is imported once (api-sports wins), so
 profiles never double-count a match. The import refuses to replace
-historical_matches with a much smaller set (e.g. a half-finished TheStatsAPI
-backfill) unless --allow-shrink is passed.
+historical_matches with a much smaller set (e.g. a half-finished backfill)
+unless --allow-shrink is passed.
 """
 
 import argparse
@@ -28,14 +28,16 @@ from team_normalizer import normalize_team
 DATA_DIR = PROJECT_ROOT / "data"
 # Order = priority when the same fixture appears in more than one source.
 SOURCES = {
-    "thestatsapi": (["ginf_api.csv"], ["events_api.csv"]),
+    "apisports": (["ginf_apisports.csv"], ["events_apisports.csv"]),
+    # Older one-off backfills (api-sports single seasons / TheStatsAPI).
+    "legacy_api": (["ginf_api.csv"], ["events_api.csv"]),
     "fbref": (["ginf.csv"], ["events.csv"]),
 }
 MIN_KEEP_RATIO = 0.8
 
-SOURCES["all"] = (
-    SOURCES["thestatsapi"][0] + SOURCES["fbref"][0],
-    SOURCES["thestatsapi"][1] + SOURCES["fbref"][1],
+SOURCES["all"] = tuple(
+    sum((SOURCES[k][i] for k in ("apisports", "legacy_api", "fbref")), [])
+    for i in (0, 1)
 )
 
 

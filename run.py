@@ -5,7 +5,7 @@ TurnaroundIQ pipelines.
     python -u run.py historical
     python -u run.py train
     python -u run.py live --skip-odds
-    python -u run.py historical --fetch --league "Premier League" --season 2024
+    python -u run.py historical --league-id 39 --season 2024
     python -u run.py api              # restart API in tmux session "api"
     python -u run.py walk-forward     # chronological validation
     python -u run.py walk-forward --folds 5 --min-train 800

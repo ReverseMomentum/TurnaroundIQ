@@ -11,7 +11,6 @@ and paste the same line again.
 ```bash
 cd ~/TurnaroundIQ && git pull
 bash deploy/set_env.sh API_FOOTBALL_KEY <new key>
-bash deploy/set_env.sh THESTATSAPI_KEY <new key>
 bash deploy/set_env.sh REVENUECAT_SECRET_API_KEY <sk_ key>
 bash deploy/set_env.sh REVENUECAT_WEBHOOK_AUTH $(openssl rand -hex 24)
 bash deploy/set_env.sh --show
@@ -24,7 +23,7 @@ HTTPS, opens ports 80/443, installs the crontab (`--cron`), and checks
 `https://<domain>/health`. It runs inside tmux, so a dropped connection doesn't
 stop it; re-check with the `tail` line until it prints `SETUP DONE`.
 
-The API-Football / TheStatsAPI keys were removed from `constants.py` —
+The old API-Football / TheStatsAPI keys were removed from `constants.py` —
 **rotate them** (the old ones are in git history).
 
 Long jobs — run detached, then check the log:
@@ -82,7 +81,7 @@ tail -f logs/live.log              # each job logs to logs/<name>.log
 | paper | 09:00, 15:00 | open paper picks for FTA / Early / Chaos (`PAPER_USER`) |
 | paper-settle | every 3h | settle finished paper picks |
 | backup | 03:30 | nightly backup |
-| backfill | 01:15 | TheStatsAPI history, up to 1500 matches/night, resumes |
+| backfill | 01:15 | api-sports history (5 seasons + current), stops at quota reserve, resumes |
 | historical | Sun 04:40 | rebuild historical profiles from collected CSVs |
 | health | every 30 min | exit 1 degraded / 2 critical |
 
@@ -105,21 +104,28 @@ python -u run.py train           # backs up first; refuses to retrain on empty t
 After any major job, report: `python -u run.py health` (row counts) and
 `python -u run.py backup --list` (dated backup exists).
 
-### First run with a TheStatsAPI key
+### Historical backfill (api-sports.io)
+
+Check the key and parser first (one league, ~4 calls):
 
 ```bash
-python -u collectors/backfill_thestatsapi.py --probe
+cd ~/TurnaroundIQ && venv/bin/python -u collectors/backfill_apisports.py --probe
 ```
 
-Prints raw competition / season / match / timeline responses for the Premier
-League and ends with `check: OK` if the parser reads them correctly. If it
-shows `timeline_x-y_vs_final_a-b` or `goal_team_unmatched`, send the output
-to eng before running the full backfill. Then do a small trial:
+It should end with `check: 20/20 sample fixtures parse cleanly — OK`. If not,
+send the output to eng. Then start the full backfill detached:
 
 ```bash
-python -u run.py historical --league "Premier League" --season 2024 --max-matches 400
-python -u run.py health
+cd ~/TurnaroundIQ && tmux new -d -s hist 'venv/bin/python -u run.py historical > logs/historical.log 2>&1'
 ```
+```bash
+tail -n 20 ~/TurnaroundIQ/logs/historical.log
+```
+
+About 3,000 calls for all 30 leagues × 6 seasons. On a plan with 7,500
+calls/day it finishes in one run; on a smaller plan it stops at the reserve and
+the nightly cron continues. The free plan (100/day, limited seasons) is not
+enough.
 
 ## 4. Backup + restore
 

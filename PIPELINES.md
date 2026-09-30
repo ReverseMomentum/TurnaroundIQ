@@ -11,27 +11,29 @@ python -u run.py health
 | Command | What it does |
 |---|---|
 | `live` | results → team_stats → football-data odds; backup after success |
-| `historical` | collect from TheStatsAPI (resumable) → backup → import → historical profiles |
+| `historical` | collect from api-sports.io (resumable) → backup → import → historical profiles |
 | `train` | backup → build `training_data` → retrain model (refuses on empty rows) |
 | `backup` | dated copy of `two_up.db` in `backups/` |
 | `health` | row counts, freshness, backup age; exit 0/1/2 |
 
-### Historical data (TheStatsAPI)
+### Historical data (api-sports.io)
 
 ```bash
-python -u collectors/backfill_thestatsapi.py --probe      # first run with a new key: check field names
-python -u run.py historical --league "Premier League" --season 2024 --max-matches 400   # small trial
-python -u run.py historical                               # all leagues 2020 → now, resumes each run
+python -u collectors/backfill_apisports.py --probe        # check key + parser on one league
+python -u run.py historical --league-id 39 --season 2024  # small trial
+python -u run.py historical                               # all leagues, 5 seasons + current, resumes
 python -u run.py historical --no-fetch                    # rebuild profiles from collected CSVs
 python -u run.py historical --source fbref --fetch        # legacy FBref scrape
 ```
 
-Collected rows go to `data/ginf_api.csv` / `data/events_api.csv`. Matches whose
-goal timeline doesn't add up to the final score are logged to
-`data/thestatsapi_skipped.csv` instead of being imported. Legacy FBref CSVs, if
-present, only fill fixtures TheStatsAPI doesn't have (`--only-thestatsapi` to
-ignore them). The import refuses to shrink `historical_matches` below 80% of
-its current size (`--allow-shrink` to override).
+Leagues come from `SUPPORTED_LEAGUE_IDS` in `constants.py`. Collected rows go
+to `data/ginf_apisports.csv` / `data/events_apisports.csv`. Events come in
+batches of 20 fixtures per call. A match is kept only if its goal events
+reproduce the official score (missed penalties ignored, own goals resolved);
+others are logged to `data/apisports_skipped.csv`. Older CSVs (`ginf_api.csv`,
+FBref `ginf.csv`) only fill fixtures api-sports doesn't have
+(`--only-apisports` to ignore them). The import refuses to shrink
+`historical_matches` below 80% of its current size (`--allow-shrink`).
 
 Secrets come from `/etc/turnaroundiq.env` or `.env` (see `deploy/env.example`).
 Scheduling, restore and incident steps: `deploy/RUNBOOK.md`.

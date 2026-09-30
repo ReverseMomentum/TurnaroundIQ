@@ -202,11 +202,14 @@ def test_refresh_button_has_shared_cooldown_and_daily_budget(monkeypatch, tmp_pa
     assert not started and st["reason"] == "daily_limit"
 
 
-def test_refresh_endpoint_requires_pro(monkeypatch):
-    from fastapi.testclient import TestClient
+def test_refresh_endpoint_requires_pro():
+    # call the endpoint directly: a TestClient would start the app's background
+    # model warm-up thread, which can hold the DB while later tests restore it
+    from fastapi import HTTPException
     from api import app as app_module
-    with TestClient(app_module.app) as c:
-        assert c.post("/odds/refresh").status_code in (401, 402)
+    with pytest.raises(HTTPException) as exc:
+        app_module.refresh_odds(authorization=None)
+    assert exc.value.status_code in (401, 402)
 
 
 def test_best_price_respects_my_bookmakers(fresh_table):

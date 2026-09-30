@@ -140,6 +140,9 @@ def finished_fixtures(league_id, season):
     return payload.get("response") or []
 
 
+_fallbacks = {"count": 0}
+
+
 def fixtures_with_events(fixture_ids):
     """{fixture_id: events} for up to 20 ids in one call; per-fixture fallback."""
     payload = af.api_get("/fixtures", {"ids": "-".join(str(i) for i in fixture_ids)})
@@ -150,6 +153,7 @@ def fixtures_with_events(fixture_ids):
             out[fid] = item.get("events") or []
     for fid in fixture_ids:
         if fid not in out:
+            _fallbacks["count"] += 1
             ev = af.api_get("/fixtures/events", {"fixture": fid})
             out[fid] = ev.get("response") or []
     return out
@@ -320,6 +324,12 @@ def probe(league_id):
             ok += 1
     print(f"\ncheck: {ok}/{ok + bad} sample fixtures parse cleanly"
           f"{' — OK' if bad == 0 else ''}; calls left today: {af.remaining_today()}")
+    if _fallbacks["count"]:
+        print(f"batching: NOT WORKING — {_fallbacks['count']} fixtures needed their own events call; "
+              "full backfill would cost ~1 call per match (~7 days at 7,500/day)")
+    else:
+        print(f"batching: OK — {len(sample)} fixtures' events in 1 call; "
+              "full backfill ~2,700 calls (~1 day at 7,500/day)")
     return 0 if bad == 0 else 1
 
 
@@ -408,7 +418,8 @@ def main(argv=None):
 
     print(f"added {stats['added']} matches ({stats['goals']} goals), "
           f"skipped as incomplete {stats['incomplete']}, "
-          f"own-goal rule used {stats['og_rule']}, calls this run {af.calls_made()}")
+          f"own-goal rule used {stats['og_rule']}, calls this run {af.calls_made()}, "
+          f"unbatched event calls {_fallbacks['count']}")
     if stopped:
         print(f"Stopped early: {stopped}. Rerun (or let cron) continue tomorrow.")
         return EXIT_PARTIAL

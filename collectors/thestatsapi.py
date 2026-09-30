@@ -5,6 +5,7 @@ Auth: Authorization Bearer.
 Base: https://api.thestatsapi.com/api
 """
 
+import os
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -17,7 +18,19 @@ HEADERS = {
     "Authorization": f"Bearer {THESTATSAPI_KEY}",
     "Accept": "application/json",
 }
-REQUEST_DELAY = 5.0
+REQUEST_DELAY = float(os.environ.get("THESTATSAPI_DELAY", "5.0"))
+
+
+class QuotaExhausted(RuntimeError):
+    """Daily quota used up — stop the run and resume tomorrow."""
+
+
+def require_key():
+    if not THESTATSAPI_KEY:
+        raise SystemExit(
+            "THESTATSAPI_KEY is not set — add it to /etc/turnaroundiq.env "
+            "(see deploy/env.example)"
+        )
 
 KNOWN_COMPETITIONS = {
     "Premier League": "comp_3039",
@@ -46,7 +59,7 @@ def api_get(path, params=None):
         if response.status_code != 429:
             break
         if attempt == 3:
-            raise RuntimeError(
+            raise QuotaExhausted(
                 "TheStatsAPI 429 four times. Quota is likely exhausted for today. Stop and rerun tomorrow."
             )
         retry = int(response.headers.get("Retry-After", "30"))

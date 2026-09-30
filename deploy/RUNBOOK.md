@@ -70,6 +70,8 @@ tail -f logs/live.log              # each job logs to logs/<name>.log
 | paper | 09:00, 15:00 | open paper picks for FTA / Early / Chaos (`PAPER_USER`) |
 | paper-settle | every 3h | settle finished paper picks |
 | backup | 03:30 | nightly backup |
+| backfill | 01:15 | TheStatsAPI history, up to 1500 matches/night, resumes |
+| historical | Sun 04:40 | rebuild historical profiles from collected CSVs |
 | health | every 30 min | exit 1 degraded / 2 critical |
 
 Optional alerting: create free checks at healthchecks.io and set
@@ -90,6 +92,22 @@ python -u run.py train           # backs up first; refuses to retrain on empty t
 
 After any major job, report: `python -u run.py health` (row counts) and
 `python -u run.py backup --list` (dated backup exists).
+
+### First run with a TheStatsAPI key
+
+```bash
+python -u collectors/backfill_thestatsapi.py --probe
+```
+
+Prints raw competition / season / match / timeline responses for the Premier
+League and ends with `check: OK` if the parser reads them correctly. If it
+shows `timeline_x-y_vs_final_a-b` or `goal_team_unmatched`, send the output
+to eng before running the full backfill. Then do a small trial:
+
+```bash
+python -u run.py historical --league "Premier League" --season 2024 --max-matches 400
+python -u run.py health
+```
 
 ## 4. Backup + restore
 

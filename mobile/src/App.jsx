@@ -125,7 +125,7 @@ function vsAverage(v) {
 }
 
 function Wordmark({ size = "md", tagline = false }) {
-  const t = { sm: "text-[13px]", md: "text-[15px]", lg: "text-2xl" }[size];
+  const t = { sm: "text-[13px]", header: "text-[17px]", md: "text-[15px]", lg: "text-2xl" }[size];
   return (
     <span className="inline-flex flex-col leading-none">
       <span className={t + " font-bold uppercase"} style={{ letterSpacing: "0.09em" }}>
@@ -323,7 +323,7 @@ function ProBadge({ entitled }) {
         background: entitled ? "rgba(54,233,143,0.08)" : "transparent",
         letterSpacing: "0.12em",
       }}
-      className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-md"
+      className="text-[11px] font-bold uppercase px-3 py-1.5 rounded-lg"
     >
       {entitled ? "Pro" : "Free"}
     </span>
@@ -332,10 +332,10 @@ function ProBadge({ entitled }) {
 
 function PageHeader({ onNavigate, entitled }) {
   return (
-    <div className="flex items-center justify-between mb-7 lg:hidden">
-      <button onClick={() => onNavigate("dashboard")} className="flex items-center gap-2.5">
-        <Logo size={26} />
-        <Wordmark size="sm" />
+    <div className="flex items-center justify-between mb-6 lg:hidden">
+      <button onClick={() => onNavigate("dashboard")} className="flex items-center gap-3">
+        <Logo size={38} glow />
+        <Wordmark size="header" />
       </button>
       <ProBadge entitled={entitled} />
     </div>
@@ -426,7 +426,7 @@ function PageShell({ children, activeTab, onNavigate, entitled }) {
     <div style={{ background: "radial-gradient(1000px 420px at 50% -200px, rgba(54,233,143,0.09), transparent 70%), " + c.bg, minHeight: "100vh" }} className="pb-36 lg:pb-12">
       <Sidebar activeTab={activeTab} onNavigate={onNavigate} entitled={entitled} />
       <div className="lg:pl-64">
-        <div className="max-w-[440px] lg:max-w-[1120px] mx-auto px-4 lg:px-10 pt-6 lg:pt-10">
+        <div className="max-w-[440px] lg:max-w-[1120px] mx-auto px-4 lg:px-10 pt-5 lg:pt-10">
           <PageHeader onNavigate={onNavigate} entitled={entitled} />
           {children}
         </div>
@@ -694,9 +694,9 @@ function kickoffParts(iso) {
 function FtaBox({ value, highlight }) {
   const tone = ftaTone(value);
   return (
-    <div style={{ background: highlight ? "rgba(54,233,143,0.08)" : "rgba(255,255,255,0.02)", border: "1px solid " + (highlight ? "rgba(54,233,143,0.40)" : c.border) }} className="rounded-lg px-3 py-2 text-right flex-shrink-0 min-w-[88px]">
-      <BigNum value={value} tone={tone} size="text-[22px]" />
-      <p style={{ color: c.textMuted, letterSpacing: "0.1em" }} className="text-[9px] font-semibold uppercase mt-1">FTA chance</p>
+    <div style={{ background: highlight ? "rgba(54,233,143,0.08)" : "rgba(255,255,255,0.02)", border: "1px solid " + (highlight ? "rgba(54,233,143,0.40)" : c.border) }} className="rounded-xl w-[112px] py-3 flex flex-col items-center justify-center flex-shrink-0">
+      <BigNum value={value} tone={tone} size="text-[28px]" />
+      <p style={{ color: c.textMuted, letterSpacing: "0.1em" }} className="text-[9px] font-bold uppercase leading-none mt-2">FTA chance</p>
     </div>
   );
 }
@@ -1061,10 +1061,10 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
           { label: "Picks", node: <span style={{ color: c.text }} className="num text-lg lg:text-2xl font-bold">{list.length}</span>, sub: "Next 24h" },
           { label: "Paper P/L", node: <span style={{ color: profit >= 0 ? c.green : c.red }} className="num text-lg lg:text-2xl font-bold">{money(profit)}</span>, sub: (paper?.settled ?? 0) + " settled" },
         ].map((t, i) => (
-          <div key={t.label} style={{ borderLeft: i ? "1px solid " + c.border : "none" }} className="px-2.5 lg:px-5 py-3 lg:py-4 min-w-0">
-            <p style={{ color: c.textMuted, letterSpacing: "0.1em" }} className="text-[9px] lg:text-[10px] font-semibold uppercase mb-1.5 truncate">{t.label}</p>
-            <div className="truncate">{t.node}</div>
-            <p style={{ color: c.textMuted }} className="text-[10px] lg:text-[11px] mt-1 truncate">{t.sub}</p>
+          <div key={t.label} style={{ borderLeft: i ? "1px solid " + c.border : "none" }} className="px-1.5 lg:px-5 py-3.5 lg:py-4 min-w-0 flex flex-col items-center text-center">
+            <p style={{ color: c.textMuted, letterSpacing: "0.1em" }} className="text-[9px] lg:text-[10px] font-semibold uppercase leading-none truncate max-w-full">{t.label}</p>
+            <div className="h-7 lg:h-9 mt-2 flex items-center justify-center max-w-full overflow-hidden [&_*]:leading-none">{t.node}</div>
+            <p style={{ color: c.textMuted }} className="text-[10px] lg:text-[11px] leading-none mt-1.5 truncate max-w-full">{t.sub}</p>
           </div>
         ))}
       </div>
@@ -1301,10 +1301,12 @@ function hunterTone(score) {
 
 function ScoreBox({ value, label, tone, highlight, tag }) {
   return (
-    <div style={{ background: highlight ? "rgba(54,233,143,0.08)" : "rgba(255,255,255,0.02)", border: "1px solid " + (highlight ? "rgba(54,233,143,0.40)" : c.border) }} className="rounded-lg px-3 py-2 text-right flex-shrink-0 min-w-[88px]">
-      <span style={{ color: tone }} className="num text-[26px] font-bold leading-none">{value == null ? "—" : Number(value).toFixed(0)}</span>
-      <span style={{ color: c.textMuted }} className="num text-[11px] font-semibold ml-0.5">/100</span>
-      <p style={{ color: tag ? tone : c.textMuted, letterSpacing: "0.1em" }} className="text-[9px] font-semibold uppercase mt-1">{tag || label}</p>
+    <div style={{ background: highlight ? "rgba(54,233,143,0.08)" : "rgba(255,255,255,0.02)", border: "1px solid " + (highlight ? "rgba(54,233,143,0.40)" : c.border) }} className="rounded-xl w-[112px] py-3 flex flex-col items-center justify-center flex-shrink-0">
+      <span className="flex items-baseline leading-none">
+        <span style={{ color: tone }} className="num text-[34px] font-bold leading-none">{value == null ? "—" : Number(value).toFixed(0)}</span>
+        <span style={{ color: c.textMuted }} className="num text-xs font-semibold ml-0.5">/100</span>
+      </span>
+      <p style={{ color: tag ? tone : c.textMuted, letterSpacing: "0.1em" }} className="text-[9px] font-bold uppercase leading-none mt-2 text-center">{tag || label}</p>
     </div>
   );
 }
@@ -1373,7 +1375,7 @@ function EarlyGoalHunterPage({ nav, entitled, onPurchased }) {
             <div>
               <div className="flex items-baseline justify-between mb-1.5">
                 <span style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase">Scores first</span>
-                <span style={{ color: c.textMuted }} className="num text-[10px]">{Math.max(0, Math.round(100 - home - away))}% no goal</span>
+                {Math.round(100 - home - away) > 0 && <span style={{ color: c.textMuted }} className="num text-[10px]">{Math.round(100 - home - away)}% no goal</span>}
               </div>
               <div className="flex h-1.5 rounded-full overflow-hidden gap-[2px]">
                 <div style={{ width: split + "%", background: c.cyan }} />

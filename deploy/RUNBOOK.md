@@ -3,24 +3,36 @@
 Everything the founder / on-call needs to run, check, and recover the backend.
 Paths assume the repo is at `/root/TurnaroundIQ` with a `venv/`.
 
-## 0. One-time setup (after pulling this change)
+## 0. One-time setup (single-line commands, safe to re-run)
+
+Each line is independent — paste one at a time. If SSH drops mid-way, reconnect
+and paste the same line again.
 
 ```bash
-cd /root/TurnaroundIQ && git pull
-source venv/bin/activate && pip install -r requirements.txt
-
-# Secrets live outside git. API keys were removed from constants.py —
-# ROTATE the old API-Football + TheStatsAPI keys (they are in git history).
-sudo cp deploy/env.example /etc/turnaroundiq.env
-sudo chmod 600 /etc/turnaroundiq.env
-sudo nano /etc/turnaroundiq.env        # fill in the new keys + RevenueCat
-
-python -u run.py health                 # expect row counts, no *_key_missing
-python -u run.py backup --label first   # first dated backup
+cd ~/TurnaroundIQ && git pull
+bash deploy/set_env.sh API_FOOTBALL_KEY <new key>
+bash deploy/set_env.sh THESTATSAPI_KEY <new key>
+bash deploy/set_env.sh REVENUECAT_SECRET_API_KEY <sk_ key>
+bash deploy/set_env.sh REVENUECAT_WEBHOOK_AUTH $(openssl rand -hex 24)
+bash deploy/set_env.sh --show
+tmux new -d -s setup 'bash deploy/setup_server.sh --cron'
+tail -n 30 logs/setup.log
 ```
 
-Until `/etc/turnaroundiq.env` exists, collectors exit with
-`API_FOOTBALL_KEY is not set` and `/opportunities` returns no fixtures.
+`setup_server.sh` installs the API as a systemd service, installs Caddy for
+HTTPS, opens ports 80/443, installs the crontab (`--cron`), and checks
+`https://<domain>/health`. It runs inside tmux, so a dropped connection doesn't
+stop it; re-check with the `tail` line until it prints `SETUP DONE`.
+
+The API-Football / TheStatsAPI keys were removed from `constants.py` —
+**rotate them** (the old ones are in git history).
+
+Long jobs — run detached, then check the log:
+
+```bash
+tmux new -d -s job 'cd ~/TurnaroundIQ && venv/bin/python -u run.py historical > logs/job.log 2>&1'
+tail -n 20 ~/TurnaroundIQ/logs/job.log
+```
 
 ## 1. API (production path: systemd + Caddy)
 

@@ -125,7 +125,7 @@ function vsAverage(v) {
 }
 
 function Wordmark({ size = "md", tagline = false }) {
-  const t = { sm: "text-[13px]", header: "text-[17px]", md: "text-[15px]", lg: "text-2xl" }[size];
+  const t = { sm: "text-[13px]", header: "text-[16px]", md: "text-[15px]", lg: "text-2xl" }[size];
   return (
     <span className="inline-flex flex-col leading-none">
       <span className={t + " font-bold uppercase"} style={{ letterSpacing: "0.09em" }}>
@@ -334,7 +334,7 @@ function PageHeader({ onNavigate, entitled }) {
   return (
     <div className="flex items-center justify-between mb-6 lg:hidden">
       <button onClick={() => onNavigate("dashboard")} className="flex items-center gap-3">
-        <Logo size={38} glow />
+        <Logo size={31} glow />
         <Wordmark size="header" />
       </button>
       <ProBadge entitled={entitled} />

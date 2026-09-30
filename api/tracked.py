@@ -403,6 +403,58 @@ def settle_tracked(app_user_id, bet_id, result, actual_profit=None, actual_fta=N
     return _row_to_dict(full)
 
 
+EDITABLE = ("stake", "back_odds", "lay_odds", "commission", "bookmaker", "notes")
+
+
+def update_tracked(app_user_id, bet_id, changes):
+    """Edit a tracked bet. Lay stake, liability and expected profit are recomputed;
+    a settled bet keeps its result and its profit is recomputed from the new prices."""
+    ensure_tracked_tables()
+    conn = get_db()
+    row = conn.execute(
+        f"SELECT {SELECT_COLS} FROM tracked_bets WHERE id = ? AND app_user_id = ?",
+        (bet_id, app_user_id),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return None
+    bet = _row_to_dict(row)
+    bet.update({k: v for k, v in (changes or {}).items() if k in EDITABLE and v is not None})
+
+    stake, back, comm = float(bet["stake"] or 0), float(bet["back_odds"] or 0), float(bet["commission"] or 0)
+    lay = float(bet["lay_odds"]) if bet.get("lay_odds") else _estimate_lay(back) if back > 1 else None
+    lay_stake = liability = None
+    if lay and lay - comm / 100 > 0:
+        lay_stake = round(back * stake / (lay - comm / 100), 2)
+        liability = round((lay - 1) * lay_stake, 2)
+    exp = _expected_profit(stake, back, bet.get("fta_pct"), comm, lay_odds=bet.get("lay_odds"),
+                           product=bet["product"])
+    profit = bet.get("actual_profit")
+    if bet["status"] == "settled" and bet.get("result"):
+        profit = compute_profit(bet["result"], stake, back, comm, lay_odds=bet.get("lay_odds"),
+                                product=bet["product"])
+    conn.execute(
+        """UPDATE tracked_bets SET stake=?, back_odds=?, lay_odds=?, commission=?, bookmaker=?,
+               notes=?, lay_stake=?, liability=?, expected_profit=?, actual_profit=?
+           WHERE id = ? AND app_user_id = ?""",
+        (stake, back, bet.get("lay_odds"), comm, bet.get("bookmaker"), bet.get("notes"),
+         lay_stake, liability, exp, profit, bet_id, app_user_id),
+    )
+    conn.commit()
+    full = conn.execute(f"SELECT {SELECT_COLS} FROM tracked_bets WHERE id = ?", (bet_id,)).fetchone()
+    conn.close()
+    return _row_to_dict(full)
+
+
+def delete_tracked(app_user_id, bet_id):
+    ensure_tracked_tables()
+    conn = get_db()
+    cur = conn.execute("DELETE FROM tracked_bets WHERE id = ? AND app_user_id = ?", (bet_id, app_user_id))
+    conn.commit()
+    conn.close()
+    return cur.rowcount > 0
+
+
 def summary(app_user_id):
     ensure_tracked_tables()
     settings = get_paper_settings(app_user_id)

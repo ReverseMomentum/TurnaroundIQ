@@ -228,15 +228,16 @@ def side_prices(row, is_home: bool, allowed=None):
     return back, row.get(f"{s}_book"), lay_est, updated
 
 
-# Shown in the bookmaker picker before any odds have been collected.
-DEFAULT_BOOK_NAMES = ["Bet365", "William Hill", "Paddy Power", "Sky Bet", "Betfred",
-                      "BetVictor", "Ladbrokes", "Coral", "Unibet", "888Sport", "Betway", "10Bet"]
+# Every UK bookmaker the picker offers (api-sports quotes some of them per fixture).
+DEFAULT_BOOK_NAMES = ["Bet365", "William Hill", "Paddy Power", "Sky Bet", "Betfred", "BetVictor",
+                      "BoyleSports", "Ladbrokes", "Coral", "Unibet", "888Sport", "Betway", "10Bet",
+                      "Midnite", "LiveScore Bet", "BetUK"]
 
 
-def available_bookmakers(days=3):
-    """UK bookmakers api-sports has actually quoted recently (display names)."""
+def seen_bookmakers(days=3, uk_only=True):
+    """{name: fixtures priced} for bookmakers api-sports has quoted recently."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    names = {}
+    counts = {}
     try:
         conn = get_db()
         for (raw,) in conn.execute(
@@ -244,14 +245,25 @@ def available_bookmakers(days=3):
         ):
             try:
                 for name in json.loads(raw or "{}"):
-                    if _key(name) in UK_BACK_BOOKS:
-                        names.setdefault(_key(name), name)
+                    if not uk_only or _key(name) in UK_BACK_BOOKS:
+                        counts[name] = counts.get(name, 0) + 1
             except ValueError:
                 continue
         conn.close()
     except Exception:
         pass
-    return sorted(names.values(), key=str.lower) or DEFAULT_BOOK_NAMES
+    return counts
+
+
+def available_bookmakers(days=3):
+    """All UK bookmakers for the picker, plus which ones currently have prices."""
+    seen = seen_bookmakers(days)
+    names = {_key(n): n for n in DEFAULT_BOOK_NAMES}
+    for n in seen:
+        names[_key(n)] = n
+    priced = sorted(seen, key=str.lower)
+    others = sorted((n for k, n in names.items() if n not in seen), key=str.lower)
+    return priced + others, priced
 
 
 def _parse_time(value):
@@ -339,7 +351,13 @@ def main(argv=None):
     ap.add_argument("--max-calls", type=int, default=200)
     ap.add_argument("--skip-minutes", type=int, default=15,
                     help="skip fixtures priced this recently (0 = refetch all)")
+    ap.add_argument("--list-books", action="store_true",
+                    help="print every bookmaker api-sports quoted in the last 3 days (UK or not)")
     args = ap.parse_args(argv)
+    if args.list_books:
+        for name, n in sorted(seen_bookmakers(uk_only=False).items(), key=lambda x: -x[1]):
+            print(f"{'UK ' if _key(name) in UK_BACK_BOOKS else '   '}{name:<24} {n} fixtures")
+        return 0
     refresh(args.hours, args.max_calls, args.skip_minutes)
     return 0
 

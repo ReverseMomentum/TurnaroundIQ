@@ -213,3 +213,27 @@ def test_paper_fta_bet_uses_matched_bet_maths():
     assert tracked.compute_profit("fta", 40, 2.1, 2.0, lay_odds=2.2) == fta
     exp = tracked._expected_profit(40, 2.1, 1.2, 2.0, lay_odds=2.2)  # 1.2% full event
     assert exp == round(fta * 0.012 - abs(ql) * 0.988, 2)
+
+
+def test_tracked_bet_edit_and_delete():
+    from api import tracked as store
+    user = "u_editor"
+    bet = store.create_tracked(user, {"home_team": "Arsenal", "away_team": "Chelsea", "team": "Arsenal",
+                                      "back_odds": 2.0, "lay_odds": 2.1, "stake": 40, "commission": 2,
+                                      "fta_pct": 3.0})
+    edited = store.update_tracked(user, bet["id"], {"stake": 100, "back_odds": 2.2, "bogus": 1})
+    assert edited["stake"] == 100 and edited["back_odds"] == 2.2 and edited["lay_odds"] == 2.1
+    assert edited["lay_stake"] == round(2.2 * 100 / (2.1 - 0.02), 2)
+    assert edited["expected_profit"] != bet["expected_profit"]
+
+    # settled bets keep their result; profit follows the corrected prices
+    store.settle_tracked(user, bet["id"], "no_fta")
+    before = [b for b in store.list_tracked(user) if b["id"] == bet["id"]][0]["actual_profit"]
+    after = store.update_tracked(user, bet["id"], {"lay_odds": 2.4})
+    assert after["status"] == "settled" and after["result"] == "no_fta"
+    assert after["actual_profit"] != before
+
+    assert store.update_tracked("someone_else", bet["id"], {"stake": 1}) is None
+    assert not store.delete_tracked("someone_else", bet["id"])
+    assert store.delete_tracked(user, bet["id"])
+    assert all(b["id"] != bet["id"] for b in store.list_tracked(user))

@@ -123,6 +123,15 @@ class TrackedSettle(BaseModel):
     actual_fta: Optional[int] = None
 
 
+class TrackedEdit(BaseModel):
+    stake: Optional[float] = Field(default=None, gt=0, le=100000)
+    back_odds: Optional[float] = Field(default=None, gt=1, le=1000)
+    lay_odds: Optional[float] = Field(default=None, gt=1, le=1000)
+    commission: Optional[float] = Field(default=None, ge=0, le=20)
+    bookmaker: Optional[str] = Field(default=None, max_length=40)
+    notes: Optional[str] = Field(default=None, max_length=200)
+
+
 class PaperSettingsPatch(BaseModel):
     starting_bankroll: Optional[float] = None
     default_stake: Optional[float] = None
@@ -456,7 +465,8 @@ def odds_bookmakers(authorization: str | None = Header(default=None)):
     """UK bookmakers we have prices from, plus the user's saved selection."""
     user_id = user_from_auth(authorization)
     return {
-        "available": odds_store.available_bookmakers(),
+        "available": (books := odds_store.available_bookmakers())[0],
+        "priced": books[1],
         "selected": get_prefs(user_id).get("bookmakers") or [],
     }
 
@@ -718,6 +728,28 @@ def tracked_settle(
     if not bet:
         raise HTTPException(404, "Tracked bet not found")
     return bet
+
+
+@app.put("/tracked/{bet_id}")
+def tracked_edit(
+    bet_id: int,
+    body: TrackedEdit,
+    authorization: str | None = Header(default=None),
+):
+    """Correct a tracked bet's stake / prices / commission; profit figures are recomputed."""
+    user_id = require_pro(authorization)
+    bet = tracked_store.update_tracked(user_id, bet_id, body.model_dump(exclude_none=True))
+    if not bet:
+        raise HTTPException(404, "Tracked bet not found")
+    return bet
+
+
+@app.delete("/tracked/{bet_id}")
+def tracked_delete(bet_id: int, authorization: str | None = Header(default=None)):
+    user_id = require_pro(authorization)
+    if not tracked_store.delete_tracked(user_id, bet_id):
+        raise HTTPException(404, "Tracked bet not found")
+    return {"deleted": bet_id}
 
 
 @app.get("/paper")

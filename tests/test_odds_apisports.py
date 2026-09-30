@@ -230,7 +230,11 @@ def test_available_bookmakers_lists_uk_books_seen(fresh_table):
     oa.save(conn, "888", None, oa.parse_bookmakers(BOOKS))
     conn.commit()
     conn.close()
-    assert oa.available_bookmakers() == ["Bet365", "William Hill"]
+    names, priced = oa.available_bookmakers()
+    assert priced == ["Bet365", "William Hill"]
+    assert names[:2] == ["Bet365", "William Hill"]  # priced first
+    assert "Paddy Power" in names and "Sky Bet" in names  # every UK book is offered
+    assert len(names) == len({n.lower() for n in names})  # no duplicates
 
 
 def test_opportunities_use_saved_bookmakers(fresh_table, monkeypatch):

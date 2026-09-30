@@ -189,10 +189,14 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 
 ## Odds (api-sports, no extra cost)
 
-`collectors/odds_apisports.py` runs 4x a day (cron `odds`) and stores, for fixtures in the
-next 3 days, the best UK bookmaker back price and an **estimated** exchange lay
+`collectors/odds_apisports.py` runs every 3h (cron `odds`) and stores, for games kicking
+off in the next 24h, the best UK bookmaker back price and an **estimated** exchange lay
 (fair price from Pinnacle / median of books, plus one Betfair tick). The app labels
 it "est. lay". Prices older than 24h are ignored and the pick falls back to
 placeholder odds. Manual run: `venv/bin/python -u collectors/odds_apisports.py`.
-Log: `logs/odds.log`. Upgrade path: The Odds API (~$30/mo) for real exchange lays.
+Log: `logs/odds.log`. The Opportunities page only lists the next 24h and has a
+"Refresh odds" button (POST /odds/refresh): one shared refresh at a time, 15-min cooldown
+(`ODDS_REFRESH_COOLDOWN_S`), max 1500 api-sports calls/day from the button
+(`ODDS_REFRESH_DAILY_CALLS`). Paper FTA picks use the same 24h window and prices.
+Upgrade path: The Odds API (~$30/mo) for real exchange lays.
 

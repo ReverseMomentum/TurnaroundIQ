@@ -63,21 +63,13 @@ def _open(user_id, payload, dry_run):
     return store.create_tracked(user_id, payload)
 
 
+FTA_WINDOW_HOURS = 24  # same window as the app: prices (and exchange liquidity) exist here
+
+
 def pick_fta(user_id, pairs, limit, min_fta, dry_run, settings):
-    fixtures = []
-    for p in pairs:
-        base = {
-            "match_id": p.get("match_id"),
-            "kickoff": p.get("kickoff"),
-            "league": p.get("league") or "",
-            "home_team": p["home_team"],
-            "away_team": p["away_team"],
-            "bookmaker": "Paper-Auto",
-            "back_odds": float(os.environ.get("DEFAULT_BACK_ODDS", "2.10")),
-            "odds_estimated": True,
-        }
-        fixtures.append({**base, "team": p["home_team"], "is_home": True})
-        fixtures.append({**base, "team": p["away_team"], "is_home": False})
+    # Same fixtures the app shows: next 24h, real UK back price + estimated lay
+    # when the odds collector has them, placeholder odds otherwise.
+    fixtures = latest_fixtures(limit=len(pairs) or 40, hours=FTA_WINDOW_HOURS)
     ranked = rank_opportunities(fixtures)
     ranked.sort(key=_fta_pct, reverse=True)
     out = []
@@ -97,8 +89,9 @@ def pick_fta(user_id, pairs, limit, min_fta, dry_run, settings):
             "league": row.get("league") or "",
             "kickoff": row.get("kickoff"),
             "match_id": row.get("match_id"),
-            "bookmaker": "Paper-Auto-FTA",
+            "bookmaker": row.get("bookmaker") if not row.get("odds_estimated") else "Paper-Auto-FTA",
             "back_odds": row.get("back_odds") or 2.1,
+            "lay_odds": row.get("lay_odds"),
             "stake": settings["default_stake"],
             "commission": settings["default_commission"],
             "fta_pct": round(pct, 4),

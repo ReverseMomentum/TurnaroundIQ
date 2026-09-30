@@ -2,8 +2,12 @@
 """
 Pre-match Match Winner odds from api-sports (already in our plan, no extra cost).
 
-    python -u collectors/odds_apisports.py            # next 3 days, supported leagues
-    python -u collectors/odds_apisports.py --days 2 --max-calls 100
+    python -u collectors/odds_apisports.py                 # games in the next 24h
+    python -u collectors/odds_apisports.py --hours 48 --max-calls 100
+
+Only the next 24h matter by default: exchange lay liquidity is thin before that.
+Fixtures priced in the last 15 minutes are skipped, so the app's "Refresh odds"
+button and the cron job don't pay twice for the same prices.
 
 For every upcoming fixture we store, per side (home / away):
   - best BACK price from UK bookmakers (and which bookmaker)
@@ -15,7 +19,7 @@ then add one Betfair price tick, which is where the exchange lay usually sits on
 football match odds. The app labels it "est. lay". A real exchange feed (The
 Odds API) can replace this later without touching the app.
 
-Budget: ~3 fixture-list calls + 1 call per fixture, capped by --max-calls, and
+Budget: 1-2 fixture-list calls + 1 call per fixture, capped by --max-calls, and
 the shared client keeps APISPORTS_RESERVE calls untouched.
 """
 
@@ -195,57 +199,93 @@ def side_prices(row, is_home: bool):
     return back, row.get(f"{s}_book"), row.get(f"{s}_lay_est"), row.get("updated_at")
 
 
-def upcoming_fixtures(days):
-    from collectors.apisports import api_get
+def _parse_time(value):
+    try:
+        t = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def upcoming_fixtures(hours, api_get):
+    """(fixture_id, kickoff) for supported-league games kicking off in the next `hours`."""
     now = datetime.now(timezone.utc)
-    out = []
-    for d in range(days):
-        date = (now + timedelta(days=d)).strftime("%Y-%m-%d")
+    end = now + timedelta(hours=hours)
+    dates, day = [], now.date()
+    while day <= end.date():
+        dates.append(day.isoformat())
+        day += timedelta(days=1)
+    out, seen = [], set()
+    for date in dates:
         payload = api_get("/fixtures", {"date": date, "status": "NS"})
         for fx in payload.get("response") or []:
-            if (fx.get("league") or {}).get("id") in SUPPORTED_LEAGUE_IDS:
-                meta = fx.get("fixture") or {}
+            if (fx.get("league") or {}).get("id") not in SUPPORTED_LEAGUE_IDS:
+                continue
+            meta = fx.get("fixture") or {}
+            ko = _parse_time(meta.get("date"))
+            if ko and now < ko <= end and meta.get("id") not in seen:
+                seen.add(meta.get("id"))
                 out.append((meta.get("id"), meta.get("date")))
     out.sort(key=lambda x: x[1] or "")  # soonest first, so a capped run covers the next games
-    return out
+    return out, len(dates)
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--days", type=int, default=3)
-    ap.add_argument("--max-calls", type=int, default=200)
-    args = ap.parse_args(argv)
+def _recently_priced(conn, minutes):
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    return {r[0] for r in conn.execute(
+        "SELECT match_id FROM fixture_odds WHERE updated_at >= ?", (cutoff,))}
 
+
+def refresh(hours=24, max_calls=200, skip_minutes=15, log=print):
+    """Fetch odds for games in the next `hours`. Returns a summary dict."""
     from collectors.apisports import AuthError, NetworkError, QuotaExhausted, api_get, require_key
     require_key()
     conn = get_db()
     ensure_table(conn)
-    saved = missing = calls = 0
+    summary = {"fixtures": 0, "saved": 0, "no_odds": 0, "skipped_fresh": 0,
+               "calls": 0, "stopped": None}
     try:
-        fixtures = upcoming_fixtures(args.days)
-        calls += args.days
-        print(f"{len(fixtures)} upcoming fixtures in supported leagues (next {args.days} days)")
+        fixtures, list_calls = upcoming_fixtures(hours, api_get)
+        summary["calls"] += list_calls
+        summary["fixtures"] = len(fixtures)
+        fresh = _recently_priced(conn, skip_minutes) if skip_minutes else set()
+        log(f"{len(fixtures)} fixtures in supported leagues in the next {hours}h")
         for fixture_id, kickoff in fixtures:
-            if calls >= args.max_calls:
-                print(f"stopping at --max-calls {args.max_calls}")
+            if str(fixture_id) in fresh:
+                summary["skipped_fresh"] += 1
+                continue
+            if summary["calls"] >= max_calls:
+                summary["stopped"] = f"max_calls {max_calls}"
                 break
             payload = api_get("/odds", {"fixture": fixture_id, "bet": MATCH_WINNER})
-            calls += 1
+            summary["calls"] += 1
             books = {}
             for item in payload.get("response") or []:
                 books.update(parse_bookmakers(item.get("bookmakers")))
             if save(conn, fixture_id, kickoff, books):
-                saved += 1
+                summary["saved"] += 1
             else:
-                missing += 1
-            if saved % 20 == 0:
-                conn.commit()
+                summary["no_odds"] += 1
+            conn.commit()
     except (QuotaExhausted, NetworkError, AuthError) as exc:
-        print(f"stopped early: {exc}")
+        summary["stopped"] = str(exc)
     finally:
         conn.commit()
         conn.close()
-    print(f"odds saved for {saved} fixtures, none yet for {missing} ({calls} api calls)")
+    log(f"odds saved for {summary['saved']} fixtures, none yet for {summary['no_odds']}, "
+        f"{summary['skipped_fresh']} already fresh ({summary['calls']} api calls)"
+        + (f" — stopped: {summary['stopped']}" if summary["stopped"] else ""))
+    return summary
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--hours", type=int, default=24)
+    ap.add_argument("--max-calls", type=int, default=200)
+    ap.add_argument("--skip-minutes", type=int, default=15,
+                    help="skip fixtures priced this recently (0 = refetch all)")
+    args = ap.parse_args(argv)
+    refresh(args.hours, args.max_calls, args.skip_minutes)
     return 0
 
 

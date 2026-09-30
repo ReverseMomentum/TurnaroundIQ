@@ -87,10 +87,35 @@ def test_collector_run_saves_odds(fresh_table, monkeypatch):
 
     monkeypatch.setattr(af, "API_FOOTBALL_KEY", "test")
     monkeypatch.setattr(af, "api_get", fake_get)
-    assert oa.main(["--days", "1"]) == 0
+    assert oa.main(["--hours", "48"]) == 0
     stored = oa.load_odds(["111", "222"])
     assert list(stored) == ["111"]
     assert stored["111"]["home_book"] == "William Hill"
+
+    # a second run straight after skips the freshly priced fixture (no wasted calls)
+    summary = oa.refresh(48)
+    assert summary["skipped_fresh"] == 1 and summary["saved"] == 0
+
+
+def test_only_games_inside_the_window_are_priced(fresh_table, monkeypatch):
+    fresh_table.close()
+    now = datetime.now(timezone.utc)
+    soon, later = (now + timedelta(hours=3)).isoformat(), (now + timedelta(hours=30)).isoformat()
+    priced = []
+
+    def fake_get(path, params=None):
+        if path == "/fixtures":
+            return {"response": [
+                {"league": {"id": 39}, "fixture": {"id": 1, "date": soon}},
+                {"league": {"id": 39}, "fixture": {"id": 2, "date": later}},
+            ]}
+        priced.append(params["fixture"])
+        return {"response": [{"bookmakers": BOOKS}]}
+
+    monkeypatch.setattr(af, "API_FOOTBALL_KEY", "test")
+    monkeypatch.setattr(af, "api_get", fake_get)
+    oa.refresh(24)
+    assert priced == [1]
 
 
 def test_stale_odds_are_ignored(fresh_table):
@@ -130,3 +155,55 @@ def test_api_fixtures_use_real_back_and_flag_estimated_lay(fresh_table, monkeypa
     # no stored odds -> placeholder prices, clearly flagged
     other = fx[("555", "Everton")]
     assert other["bookmaker"] == "Estimated" and other["odds_estimated"] is True
+
+
+def test_opportunities_window_keeps_next_24h_only(monkeypatch):
+    from api import app as app_module
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(app_module, "upcoming_match_pairs", lambda limit=60: [
+        {"match_id": "a", "kickoff": (now + timedelta(hours=2)).isoformat(), "league": "Premier League",
+         "home_team": "Arsenal", "away_team": "Chelsea"},
+        {"match_id": "b", "kickoff": (now + timedelta(hours=40)).isoformat(), "league": "Premier League",
+         "home_team": "Everton", "away_team": "Fulham"},
+    ])
+    assert {f["match_id"] for f in app_module.fixtures_from_upcoming(hours=24)} == {"a"}
+    assert {f["match_id"] for f in app_module.fixtures_from_upcoming()} == {"a", "b"}
+
+
+def test_refresh_button_has_shared_cooldown_and_daily_budget(monkeypatch, tmp_path):
+    import time
+    from api import odds_refresh as orf
+
+    calls = []
+
+    def fake_refresh(hours, max_calls=200, skip_minutes=15, log=print):
+        calls.append((hours, max_calls))
+        return {"saved": 3, "calls": 5}
+
+    monkeypatch.setattr(orf.odds_apisports, "refresh", fake_refresh)
+    monkeypatch.setattr(orf, "LOCK_FILE", tmp_path / "odds.lock")
+    orf._state.update(running=False, finished_at=None, last=None, error=None, day=None, calls_today=0)
+
+    started, st = orf.start()
+    assert started and st["reason"] == "started"
+    for _ in range(50):
+        if not orf._state["running"]:
+            break
+        time.sleep(0.02)
+    assert calls == [(24, 200)]
+    assert orf.status()["last"] == {"saved": 3, "calls": 5}
+
+    started, st = orf.start()          # second press inside the cooldown
+    assert not started and st["reason"] == "cooldown" and st["retry_after_s"] > 0
+    assert len(calls) == 1
+
+    orf._state.update(finished_at=None, calls_today=orf.DAILY_CALLS)  # budget spent
+    started, st = orf.start()
+    assert not started and st["reason"] == "daily_limit"
+
+
+def test_refresh_endpoint_requires_pro(monkeypatch):
+    from fastapi.testclient import TestClient
+    from api import app as app_module
+    with TestClient(app_module.app) as c:
+        assert c.post("/odds/refresh").status_code in (401, 402)

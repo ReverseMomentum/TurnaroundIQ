@@ -748,6 +748,63 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
   );
 }
 
+function clockTime(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
+// Re-prices the next 24h of games. The server shares one refresh between all users
+// (15-min cooldown), so a press during it just says when prices were last checked.
+function RefreshOddsButton({ opps }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null);
+  const updated = clockTime(opps.data?.odds_updated_at);
+
+  const run = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      let st = await api.refreshOdds();
+      if (!st.started && st.reason === "cooldown") {
+        const mins = Math.max(1, Math.ceil((st.retry_after_s || 0) / 60));
+        setNote(`Odds were just updated — next refresh available in ${mins} min.`);
+        return;
+      }
+      if (!st.started && st.reason === "daily_limit") {
+        setNote("Odds refresh limit reached for today — prices still update automatically.");
+        return;
+      }
+      for (let i = 0; i < 60 && (st.started || st.running); i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        st = await api.oddsRefreshStatus();
+        if (!st.running) break;
+      }
+      if (st.error) setNote(st.error);
+      else if (st.last) setNote(`Updated prices for ${st.last.saved} games.`);
+      opps.reload();
+    } catch (e) {
+      setNote(e.message || "Couldn't refresh odds");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between gap-3">
+        <span style={{ color: c.textSecondary }} className="text-xs">
+          {updated ? `Odds checked ${updated}` : "Odds not checked yet"}
+        </span>
+        <button onClick={run} disabled={busy} style={{ background: c.card, border: "1px solid " + c.border, color: c.cyan, opacity: busy ? 0.6 : 1 }} className="flex items-center gap-1 text-xs font-medium px-3 py-2 rounded-full">
+          <RefreshCw size={12} className={busy ? "animate-spin" : ""} /> {busy ? "Refreshing…" : "Refresh odds"}
+        </button>
+      </div>
+      {note && <p style={{ color: c.textSecondary }} className="text-xs mt-2">{note}</p>}
+    </div>
+  );
+}
+
 function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
   const [league, setLeague] = useState("All leagues");
   const list = opps.data?.opportunities || [];
@@ -758,8 +815,9 @@ function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
     <PageShell activeTab="opportunities" onNavigate={nav} entitled={entitled}>
       <p style={{ color: c.text }} className="text-xl font-medium mb-1">Opportunities</p>
       <p style={{ color: c.textSecondary }} className="text-sm mb-4">
-        Ranked by FTA chance: the team goes 2 goals up <i>and</i> fails to win. Average is about 2%.
+        Games in the next 24 hours, ranked by FTA chance: the team goes 2 goals up <i>and</i> fails to win. Average is about 2%.
       </p>
+      {entitled && !opps.needsPro && <RefreshOddsButton opps={opps} />}
       {(opps.needsPro || !entitled) && <Paywall title="Opportunities is a Pro feature" onPurchased={onPurchased} />}
       {entitled && opps.loading && <Loading />}
       {entitled && opps.error && <ErrorBox error={opps.error} onRetry={opps.reload} />}
@@ -777,7 +835,7 @@ function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
           </div>
           <div className="flex flex-col gap-3">
             {filtered.map((o) => <OpportunityCard key={oppKey(o)} o={o} onClick={onOpen} wide />)}
-            {filtered.length === 0 && <Empty>No opportunities match this filter right now.</Empty>}
+            {filtered.length === 0 && <Empty>{list.length === 0 ? "No games in our leagues kick off in the next 24 hours." : "No opportunities match this filter right now."}</Empty>}
           </div>
         </>
       )}

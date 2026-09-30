@@ -46,6 +46,7 @@ from models.mismatch_meter import rank_mismatch_matches
 from team_normalizer import normalize_team
 from ops.health import check as data_health
 from collectors import odds_apisports as odds_store
+from api import odds_refresh
 from api import auth
 from urllib.parse import quote
 
@@ -366,9 +367,25 @@ def _with_prices(base, row, is_home):
     }
 
 
-def fixtures_from_upcoming(limit=40):
+def _kicks_off_within(pair, hours, now=None):
+    now = now or datetime.now(timezone.utc)
+    try:
+        ko = datetime.fromisoformat(str(pair.get("kickoff")).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if ko.tzinfo is None:
+        ko = ko.replace(tzinfo=timezone.utc)
+    return now < ko <= now + timedelta(hours=hours)
+
+
+def fixtures_from_upcoming(limit=40, hours=None):
     fixtures = []
-    pairs = upcoming_match_pairs(limit=max(limit, 20))
+    if hours:
+        # every game in the window (a Saturday can have 100+), not just the first few
+        pairs = [p for p in upcoming_match_pairs(limit=400) if _kicks_off_within(p, hours)]
+        limit = max(limit, len(pairs))
+    else:
+        pairs = upcoming_match_pairs(limit=max(limit, 20))
     stored = odds_store.load_odds([p.get("match_id") for p in pairs])
     for pair in pairs:
         home = pair["home_team"]
@@ -391,8 +408,8 @@ def fixtures_from_upcoming(limit=40):
     return fixtures[: limit * 2]
 
 
-def latest_fixtures(limit=40):
-    return fixtures_from_upcoming(limit=limit)
+def latest_fixtures(limit=40, hours=None):
+    return fixtures_from_upcoming(limit=limit, hours=hours)
 
 
 def score_manual_fixture(body: TrackedCreate):
@@ -418,6 +435,20 @@ def score_manual_fixture(body: TrackedCreate):
         )
     except Exception:
         return None
+
+
+@app.post("/odds/refresh")
+def refresh_odds(authorization: str | None = Header(default=None)):
+    """Re-price the next 24h of games (Pro). Shared cooldown; poll GET /odds/refresh."""
+    require_pro(authorization)
+    started, st = odds_refresh.start()
+    return {"started": started, **st}
+
+
+@app.get("/odds/refresh")
+def refresh_odds_status(authorization: str | None = Header(default=None)):
+    require_pro(authorization)
+    return odds_refresh.status()
 
 
 @app.get("/health")
@@ -514,9 +545,13 @@ def opportunities(
     band: Optional[str] = None,
     edge_gate_only: bool = False,
     require_real_odds: bool = False,
+    hours: Optional[int] = None,
 ):
     """
     FTA opportunities ranked by model fta_pct.
+
+    hours — only games kicking off in the next N hours (the app uses 24: exchange
+            lay liquidity is thin before that, and odds are collected for that window)
 
     Hardening filters (optional):
       min_fta          — minimum model FTA % (e.g. 5)
@@ -528,7 +563,8 @@ def opportunities(
     user_id = require_pro(authorization)
     limit = max(1, min(limit, 100))
     try:
-        fixtures = latest_fixtures(limit=max(limit, 20))
+        hours = max(1, min(hours, 168)) if hours else None
+        fixtures = latest_fixtures(limit=max(limit, 20), hours=hours)
         ranked = rank_opportunities(fixtures)
         for r in ranked:
             r["source"] = "auto"
@@ -590,6 +626,11 @@ def opportunities(
             },
             "paper_summary": tracked_store.summary(user_id),
             "rank_errors": get_last_rank_errors(),
+            "window_hours": hours,
+            "odds_updated_at": max(
+                (r["odds_updated_at"] for r in ranked if r.get("odds_updated_at")), default=None
+            ),
+            "odds_refresh": odds_refresh.status(),
             "opportunities": combined[:limit],
         }
     except Exception as exc:

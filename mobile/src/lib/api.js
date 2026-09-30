@@ -62,7 +62,10 @@ export const api = {
   me: () => request("/me"),
   deleteMe: () => request("/me", { method: "DELETE" }),
   patchPrefs: (prefs) => request("/me/prefs", { method: "PATCH", body: prefs }),
-  opportunities: (limit = 40) => request(`/opportunities?limit=${limit}&include_tracked=false`),
+  // next 24h only: odds (and exchange lay liquidity) exist for that window
+  opportunities: (limit = 100) => request(`/opportunities?limit=${limit}&include_tracked=false&hours=24`),
+  refreshOdds: () => request("/odds/refresh", { method: "POST" }),
+  oddsRefreshStatus: () => request("/odds/refresh"),
   earlyGoal: (limit = 30) => request(`/features/early-goal?limit=${limit}`),
   chaos: (limit = 30) => request(`/features/chaos?limit=${limit}`),
   tracked: (status) => request(status ? `/tracked?status=${status}&limit=200` : "/tracked?limit=200"),

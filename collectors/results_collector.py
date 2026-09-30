@@ -14,7 +14,7 @@ from constants import API_FOOTBALL_KEY, SUPPORTED_LEAGUE_IDS
 from team_normalizer import normalize_team
 from database import DB_NAME
 from collectors import apisports as af
-from collectors.backfill_apisports import BATCH, fixtures_with_events
+from collectors.backfill_apisports import BATCH, fixtures_with_events, resolve_goals
 
 # The live collector may use the quota down to this (the historical backfill
 # stops much earlier, at APISPORTS_RESERVE).
@@ -475,6 +475,30 @@ def save_result(fixture_id, league, home_team, away_team, analysis, match_date=N
     conn.close()
 
 
+def rebuild_season():
+    """Back up, clear every live result (current season only) and re-collect it validated."""
+    from ops.backup import BackupError, backup_db
+    migrate_match_results()
+    create_processed_fixtures_table()
+    try:
+        backup_db("pre-results-rebuild")
+    except BackupError as exc:
+        print(f"[REBUILD] backup failed ({exc}) — refusing to clear results")
+        return 1
+    conn = get_db()
+    n = conn.execute("SELECT COUNT(*) FROM match_results").fetchone()[0]
+    conn.execute("DELETE FROM match_results")
+    conn.execute("DELETE FROM processed_fixtures")
+    try:
+        conn.execute("DELETE FROM live_goals")
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
+    print(f"[REBUILD] cleared {n} live results; re-collecting the season so far with validation")
+    return process_results(season_to_date=True)
+
+
 def process_results(lookback_days=None, force=False, season_to_date=False):
     """Returns 0 when complete, EXIT_PARTIAL when stopped by quota/network."""
     lookback_days = lookback_days if lookback_days is not None else LOOKBACK_DAYS
@@ -499,7 +523,7 @@ def process_results(lookback_days=None, force=False, season_to_date=False):
             sys.exit(1)
         print(f"[FORCE] season rebuild — lookback {lookback_days} days")
         clear_results_for_force(lookback_days)
-    processed = skipped = unsupported = failed = 0
+    processed = skipped = unsupported = failed = unvalidated = 0
     unmatched_leagues = set()
 
     todo = []
@@ -544,13 +568,36 @@ def process_results(lookback_days=None, force=False, season_to_date=False):
                 official_home = goals.get("home")
                 official_away = goals.get("away")
                 events = events_by_id.get(fixture_id) or []
-                if not events and official_home is None:
+                if official_home is None or official_away is None:
                     failed += 1
                     continue
+                # Same validation as the historical backfill: goal events must
+                # reproduce the official score (VAR-cancelled / duplicate goals,
+                # own-goal side, ordering). Otherwise skip — a fake 2-0 would be
+                # logged as a "failed to win". Not marked processed, so it's
+                # retried while still inside the lookback window.
+                goals, _rule, reason = resolve_goals(
+                    events,
+                    (fixture["teams"]["home"] or {}).get("id"),
+                    (fixture["teams"]["away"] or {}).get("id"),
+                    normalize_team(home_team), normalize_team(away_team),
+                    int(official_home), int(official_away),
+                )
+                if goals is None:
+                    unvalidated += 1
+                    if unvalidated <= 5:
+                        print(f"[UNVALIDATED] {fixture_id} {home_team} v {away_team}: {reason}")
+                    continue
+                clean_events = [
+                    {"type": "Goal", "detail": "Normal Goal",
+                     "team": {"name": home_team if side == 1 else away_team},
+                     "time": {"elapsed": minute}}
+                    for minute, side, *_ in goals
+                ]
                 analysis = analyze_match_events(
                     home_team,
                     away_team,
-                    events,
+                    clean_events,
                     official_home=official_home,
                     official_away=official_away,
                 )
@@ -571,6 +618,8 @@ def process_results(lookback_days=None, force=False, season_to_date=False):
             print(f"… {processed} processed so far")
 
     print(f"{processed} fixtures processed")
+    if unvalidated:
+        print(f"{unvalidated} fixtures skipped: goal events don't match the official score (retried next run)")
     print(f"{skipped} fixtures skipped (already processed)")
     print(f"{unsupported} unsupported leagues ignored")
     print(f"{failed} fixtures failed (will retry next run)")
@@ -602,10 +651,17 @@ if __name__ == "__main__":
         action="store_true",
         help="Fill the current season so far for every supported league (~1 call per league)",
     )
+    parser.add_argument(
+        "--rebuild-season",
+        action="store_true",
+        help="Back up, clear all live results and re-collect the season with score validation",
+    )
     args = parser.parse_args()
     if not API_FOOTBALL_KEY:
         print("[results] API_FOOTBALL_KEY is not set (see deploy/env.example)")
         sys.exit(2)
+    if args.rebuild_season:
+        sys.exit(rebuild_season())
     if args.force and args.season_to_date:
         print("--force cannot be combined with --season-to-date")
         sys.exit(2)

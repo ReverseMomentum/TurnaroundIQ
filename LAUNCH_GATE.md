@@ -16,7 +16,7 @@ Status as of 2026-09-30. ✅ done · 🟡 built, needs evidence · ⬜ not start
 | 4 | Automated `two_up.db` backup | ✅ nightly + post-live + before train/historical; **restore drill PASS 2026-09-30 12:20 UTC** (match_results 2381, historical 44603) | Off-box copy (should-have) | F |
 | 5 | Fresh opportunities, no stale junk | ✅ finished matches never served; kicked-off games dropped | Spot-check on 3 match days | PM |
 | 6 | Paper log running | 🟡 cron opens + settles FTA / Early / Chaos daily | 2+ weekends settled, reviewed weekly | PM |
-| 7 | App loads Pro / Opportunities / Early / Chaos | 🟡 Web app (PWA) at `app.turnaroundiq.co.uk`: email-code sign-in, Stripe checkout via RevenueCat Web Purchase Link, all screens on live API; sign-in → paywall → Pro → reload → sign-out verified in headless browser against a local API | DNS record, SMTP + AUTH_SECRET, RC Web Billing + purchase link, `bash deploy/build_web.sh`, test on iPhone | F |
+| 7 | App loads Pro / Opportunities / Early / Chaos | 🟡 **LIVE 2026-09-30**: web app at `app.turnaroundiq.co.uk`, emailed-code sign-in verified on iPhone (Brevo SMTP). Built: email-code sign-in, Stripe checkout via RevenueCat Web Purchase Link, all screens on live API; sign-in → paywall → Pro → reload → sign-out verified in headless browser against a local API | DNS record, SMTP + AUTH_SECRET, RC Web Billing + purchase link, `bash deploy/build_web.sh`, test on iPhone | F |
 | 8 | Disclaimer copy | 🟡 on every data screen + paywall (estimates not tips, 18+, BeGambleAware) | Founder/PM approve wording; Terms + Privacy URLs | PM |
 
 ### Model (for honest copy)
@@ -35,6 +35,12 @@ Not allowed: profit, "high confidence", "predicts turnarounds".
 2. VPS: `bash scripts/rc_check.sh webhook` → 200 / 401.
 3. TestFlight sandbox user: `bash scripts/rc_check.sh user <appUserID>` → 402 before purchase,
    200 after, 402 again after sandbox expiry (minutes).
+
+### Soft-launch access
+
+Testers sign in once at app.turnaroundiq.co.uk, then:
+`bash scripts/grant_pro.sh their@email.com 60` (free Pro, 60 days) ·
+`bash scripts/grant_pro.sh --list` · `... revoke`.
 
 ### App (mobile/)
 

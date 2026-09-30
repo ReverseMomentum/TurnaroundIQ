@@ -214,6 +214,18 @@ function calcExpectedProfit(ftaProfit, qualifyingLoss, ftaPct) {
   const p = ftaPct / 100;
   return ftaProfit * p - Math.abs(qualifyingLoss) * (1 - p);
 }
+// Highest lay price at which the model's expected profit is still >= 0 (null if none)
+function breakEvenLay(backOdds, stake, commission, ftaPct) {
+  if (!(backOdds > 1) || !(stake > 0) || !(ftaPct > 0)) return null;
+  let best = null;
+  for (let lay = Math.max(1.01, backOdds); lay <= backOdds * 2 + 1; lay = Math.round((lay + 0.01) * 100) / 100) {
+    const ls = calcLayStake(backOdds, lay, stake, commission);
+    const ev = calcExpectedProfit(calcFtaProfit(stake, backOdds, ls, commission), calcQualifyingLoss(backOdds, lay, stake, ls), ftaPct);
+    if (ev >= 0) best = lay;
+    else break;
+  }
+  return best;
+}
 function calcEvPercent(expectedProfit, qualifyingLoss) {
   const risk = Math.abs(qualifyingLoss);
   if (risk <= 0) return 0;
@@ -924,8 +936,8 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
       )}
 
       <SectionLabel>Stake calculator</SectionLabel>
-      <div style={card} className="rounded-xl p-4 mb-6">
-        <div className="flex items-end justify-between gap-3 mb-3">
+      <div style={card} className="rounded-xl p-4 mb-2">
+        <div className="flex items-end justify-between gap-3">
           <label className="min-w-0 flex-1 cursor-text">
             <span style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="block text-[10px] font-semibold uppercase mb-1">Back stake</span>
             <span className="flex items-baseline gap-1">
@@ -933,15 +945,21 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
               <input type="number" inputMode="decimal" step="1" value={stake} onChange={(e) => setStake(e.target.value)} style={{ background: "transparent", color: c.text, width: "100%" }} className="num text-3xl font-bold" />
             </span>
           </label>
+          <div className="grid grid-cols-2 gap-1.5 flex-shrink-0">
+            {[10, 25, 50, 100].map((v) => (
+              <button key={v} onClick={() => setStake(String(v))} style={chip(stakeNum === v)} className="rounded-md w-[52px] py-1 text-[11px] font-semibold num">£{v}</button>
+            ))}
+          </div>
         </div>
-        <div className="grid grid-cols-4 gap-2 mb-4">
-          {[10, 25, 50, 100].map((v) => (
-            <button key={v} onClick={() => setStake(String(v))} style={chip(stakeNum === v)} className="rounded-lg py-1.5 text-xs font-semibold num">£{v}</button>
-          ))}
+      </div>
+      <div style={card} className="rounded-xl grid grid-cols-2 mb-6">
+        <div className="py-3.5 flex flex-col items-center text-center">
+          <p style={{ color: c.textMuted, letterSpacing: "0.1em" }} className="text-[10px] font-semibold uppercase leading-none">Lay stake</p>
+          <p style={{ color: c.cyan }} className="num text-xl font-bold leading-none mt-2">£{layStake.toFixed(2)}</p>
         </div>
-        <div style={{ borderTop: "1px solid " + c.border }} className="grid grid-cols-2 gap-3 pt-3">
-          <div><p style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mb-1">Lay stake</p><p style={{ color: c.cyan }} className="num text-xl font-bold">£{layStake.toFixed(2)}</p></div>
-          <div><p style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mb-1">Liability</p><p style={{ color: c.orange }} className="num text-xl font-bold">£{liability.toFixed(2)}</p></div>
+        <div style={{ borderLeft: "1px solid " + c.border }} className="py-3.5 flex flex-col items-center text-center">
+          <p style={{ color: c.textMuted, letterSpacing: "0.1em" }} className="text-[10px] font-semibold uppercase leading-none">Liability</p>
+          <p style={{ color: c.orange }} className="num text-xl font-bold leading-none mt-2">£{liability.toFixed(2)}</p>
         </div>
       </div>
 
@@ -963,6 +981,15 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
         </div>
         <p style={{ color: c.textMuted }} className="text-xs text-right num">{ev.toFixed(0)}% of risk<br />per £{stakeNum || 0} staked</p>
       </div>
+      {(() => {
+        const be = breakEvenLay(backNum, stakeNum, commNum, o.fta_pct);
+        return (
+          <div style={card} className="rounded-xl px-4 py-3 flex items-center justify-between gap-3 mb-4">
+            <span style={{ color: c.textSecondary }} className="text-xs">{be ? "Worth it if the live lay is" : "No break-even lay at this back price"}</span>
+            {be && <span style={{ color: layNum && layNum <= be ? c.green : c.orange }} className="num text-base font-bold">≤ {be.toFixed(2)}</span>}
+          </div>
+        );
+      })()}
       {layEstimated && (
         <p style={{ color: c.textMuted }} className="text-[11px] mb-4">
           Back price: best UK bookmaker price we found{o.odds_updated_at ? " (checked " + formatKickoff(o.odds_updated_at) + ")" : ""}. Lay is estimated from the market's fair price.

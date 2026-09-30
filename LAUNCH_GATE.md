@@ -11,7 +11,7 @@ Status as of 2026-09-30. ✅ done · 🟡 built, needs evidence · ⬜ not start
 | # | Gate | Status | Remaining to tick | Owner |
 |---|---|---|---|---|
 | 1 | API stable, Pro-only opportunities | ✅ systemd + Caddy, HTTPS live at `api.turnaroundiq.co.uk`; 401/402 enforced + tested; `/health` 503 on empty DB | 7 days of `/health` 200 | F |
-| 2 | RevenueCat end-to-end (web: Stripe via Web Purchase Link) | 🟢 **LIVE 2026-09-30**: real £9.99 purchase via production purchase link → Stripe subscription active → `/me` shows Pro (entitlement `pro`, V1 secret key); non-subscriber → 402 | Webhook check (`rc_check.sh webhook` → 200/401); cancel/refund → expiry → 402 on next renewal | F → PM |
+| 2 | RevenueCat end-to-end (web: Stripe via Web Purchase Link) | 🟢 **LIVE 2026-09-30**: real £9.99 purchase via production purchase link → Stripe subscription active → `/me` shows Pro (entitlement `pro`, V1 secret key); non-subscriber → 402 ; webhook live in RC dashboard, signed 200 / wrong secret 401 | Cancel/refund → expiry → 402 observed on a real account | F → PM |
 | 3 | Match-day collection unattended | 🟡 cron installed; season-to-date filled; events batched, retries, quota reserve | 2 match weekends without manual runs (`logs/live.log`) | F |
 | 4 | Automated `two_up.db` backup | ✅ nightly + post-live + before train/historical; **restore drill PASS 2026-09-30 12:20 UTC** (match_results 2381, historical 44603) | Off-box copy (should-have) | F |
 | 5 | Fresh opportunities, no stale junk | ✅ finished matches never served; kicked-off games dropped | Spot-check on 3 match days | PM |

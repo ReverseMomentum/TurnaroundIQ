@@ -53,6 +53,10 @@ SUPPORTED_LEAGUE_IDS = {
     218: "Austrian Bundesliga",
     207: "Swiss Super League",
     71: "Brasileirao",
+    # Youth (England, U21): ~1.4-1.5x the average turnaround rate in 2023-25
+    # because far more games reach 2-up (scripts/league_scout.py probe).
+    702: "Premier League 2",
+    703: "Professional Development League",
 }
 
 SUPPORTED_LEAGUES = list(SUPPORTED_LEAGUE_IDS.values())

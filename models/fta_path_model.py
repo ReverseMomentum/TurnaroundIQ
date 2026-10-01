@@ -13,9 +13,12 @@ walk-forward numbers are honest and training matches what the app sees.
     python -u models/fta_path_model.py compare        # base vs +behaviour vs +over/under
 
 Training tests each candidate input set on the same held-back matches and keeps
-an addition only if it improves out-of-sample log loss. The full-event FTA% is
-then calibrated (Platt scaling fitted on walk-forward, out-of-sample predictions)
-so a displayed 2.4% means roughly 2.4% of such games turn around.
+an addition only if it improves out-of-sample log loss. It does the same for
+recency weighting (recent seasons counting more when fitting, because the FTA
+rate has drifted upwards). The full-event FTA% is then calibrated (Platt scaling
+fitted on walk-forward, out-of-sample predictions, recency-weighted if that
+predicts the latest period better) so a displayed 2.4% means roughly 2.4% of
+such games turn around.
 
 Serving: predict_fixture(team, opponent, league, is_home) rebuilds team
 state from the DB (cached STATE_TTL seconds), so new live results count
@@ -45,6 +48,10 @@ from team_normalizer import normalize_team
 MODEL_FILE = PROJECT_ROOT / "fta_path_model.pkl"
 VERSION = "V6-path"
 HALF_LIFE_DAYS = 365.0
+# Training-time recency weighting: a match this many days older than the newest
+# counts half as much when fitting and calibrating. train() tries each option on
+# the held-back latest matches and keeps one only if it predicts them better.
+RECENCY_OPTIONS = [None, 1460.0, 730.0]  # None = every season counts the same
 EARLY_MINUTE = 30
 LATE_MINUTE = 75        # "late" goals: 76th minute onwards
 EARLY_2UP_MINUTE = 60   # 2-ups before this leave the opponent lots of time
@@ -420,7 +427,16 @@ def _logit(p, eps=1e-6):
     return np.log(p / (1 - p))
 
 
-def _fit_stage(X, y):
+def recency_weights(days, half_life=None, ref_day=None):
+    """0.5 ** (age / half_life), age in days before ref_day (default: newest). None -> all 1."""
+    days = np.asarray(days, dtype=float)
+    if half_life is None or not len(days):
+        return np.ones(len(days))
+    ref = days.max() if ref_day is None else ref_day
+    return 0.5 ** (np.clip(ref - days, 0, None) / half_life)
+
+
+def _fit_stage(X, y, w=None):
     """
     Regularised logistic regression on standardised features. Chosen over
     gradient boosting after testing: the conditional stage (fail once 2-up)
@@ -432,7 +448,10 @@ def _fit_stage(X, y):
     from sklearn.preprocessing import StandardScaler
 
     model = make_pipeline(StandardScaler(), LogisticRegression(C=0.1, max_iter=2000))
-    model.fit(X, y)
+    if w is None:
+        model.fit(X, y)
+    else:
+        model.fit(X, y, logisticregression__sample_weight=w)
     return model, None
 
 
@@ -457,11 +476,14 @@ def _metrics(y, p):
     return out
 
 
-def _fit_pair(rows, feats):
-    Xa, ya, _ = _xy(rows, "up2", feats=feats)
-    Xb, yb, _ = _xy(rows, "fail", where=lambda r: r["up2"] == 1, feats=feats)
-    ma, _ = _fit_stage(Xa, ya)
-    mb, _ = _fit_stage(Xb, yb)
+def _fit_pair(rows, feats, half_life=None):
+    Xa, ya, sa = _xy(rows, "up2", feats=feats)
+    Xb, yb, sb = _xy(rows, "fail", where=lambda r: r["up2"] == 1, feats=feats)
+    ref = max((r["day"] for r in rows), default=0)
+    wa = recency_weights([r["day"] for r in sa], half_life, ref) if half_life else None
+    wb = recency_weights([r["day"] for r in sb], half_life, ref) if half_life else None
+    ma, _ = _fit_stage(Xa, ya, wa)
+    mb, _ = _fit_stage(Xb, yb, wb)
     return ma, mb, ya, yb
 
 
@@ -472,7 +494,7 @@ def _sigmoid(z):
 MIN_CAL_SLOPE = 0.25  # calibration may shrink the spread, never flatten or flip the ranking
 
 
-def platt_fit(y, p):
+def platt_fit(y, p, w=None):
     """Two-parameter calibration of full-event probabilities: logit(p') = a*logit(p) + b.
 
     If the fitted slope is below MIN_CAL_SLOPE (the model barely ranks out of
@@ -482,16 +504,17 @@ def platt_fit(y, p):
     from sklearn.linear_model import LogisticRegression
     y = np.asarray(y, dtype=int)
     z = _logit(p)
+    w = np.ones(len(y)) if w is None else np.asarray(w, dtype=float)
     lr = LogisticRegression(C=1e4, max_iter=1000)
-    lr.fit(z.reshape(-1, 1), y)
+    lr.fit(z.reshape(-1, 1), y, sample_weight=w)
     a, b = float(lr.coef_[0][0]), float(lr.intercept_[0])
     if a < MIN_CAL_SLOPE:
         a = MIN_CAL_SLOPE
-        target = y.mean()
+        target = np.average(y, weights=w)
         lo, hi = -20.0, 20.0
         for _ in range(80):  # bisection: mean(sigmoid(a*z + b)) == observed rate
             b = (lo + hi) / 2
-            if _sigmoid(a * z + b).mean() > target:
+            if np.average(_sigmoid(a * z + b), weights=w) > target:
                 hi = b
             else:
                 lo = b
@@ -532,6 +555,64 @@ def _choose(label_a, ha, label_b, hb):
     return better
 
 
+def _hl_label(half_life):
+    return "equal" if not half_life else f"half-life {half_life / 365:.0f}y"
+
+
+def choose_recency(rows, feats, h_equal):
+    """Try each RECENCY_OPTIONS half-life on the held-back latest matches.
+
+    Keeps the best log loss among options that beat equal weighting by the same
+    rule as other additions (lower log loss, AUC no worse than -0.002).
+    Returns (half_life or None, {label: holdout score}).
+    """
+    scores = {_hl_label(None): h_equal}
+    best, best_h = None, h_equal
+    print(f"  {_hl_label(None):<24} log loss {h_equal['log_loss']:.5f}  AUC {h_equal['auc']:.3f}  "
+          f"predicted {100 * h_equal.get('pred', 0):.2f}% vs actual {100 * h_equal.get('actual', 0):.2f}%")
+    for hl in RECENCY_OPTIONS:
+        if hl is None:
+            continue
+        h = _holdout_score(rows, feats=feats, half_life=hl)
+        scores[_hl_label(hl)] = h
+        ok = h["log_loss"] < h_equal["log_loss"] - 1e-5 and h["auc"] >= h_equal["auc"] - 0.002
+        print(f"  {_hl_label(hl):<24} log loss {h['log_loss']:.5f}  AUC {h['auc']:.3f}  "
+              f"predicted {100 * h.get('pred', 0):.2f}% vs actual {100 * h.get('actual', 0):.2f}%"
+              f"  {'(better)' if ok else ''}")
+        if ok and h["log_loss"] < best_h["log_loss"]:
+            best, best_h = hl, h
+    print(f"  -> using {_hl_label(best)}")
+    return best, scores
+
+
+def choose_cal_recency(results):
+    """Fit calibration on all walk-forward folds but the last, score it on the last.
+
+    Each RECENCY_OPTIONS half-life weights the calibration towards the newest
+    earlier matches; the one with the lowest log loss on the last fold is used.
+    """
+    from sklearn.metrics import log_loss
+
+    if len(results) < 2:
+        return None, {}
+    prior_y = np.concatenate([r["y"] for r in results[:-1]])
+    prior_p = np.concatenate([r["p"] for r in results[:-1]])
+    prior_d = np.concatenate([r["days"] for r in results[:-1]])
+    test_y, test_p = results[-1]["y"], results[-1]["p"]
+    out, best, best_ll = {}, None, None
+    for hl in RECENCY_OPTIONS:
+        ab = platt_fit(prior_y, prior_p, recency_weights(prior_d, hl))
+        pc = platt_apply(ab, test_p)
+        ll = float(log_loss(test_y, np.clip(pc, 1e-6, 1 - 1e-6), labels=[0, 1]))
+        out[_hl_label(hl)] = {"log_loss": ll, "pred": float(pc.mean()), "actual": float(test_y.mean())}
+        print(f"  {_hl_label(hl):<24} log loss {ll:.5f}  predicted {100 * pc.mean():.2f}% "
+              f"vs actual {100 * test_y.mean():.2f}%")
+        if best_ll is None or ll < best_ll - 1e-6:
+            best, best_ll = hl, ll
+    print(f"  -> using {_hl_label(best)}")
+    return best, out
+
+
 def train(save=True):
     matches = load_matches()
     rows, _, _ = replay(matches)
@@ -552,29 +633,38 @@ def train(save=True):
         feats += BEHAVIOUR_FEATURES
         holdout = h_beh
 
+    print("\nRecency weighting (recent seasons count more when fitting):")
+    half_life, recency = choose_recency(rows, feats, holdout)
+    holdout = recency[_hl_label(half_life)]
+
     ou_rows = [r for r in rows if r.get("has_ou")]
     ou = None
     print(f"\nOver/under 2.5 prices on {len(ou_rows)} of {n_a} team-sides "
           f"({100 * len(ou_rows) / max(n_a, 1):.0f}%)")
     ou_report = None
     if len(ou_rows) >= MIN_ROWS_A:
-        h_c = _holdout_score(ou_rows, feats=feats)
-        h_ou = _holdout_score(ou_rows, feats=feats + OU_FEATURES)
+        h_c = _holdout_score(ou_rows, feats=feats, half_life=half_life)
+        h_ou = _holdout_score(ou_rows, feats=feats + OU_FEATURES, half_life=half_life)
         use_ou = _choose("same games, no O/U", h_c, "+ over/under 2.5", h_ou)
         ou_report = {"without": h_c, "with": h_ou, "used": use_ou}
         if use_ou:
-            ma, mb, _, _ = _fit_pair(ou_rows, feats + OU_FEATURES)
-            _, yo, po = _walk(ou_rows, feats + OU_FEATURES, verbose=False)
+            ma, mb, _, _ = _fit_pair(ou_rows, feats + OU_FEATURES, half_life)
+            res_o, yo, po = _walk(ou_rows, feats + OU_FEATURES, verbose=False, half_life=half_life)
+            do = np.concatenate([r["days"] for r in res_o])
             ou = {"features": feats + OU_FEATURES, "model_a": ma, "model_b": mb,
-                  "cal_full": platt_fit(yo, po), "rows": len(ou_rows)}
+                  "cal_full": platt_fit(yo, po, recency_weights(do, half_life)),
+                  "rows": len(ou_rows)}
     else:
         print("  not enough games with over/under prices to test "
               "(run collectors/odds_history_fd.py)")
 
-    model_a, model_b, ya, yb = _fit_pair(rows, feats)
+    model_a, model_b, ya, yb = _fit_pair(rows, feats, half_life)
     # Calibration from out-of-sample (walk-forward) predictions only.
-    _, y_oof, p_oof = _walk(rows, feats, verbose=False)
-    cal = platt_fit(y_oof, p_oof)
+    res_oof, y_oof, p_oof = _walk(rows, feats, verbose=False, half_life=half_life)
+    print("\nCalibration weighting, tested on the latest walk-forward period:")
+    cal_half_life, cal_test = choose_cal_recency(res_oof)
+    d_oof = np.concatenate([r["days"] for r in res_oof])
+    cal = platt_fit(y_oof, p_oof, recency_weights(d_oof, cal_half_life))
     print()
     ece_raw = _band_table(y_oof, p_oof, "Out-of-sample FTA% before calibration:")
     ece_cal = _band_table(y_oof, platt_apply(cal, p_oof), "After calibration:")
@@ -587,18 +677,22 @@ def train(save=True):
         "cal_full": cal,
         "ou": ou,
         "half_life_days": HALF_LIFE_DAYS,
+        "recency_half_life_days": half_life,
+        "cal_half_life_days": cal_half_life,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "rows_a": int(len(ya)), "rows_b": int(len(yb)),
         "base_2up": float(ya.mean()), "base_fail": float(yb.mean()),
         "base_full": float(np.mean([r["fail"] for r in rows])),
         "holdout": holdout,
         "selection": {"base": h_base, "behaviour": h_beh,
-                      "behaviour_used": feats != BASE_FEATURES, "ou": ou_report},
+                      "behaviour_used": feats != BASE_FEATURES, "ou": ou_report,
+                      "recency": recency, "calibration_recency": cal_test},
         "calibration_gap": {"before": ece_raw, "after": ece_cal},
     }
     print(f"\nheld-out (latest 15%): full-event AUC {holdout['auc']:.3f}  "
           f"Brier {holdout['brier']:.4f}  skill vs flat rate {100 * holdout['skill']:+.1f}%")
     print(f"inputs: {len(feats)} ({'with' if feats != BASE_FEATURES else 'without'} behaviour), "
+          f"recency {_hl_label(half_life)}, calibration {_hl_label(cal_half_life)}, "
           f"over/under variant {'ON' if ou else 'off'}, calibration gap "
           f"{ece_raw:.2f} -> {ece_cal:.2f} points")
     if save:
@@ -614,14 +708,15 @@ def train(save=True):
                 log_loss=holdout["log_loss"], roc_auc=holdout["auc"],
                 notes=(f"full event = P(2up) x P(fail|2up), calibrated; held-out latest 15%; "
                        f"behaviour {'on' if feats != BASE_FEATURES else 'off'}; "
-                       f"O/U {'on' if ou else 'off'}; skill vs flat {100 * holdout['skill']:+.1f}%"),
+                       f"O/U {'on' if ou else 'off'}; recency {_hl_label(half_life)}; "
+                       f"skill vs flat {100 * holdout['skill']:+.1f}%"),
             )
         except Exception as exc:
             print(f"[path-model] could not record model run: {exc}")
     return bundle
 
 
-def _holdout_score(rows, frac=0.15, feats=None):
+def _holdout_score(rows, frac=0.15, feats=None, half_life=None):
     """Fit on the earliest 85% of team-sides, score the full event on the rest."""
     from sklearn.metrics import brier_score_loss, log_loss
 
@@ -629,7 +724,7 @@ def _holdout_score(rows, frac=0.15, feats=None):
     rows = sorted(rows, key=lambda r: r["day"])
     cut = int(len(rows) * (1 - frac))
     train_rows, test_rows = rows[:cut], rows[cut:]
-    ma, mb, _, _ = _fit_pair(train_rows, feats)
+    ma, mb, _, _ = _fit_pair(train_rows, feats, half_life)
     Xt, _, sel = _xy(test_rows, "up2", feats=feats)
     p = _predict_stage(ma, None, Xt) * _predict_stage(mb, None, Xt)
     y = np.array([r["fail"] for r in sel])
@@ -640,7 +735,7 @@ def _holdout_score(rows, frac=0.15, feats=None):
         "auc": m["auc"] or 0.5, "brier": m["brier"],
         "log_loss": float(log_loss(y, np.clip(p, 1e-6, 1 - 1e-6), labels=[0, 1])),
         "skill": 1 - m["brier"] / brier_flat if brier_flat else 0.0,
-        "n": int(len(y)),
+        "n": int(len(y)), "pred": m["pred"], "actual": m["actual"],
     }
 
 
@@ -649,7 +744,7 @@ def _holdout_score(rows, frac=0.15, feats=None):
 FULL_BANDS = [0.0, 1.0, 2.0, 3.0, 4.0, 100.0]
 
 
-def _walk(rows, feats, folds=5, min_train_frac=0.3, verbose=True):
+def _walk(rows, feats, folds=5, min_train_frac=0.3, verbose=True, half_life=None):
     """Expanding-window walk-forward. Returns (fold results, pooled y, pooled p)."""
     from sklearn.metrics import brier_score_loss
 
@@ -660,13 +755,10 @@ def _walk(rows, feats, folds=5, min_train_frac=0.3, verbose=True):
     pooled_y, pooled_p, results = [], [], []
     for k in range(folds):
         train_rows, test_rows = rows[:edges[k]], rows[edges[k]:edges[k + 1]]
-        Xa, ya, _ = _xy(train_rows, "up2", feats=feats)
-        Xb, yb, _ = _xy(train_rows, "fail", where=lambda r: r["up2"] == 1, feats=feats)
-        ma, ca = _fit_stage(Xa, ya)
-        mb, cb = _fit_stage(Xb, yb)
+        ma, mb, _, _ = _fit_pair(train_rows, feats, half_life)
         Xt, _, sel = _xy(test_rows, "up2", feats=feats)
-        pa = _predict_stage(ma, ca, Xt)
-        pb = _predict_stage(mb, cb, Xt)
+        pa = _predict_stage(ma, None, Xt)
+        pb = _predict_stage(mb, None, Xt)
         full = pa * pb
         y_full = np.array([r["fail"] for r in sel])
         y_a = np.array([r["up2"] for r in sel])
@@ -680,7 +772,8 @@ def _walk(rows, feats, folds=5, min_train_frac=0.3, verbose=True):
         d0 = date.fromordinal(test_rows[0]["day"]).isoformat()
         d1 = date.fromordinal(test_rows[-1]["day"]).isoformat()
         results.append({"from": d0, "to": d1, "full": m_full, "a": m_a, "b": m_b,
-                        "skill": skill, "y": y_full, "p": full})
+                        "skill": skill, "y": y_full, "p": full,
+                        "days": np.array([r["day"] for r in sel], dtype=float)})
         pooled_y.extend(y_full)
         pooled_p.extend(full)
         if verbose:
@@ -702,21 +795,29 @@ def walk_forward(folds=5, min_train_frac=0.3, feats=None):
     rows, _, _ = replay(load_matches())
     if len(rows) < MIN_ROWS_A:
         raise SystemExit(f"Only {len(rows)} team-sides — need {MIN_ROWS_A}.")
+    bundle = load_bundle() or {}
     if feats is None:
-        bundle = load_bundle()
-        feats = bundle["features"] if bundle else BASE_FEATURES
-    print(f"inputs: {len(feats)} ({'with' if len(feats) > len(BASE_FEATURES) else 'without'} behaviour)")
-    results, y, p = _walk(rows, feats, folds, min_train_frac)
+        feats = bundle.get("features") or BASE_FEATURES
+    half_life = bundle.get("recency_half_life_days")
+    cal_half_life = bundle.get("cal_half_life_days")
+    print(f"inputs: {len(feats)} ({'with' if len(feats) > len(BASE_FEATURES) else 'without'} behaviour), "
+          f"fit {_hl_label(half_life)}, calibration {_hl_label(cal_half_life)}")
+    results, y, p = _walk(rows, feats, folds, min_train_frac, half_life=half_life)
     print()
     _band_table(y, p, "Calibration (all test folds, raw) — predicted full-event % vs what happened")
     # Honest calibrated check: each fold is calibrated only on earlier folds.
+    print()
     yc, pc = [], []
     for k in range(1, len(results)):
         prior_y = np.concatenate([r["y"] for r in results[:k]])
         prior_p = np.concatenate([r["p"] for r in results[:k]])
-        ab = platt_fit(prior_y, prior_p)
+        prior_d = np.concatenate([r["days"] for r in results[:k]])
+        ab = platt_fit(prior_y, prior_p, recency_weights(prior_d, cal_half_life))
+        fold_p = platt_apply(ab, results[k]["p"])
         yc.extend(results[k]["y"])
-        pc.extend(platt_apply(ab, results[k]["p"]))
+        pc.extend(fold_p)
+        print(f"fold {k + 1} calibrated: predicted {100 * fold_p.mean():.2f}% "
+              f"vs actual {100 * results[k]['y'].mean():.2f}%")
     if yc:
         print()
         _band_table(np.array(yc), np.array(pc),

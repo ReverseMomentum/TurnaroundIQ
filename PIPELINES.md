@@ -45,6 +45,12 @@ V6 additions (each kept only if it wins on held-back matches at train time):
 - **Calibration** — Platt scaling of the full-event FTA% fitted on walk-forward
   (out-of-sample) predictions. `walk-forward` prints raw vs calibrated bands,
   calibrating each fold only on earlier folds.
+- **Recency weighting** — the FTA rate has drifted up (fail once 2-up ~7% in
+  2016 to ~9% in 2026), so `train` also tries fitting with recent seasons
+  weighted more (half-life 4y / 2y vs equal) on the held-back latest matches,
+  and weights the calibration the same way if that predicts the latest
+  walk-forward period better. The choice is stored in the bundle and reused by
+  `walk-forward`, which also prints calibrated predicted vs actual per fold.
 
 ```bash
 python -u run.py model-compare   # V5 inputs vs + behaviour vs + over/under, walk-forward

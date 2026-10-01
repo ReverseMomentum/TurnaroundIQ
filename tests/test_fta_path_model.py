@@ -255,3 +255,31 @@ def test_calibration_never_flattens_the_ranking():
     assert np.all(np.diff(out[np.argsort(p)]) >= -1e-12)  # order preserved
     assert out.std() > 0.001                                # still spread out
     assert abs(out.mean() - y.mean()) < 0.002               # level corrected
+
+
+def test_recency_weights_halve_per_half_life():
+    w = pm.recency_weights([1000, 1365, 1730], half_life=365)
+    assert np.allclose(w, [0.25, 0.5, 1.0])
+    assert np.allclose(pm.recency_weights([1, 2, 3]), 1.0)  # None -> equal
+
+
+def test_weighted_calibration_follows_the_recent_rate():
+    # Same forecasts throughout; the real rate rises from 1.5% (old) to 3% (recent).
+    rng = np.random.default_rng(9)
+    days = np.arange(40000, dtype=float)
+    p = rng.uniform(0.01, 0.04, len(days))
+    rate = np.where(days < 30000, 0.015, 0.03)
+    y = (rng.random(len(days)) < rate).astype(int)
+    flat = pm.platt_apply(pm.platt_fit(y, p), p).mean()
+    recent = pm.platt_apply(pm.platt_fit(y, p, pm.recency_weights(days, 3000)), p).mean()
+    assert abs(recent - 0.03) < abs(flat - 0.03)
+    assert recent > flat
+
+
+def test_train_records_recency_choice(sim_db):
+    bundle = pm.train()
+    assert "recency_half_life_days" in bundle and "cal_half_life_days" in bundle
+    assert bundle["recency_half_life_days"] in pm.RECENCY_OPTIONS
+    assert bundle["cal_half_life_days"] in pm.RECENCY_OPTIONS
+    assert set(bundle["selection"]["recency"]) >= {"equal"}
+    pm.walk_forward(folds=3)

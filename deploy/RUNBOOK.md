@@ -177,6 +177,22 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 3. Cancel → still **200** until `expires_at`
 4. After sandbox expiry (minutes) → **402**, app shows paywall
 
+## 5b. Free beta
+
+Every signed-in account gets Pro until the date, then the normal paywall returns
+by itself. Beta users see a banner with the end date and a Subscribe button.
+
+```bash
+bash deploy/set_env.sh BETA_FREE_UNTIL 2026-11-30 && sudo systemctl restart turnaroundiq-api
+bash deploy/set_env.sh BETA_MAX_USERS 50 && sudo systemctl restart turnaroundiq-api      # optional cap
+bash deploy/set_env.sh BETA_FOUNDER_PRICE £6.99 && sudo systemctl restart turnaroundiq-api  # optional
+bash deploy/set_env.sh BETA_FREE_UNTIL 2000-01-01 && sudo systemctl restart turnaroundiq-api  # end early
+```
+
+The founding price itself is a RevenueCat/Stripe product: make it the current
+offering during the beta, switch back to the £9.99 product after. Existing
+Stripe subscriptions keep the price they signed up at.
+
 ## 6. Incidents
 
 | Symptom | First action |

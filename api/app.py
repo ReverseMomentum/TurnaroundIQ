@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from billing import beta
 from billing.revenuecat import management_url as revenuecat_management_url
 from billing.revenuecat import (
     apply_webhook,
@@ -234,7 +235,7 @@ def auth_logout(authorization: str | None = Header(default=None)):
 
 def require_pro(authorization: str | None) -> str:
     user_id = user_from_auth(authorization)
-    if not is_entitled(user_id):
+    if not (is_entitled(user_id) or beta.covers(user_id)):
         raise HTTPException(
             status_code=402,
             detail={
@@ -528,14 +529,16 @@ def health():
 @app.get("/me")
 def me(authorization: str | None = Header(default=None)):
     user_id = user_from_auth(authorization)
-    entitled = is_entitled(user_id, refresh=True)
+    paid = is_entitled(user_id, refresh=True)
+    beta_info = beta.info(user_id)
+    entitled = paid or beta_info["active"]
     row = get_subscriber_row(user_id) or {}
     prefs = get_prefs(user_id)
     paper = tracked_store.summary(user_id) if entitled else None
     web_link = os.environ.get("RC_WEB_PURCHASE_LINK", "").strip().rstrip("/")
     purchase_url = (
         f"{web_link}/{quote(user_id, safe='')}"
-        if web_link and user_id.startswith("u_") and not entitled else None
+        if web_link and user_id.startswith("u_") and not paid else None
     )
     return {
         "app_user_id": user_id,
@@ -543,8 +546,10 @@ def me(authorization: str | None = Header(default=None)):
         "purchase_url": purchase_url,
         "management_url": revenuecat_management_url(user_id),
         "entitled": entitled,
+        "paid": paid,
+        "beta": beta_info,
         "entitlement": row.get("entitlement") or ("pro" if entitled else "free"),
-        "status": row.get("status") or ("active" if entitled else "free"),
+        "status": ("beta" if entitled and not paid else row.get("status") or ("active" if paid else "free")),
         "expires_at": row.get("expires_at"),
         "product_id": row.get("product_id"),
         "environment": row.get("environment"),

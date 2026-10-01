@@ -39,6 +39,7 @@ import {
   Mail,
   ChevronDown,
   Check,
+  Sparkles,
 } from "lucide-react";
 
 import { LOGO_SRC } from "./logo";
@@ -326,7 +327,45 @@ const NAV_MORE = [
   { key: "settings", icon: Settings, label: "Settings" },
 ];
 
+function isBeta(me) {
+  return Boolean(me?.beta?.active && !me?.paid);
+}
+
+function betaDate(me) {
+  const d = me?.beta?.until;
+  return d ? new Date(d + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
+}
+
+// Shown to beta users who haven't subscribed: when the beta ends + how to keep access.
+function BetaBanner({ compact }) {
+  const { me } = useContext(Account);
+  if (!isBeta(me)) return null;
+  const founder = me.beta.founder_price;
+  return (
+    <div style={{ ...accentCard }} className={"rounded-2xl p-4 " + (compact ? "" : "mb-5 lg:mb-6")}>
+      <div className="flex items-start gap-3">
+        <Sparkles size={18} style={{ color: c.green, flexShrink: 0, marginTop: 2 }} />
+        <div className="flex-1 min-w-0">
+          <p style={{ color: c.green, letterSpacing: "0.14em" }} className="text-[11px] font-bold uppercase">Free beta · until {betaDate(me)}</p>
+          <p style={{ color: c.text }} className="text-sm mt-1">
+            {founder
+              ? <>Everything is unlocked. Subscribe before the beta ends to lock in the founding-member price of <span className="num font-semibold">{founder}</span>/month for as long as you stay subscribed.</>
+              : <>Everything is unlocked. Pro is {PRO_PRICE}/month after the beta.</>}
+          </p>
+          {me.purchase_url && (
+            <button onClick={() => openWebCheckout(me.purchase_url)} style={primaryBtn} className="rounded-xl px-4 py-2 text-xs font-semibold mt-3">
+              {founder ? "Lock in " + founder + "/month" : "Subscribe"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProBadge({ entitled }) {
+  const { me } = useContext(Account);
+  const beta = entitled && isBeta(me);
   return (
     <span
       style={{
@@ -337,7 +376,7 @@ function ProBadge({ entitled }) {
       }}
       className="text-[11px] font-bold uppercase px-3 py-1.5 rounded-lg"
     >
-      {entitled ? "Pro" : "Free"}
+      {beta ? "Beta" : entitled ? "Pro" : "Free"}
     </span>
   );
 }
@@ -1080,6 +1119,7 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
 
   return (
     <PageShell activeTab="dashboard" onNavigate={nav} entitled={entitled}>
+      <BetaBanner />
       <div className="hidden lg:block"><PageTitle title="Dashboard" subtitle="Early-payout (2-up) opportunities for games kicking off in the next 24 hours." /></div>
       <div style={card} className="rounded-xl grid grid-cols-4 mb-6 lg:mb-8">
         {[
@@ -1820,6 +1860,7 @@ function subscriptionStatusText(me) {
   const dateStr = me.expires_at ? new Date(me.expires_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : null;
   switch (status) {
     case "active": return { text: dateStr ? "Renews " + dateStr : "Active", tone: c.green };
+    case "beta": return { text: "Free beta until " + betaDate(me), tone: c.green };
     case "cancelled": return { text: "Cancelled — access until " + dateStr, tone: c.orange };
     case "billing_issue": return { text: "Payment problem — update it in your store account", tone: c.red };
     case "expired": return { text: "Expired", tone: c.red };
@@ -1862,7 +1903,7 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
     }
   };
   const deleteAccount = async () => {
-    const warn = entitled
+    const warn = me?.paid
       ? "Cancel your subscription first (Manage subscription) — deleting your account does not stop payments.\n\n"
       : "";
     if (!window.confirm(warn + "Delete your account and all its data? This can't be undone.")) return;
@@ -1891,7 +1932,15 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
 
       <p style={{ color: c.textSecondary }} className="text-[11px] font-semibold uppercase tracking-wider mb-2">Subscription</p>
       <div style={card} className="rounded-xl px-4 mb-5">
-        {entitled && (isNative || me?.management_url) ? (
+        {isBeta(me) && me?.purchase_url ? (
+          <button onClick={() => openWebCheckout(me.purchase_url)} style={{ borderBottom: "1px solid " + c.border }} className="w-full flex items-center gap-3 py-3 text-left">
+            <CreditCard size={18} style={{ color: c.green }} />
+            <span style={{ color: c.text }} className="text-sm flex-1">
+              Subscribe{me.beta.founder_price ? " — " + me.beta.founder_price + "/month founding price" : ""}
+            </span>
+            <ChevronRight size={16} style={{ color: c.textSecondary }} />
+          </button>
+        ) : entitled && (isNative || me?.management_url) ? (
           <button onClick={() => manageSubscription(me?.management_url)} style={{ borderBottom: "1px solid " + c.border }} className="w-full flex items-center gap-3 py-3 text-left">
             <CreditCard size={18} style={{ color: c.green }} />
             <span style={{ color: c.text }} className="text-sm flex-1">Manage subscription</span>

@@ -1,0 +1,57 @@
+# TurnaroundIQ — context for a new chat
+
+Read this first. It is what a fresh session needs to work on this repo.
+
+## The founder and how they work
+- Solo founder. Works only from an iPhone, using Termius over SSH to a Contabo VPS.
+- **Every VPS command must be one single copy-pastable line.** Never a multi-line
+  heredoc or a multi-line `python -c`. If it needs more than one line, write it as
+  a script in the repo.
+- Pushing straight to `main` is authorised. Deploying on the VPS means
+  `cd ~/TurnaroundIQ && git pull -q origin main && ...`.
+- **Wording must stay honest:** no profit claims, no "predicts", no "high
+  confidence", no guarantees. Say 18+ and BeGambleAware wherever relevant. These
+  match the UK ad rules (CAP code section 16 and the ASA's tipster guidance).
+- Never put model identifiers in commits or code.
+
+## Stack
+- **API:** FastAPI app in `api/app.py`, run by systemd as `turnaroundiq-api`.
+- **Data:** SQLite, `two_up.db`.
+- **Web server:** Caddy.
+- **Scheduled jobs:** cron through `scripts/cron_job.sh <name> <cmd>`, which takes a
+  flock lock in `logs/<name>.lock`. The jobs are listed in `deploy/crontab.example`.
+- **Secrets:** `/etc/turnaroundiq.env`, set with `bash deploy/set_env.sh KEY VALUE`.
+- **Web app:** Vite + React in `mobile/`.
+  - Deploy with `bash deploy/build_web.sh`.
+  - Almost all of the UI is in `mobile/src/App.jsx`.
+  - API calls live in `mobile/src/lib/api.js`.
+- **Billing:**
+  - RevenueCat Web Billing with Stripe; the entitlement is `pro`.
+  - In code, `require_pro()` in `api/app.py` gates paid features.
+  - The free beta (`billing/beta.py`, env `BETA_FREE_UNTIL`) counts as Pro until it ends.
+- **Tests:** run with `python -m pytest -q`. They must all pass before pushing.
+
+## Design system (App.jsx)
+- **Style values:** `c` (colours), `card`, `heroCard`, `accentCard`, `primaryBtn`, `chip()`.
+- **Components:** `PageShell`, `PageTitle`, `SectionLabel`, `BigNum`, `Bar`, `Sheet`,
+  `NumField`, `ScoreBox`, `Paywall`, `Loading`, `ErrorBox`, `Disclaimer`, `BetaBanner`.
+- **Look:** dark premium theme with the Inter font. On desktop (1024px and wider)
+  there is a sidebar and tables replace cards.
+- **Navigation:** `NAV_MAIN` and `NAV_MORE` in App.jsx. A new product (e.g. "The
+  Stables") is a new entry there, plus a page component in the same style.
+
+## Existing product (football)
+- **FTA model** (`models/fta_path_model.py`):
+  - FTA% = P(team goes 2 up) × P(fails to win once 2 up).
+  - Inputs are built only from earlier matches (no look-ahead).
+  - Calibrated, with recency weighting.
+  - 27 leagues, including the youth leagues PL2 (702) and PDL (703).
+- **Odds** (`collectors/odds_apisports.py`):
+  - Best UK back price per side.
+  - Estimated lay = fair price plus one Betfair tick.
+  - Refreshed by a 24h-window cron job, plus an in-app refresh button.
+- **Other pages:** Early Goal Hunter, Chaos Factor, the bet tracker (paper P/L) and the calculator.
+
+## Working alongside other chats
+More than one chat may push to `main`. Pull before starting. Keep new work in new
+files where possible, so two chats aren't both editing `App.jsx` at the same time.

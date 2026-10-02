@@ -430,7 +430,8 @@ def update_tracked(app_user_id, bet_id, changes):
     exp = _expected_profit(stake, back, bet.get("fta_pct"), comm, lay_odds=bet.get("lay_odds"),
                            product=bet["product"])
     profit = bet.get("actual_profit")
-    if bet["status"] == "settled" and bet.get("result"):
+    # a traded-out bet's profit is what the user really got: keep it
+    if bet["status"] == "settled" and bet.get("result") and bet["result"] != "traded":
         profit = compute_profit(bet["result"], stake, back, comm, lay_odds=bet.get("lay_odds"),
                                 product=bet["product"])
     conn.execute(

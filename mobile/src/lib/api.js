@@ -77,7 +77,8 @@ export const api = {
   track: (body) => request("/tracked", { method: "POST", body }),
   editTracked: (id, body) => request(`/tracked/${id}`, { method: "PUT", body }),
   deleteTracked: (id) => request(`/tracked/${id}`, { method: "DELETE" }),
-  settleTracked: (id, result) => request(`/tracked/${id}`, { method: "PATCH", body: { result } }),
+  settleTracked: (id, result, actualProfit) =>
+    request(`/tracked/${id}`, { method: "PATCH", body: actualProfit == null ? { result } : { result, actual_profit: actualProfit } }),
   paper: () => request("/paper"),
   autoSettle: () => request("/paper/auto-settle", { method: "POST" }),
   modelRuns: () => request("/model/runs"),

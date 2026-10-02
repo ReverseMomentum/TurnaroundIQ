@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 
 import { LOGO_SRC } from "./logo";
+import { layStakeFor, outcomes as tradeOutcomes, tradeOut } from "./lib/tradeout";
 import StablesPage from "./stables/StablesPage";
 import { api, API_BASE, ApiError, MIN_FTA, MIN_SCORE } from "./lib/api";
 import {
@@ -308,7 +309,7 @@ function resultTone(result) {
   return c.textSecondary;
 }
 function resultLabel(result) {
-  const labels = { fta: "FTA hit", no_fta: "No FTA", won: "Hit", lost: "Miss", void: "Void" };
+  const labels = { fta: "FTA hit", no_fta: "No FTA", won: "Hit", lost: "Miss", void: "Void", traded: "Traded out" };
   return labels[result] || result || "Open";
 }
 
@@ -1666,12 +1667,79 @@ function BetRow({ b, onClick }) {
   );
 }
 
+// Cash-out / trade-out calculator for an open 2UP bet (inside the bet sheet).
+function TradeOutCalc({ bet, form, busy, onSettle }) {
+  const [paid, setPaid] = useState(false);
+  const [price, setPrice] = useState("");
+  const [actual, setActual] = useState("");
+  const stake = parseFloat(form.stake) || 0;
+  const back = parseFloat(form.back_odds) || 0;
+  const lay = parseFloat(form.lay_odds) || 0;
+  const comm = form.commission === "" ? 0 : parseFloat(form.commission) || 0;
+  const layStake = layStakeFor(stake, back, lay, comm);
+  const ready = stake > 0 && back > 1 && lay > 1 && layStake > 0;
+  const base = { stake, back, layStake, lay, commissionPct: comm, paidOut: paid };
+  const now = ready ? tradeOutcomes(base) : null;
+  const p = parseFloat(price);
+  const t = ready && p > 1 ? tradeOut(base, p) : null;
+  const balanced = t && t.stake < 0.01;
+  const settleAt = actual !== "" && !isNaN(parseFloat(actual)) ? parseFloat(actual) : t && !balanced ? Math.round(t.result * 100) / 100 : null;
+  if (!ready) {
+    return <p style={{ color: c.textSecondary }} className="text-xs mb-6">Add the stake, back odds and lay odds above to use the calculator.</p>;
+  }
+  return (
+    <div style={card} className="rounded-2xl p-4 mb-6">
+      <p style={{ color: c.textSecondary }} className="text-xs mb-3">
+        Your lay: <span className="num" style={{ color: c.text }}>£{layStake.toFixed(2)}</span> at <span className="num" style={{ color: c.text }}>{lay.toFixed(2)}</span> (liability <span className="num">£{(layStake * (lay - 1)).toFixed(2)}</span>)
+      </p>
+      <p style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mb-2">Has the bookie paid out (2 up)?</p>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <button onClick={() => setPaid(true)} style={chip(paid)} className="rounded-xl py-2.5 text-xs font-semibold">Yes, paid out</button>
+        <button onClick={() => setPaid(false)} style={chip(!paid)} className="rounded-xl py-2.5 text-xs font-semibold">Not yet</button>
+      </div>
+      <NumField label={"Exchange price now (" + bet.team + ")"} value={price} onChange={setPrice} tone={c.cyan} />
+
+      <div className="grid grid-cols-2 gap-2 mt-3">
+        <div style={{ background: c.cardAlt, border: "1px solid " + c.border }} className="rounded-xl p-3">
+          <p style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mb-1.5">Let it ride</p>
+          <p className="text-xs" style={{ color: c.textSecondary }}>They win <span className="num font-semibold" style={{ color: now.win >= 0 ? c.green : c.red }}>{money(now.win)}</span></p>
+          <p className="text-xs mt-0.5" style={{ color: c.textSecondary }}>They don&apos;t <span className="num font-semibold" style={{ color: now.noWin >= 0 ? c.green : c.red }}>{money(now.noWin)}</span></p>
+        </div>
+        <div style={{ background: c.cardAlt, border: "1px solid " + (t ? c.line : c.border) }} className="rounded-xl p-3">
+          <p style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mb-1.5">Trade out now</p>
+          {!t && <p className="text-xs" style={{ color: c.textMuted }}>Enter the price</p>}
+          {t && balanced && <p className="text-xs" style={{ color: c.textSecondary }}>Already balanced, no trade needed</p>}
+          {t && !balanced && (
+            <>
+              <p className="num text-lg font-bold leading-none" style={{ color: t.result >= 0 ? c.green : c.red }}>{money(t.result)}</p>
+              <p className="text-[11px] mt-1" style={{ color: c.textSecondary }}>whatever happens</p>
+            </>
+          )}
+        </div>
+      </div>
+      {t && !balanced && (
+        <p style={{ color: c.text }} className="text-sm mt-3">
+          {t.action === "back" ? "Back" : "Lay"} <span className="font-semibold">{bet.team}</span> for <span className="num font-semibold" style={{ color: c.cyan }}>£{t.stake.toFixed(2)}</span> at <span className="num font-semibold">{p.toFixed(2)}</span>
+          {t.action === "lay" && <span style={{ color: c.textSecondary }}> (liability £{t.liability.toFixed(2)})</span>}
+        </p>
+      )}
+      <p style={{ color: c.textMuted }} className="text-[11px] mt-2 mb-4">Prices move fast in play. Use the price you can actually get when you tap, and do it in one go. Includes {comm}% exchange commission.</p>
+
+      <NumField label="Actual result if you traded out" prefix="£" value={actual !== "" ? actual : settleAt != null && !balanced ? String(settleAt) : ""} onChange={setActual} step="0.01" />
+      <button disabled={busy || settleAt == null} onClick={() => onSettle(settleAt)} style={{ ...chip(true), opacity: busy || settleAt == null ? 0.5 : 1 }} className="w-full rounded-xl py-3 text-xs font-semibold mt-2">
+        Settle as traded out{settleAt != null ? " (" + money(settleAt) + ")" : ""}
+      </button>
+    </div>
+  );
+}
+
 function BetEditSheet({ bet, onClose, onChanged }) {
   const [form, setForm] = useState(null);
   const [lastId, setLastId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState(null);
+  const [showCalc, setShowCalc] = useState(false);
   if (bet && bet.id !== lastId) {
     setLastId(bet.id);
     setForm({
@@ -1681,6 +1749,7 @@ function BetEditSheet({ bet, onClose, onChanged }) {
     });
     setConfirmDelete(false);
     setError(null);
+    setShowCalc(false);
   }
   if (!bet || !form) return null;
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
@@ -1723,6 +1792,15 @@ function BetEditSheet({ bet, onClose, onChanged }) {
       <button disabled={busy} onClick={save} style={{ ...primaryBtn, opacity: busy ? 0.6 : 1 }} className="w-full rounded-xl py-3 text-sm font-semibold mt-2 mb-6">
         {busy ? "Saving…" : "Save changes"}
       </button>
+
+      {isOpen && (bet.product || "fta") === "fta" && (
+        <>
+          <button onClick={() => setShowCalc((v) => !v)} style={{ color: c.cyan, border: "1px solid " + c.border, background: c.cardAlt }} className="w-full rounded-xl py-3 text-sm font-semibold mb-3 flex items-center justify-center gap-2">
+            <Calculator size={16} /> {showCalc ? "Hide cash-out calculator" : "Cash-out calculator"}
+          </button>
+          {showCalc && <TradeOutCalc bet={bet} form={form} busy={busy} onSettle={(profit) => run(() => api.settleTracked(bet.id, "traded", profit))} />}
+        </>
+      )}
 
       {isOpen && (
         <>

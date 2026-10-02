@@ -237,3 +237,18 @@ def test_tracked_bet_edit_and_delete():
     assert not store.delete_tracked("someone_else", bet["id"])
     assert store.delete_tracked(user, bet["id"])
     assert all(b["id"] != bet["id"] for b in store.list_tracked(user))
+
+
+def test_traded_out_bet_keeps_its_real_profit():
+    from api import tracked as store
+    user = "u_trader"
+    bet = store.create_tracked(user, {"home_team": "Fleetwood Town U21", "away_team": "Sheffield Wednesday U21",
+                                      "team": "Fleetwood Town U21", "back_odds": 2.05, "lay_odds": 2.10,
+                                      "stake": 120, "commission": 2, "fta_pct": 3.11})
+    settled = store.settle_tracked(user, bet["id"], "traded", actual_profit=64.29)
+    assert settled["status"] == "settled" and settled["result"] == "traded"
+    assert settled["actual_profit"] == 64.29 and settled["actual_fta"] is None
+    # editing the prices later must not overwrite the traded-out result
+    after = store.update_tracked(user, bet["id"], {"bookmaker": "Bet365"})
+    assert after["actual_profit"] == 64.29
+    assert store.delete_tracked(user, bet["id"])

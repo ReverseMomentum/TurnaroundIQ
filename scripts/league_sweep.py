@@ -47,7 +47,7 @@ FIELDS = ["id", "league", "country", "season", "ours", "kind", "matches", "goals
           "up2", "htfail", "at"]
 CATALOG_DAYS = 7
 
-WOMEN = re.compile(r"\b(women|womens|women's|feminin|femenin|frauen|w-league|wsl|nwsl|damallsvenskan|ladies)\b", re.I)
+WOMEN = re.compile(r"\b(women|womens|women's|feminin\w*|femenil|femenin\w*|frauen|w-league|wsl|nwsl|damallsvenskan|ladies)\b", re.I)
 YOUTH = re.compile(r"\b(u\d{2}|youth|primavera|reserve|reserves|development|junior|juniores|sub-\d{2}|II)\b|premier league 2", re.I)
 
 
@@ -206,8 +206,8 @@ def ranked(rows, min_matches=150, show_all=False):
     return sorted(out, key=lambda r: r["up2"], reverse=True)
 
 
-def top(n=30, min_matches=150, show_all=False):
-    rows = ranked(list(load_done().values()), min_matches, show_all)
+def top(n=30, min_matches=150, show_all=False, ids=None):
+    rows = ranked(list(load_done().values()), min_matches if not ids else 0, show_all or bool(ids))
     if not rows:
         print("nothing swept yet: venv/bin/python -u scripts/league_sweep.py sweep")
         return
@@ -222,12 +222,22 @@ def top(n=30, min_matches=150, show_all=False):
     print(f"\n{'id':>5}  {'league':<30}{'country':<13}{'yr':>5}{'kind':>7}{'n':>5}"
           f"{'goals':>6}{'2up+':>7}{'HTfail':>7}  note")
     shown = 0
+    rank = {r["id"]: i + 1 for i, r in enumerate(x for x in rows if not x["ours"])}
+    if ids:
+        wanted = [str(i) for i in ids]
+        rows = sorted((r for r in rows if r["id"] in wanted), key=lambda r: r["up2"], reverse=True)
+        missing = [i for i in wanted if i not in {r["id"] for r in rows}]
+        if missing:
+            print(f"not swept (no events/odds coverage, or wrong id): {' '.join(missing)}")
+        n = len(rows)
     for r in rows:
-        if r["ours"]:
+        if r["ours"] and not ids:
             continue
         note = ""
         if base_up2:
             note = f"{r['up2'] / base_up2:.2f}x ours"
+        if ids:
+            note = ("OURS " if r["ours"] else f"#{rank.get(r['id'], '?')} ") + note
         # rough 95% margin on the 2up+ rate (team-sides = 2 per match)
         moe = 100 * 1.96 * math.sqrt(max(r["up2"] / 100 * (1 - r["up2"] / 100), 1e-9) / (2 * r["matches"]))
         print(f"{r['id']:>5}  {r['league'][:29]:<30}{r['country'][:12]:<13}{r['season']:>5}{r['kind']:>7}"
@@ -251,12 +261,13 @@ def main():
     t.add_argument("--n", type=int, default=30)
     t.add_argument("--min-matches", type=int, default=150)
     t.add_argument("--all", action="store_true", help="include women's leagues")
+    t.add_argument("--ids", type=int, nargs="+", help="only these league ids, with their overall rank")
     args = ap.parse_args()
     if args.cmd == "sweep":
         af.require_key()
         sweep(args.max_calls, args.refresh_catalog)
     else:
-        top(args.n, args.min_matches, args.all)
+        top(args.n, args.min_matches, args.all, args.ids)
 
 
 if __name__ == "__main__":

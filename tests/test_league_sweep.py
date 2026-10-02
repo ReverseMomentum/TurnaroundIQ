@@ -63,3 +63,20 @@ def test_ranked_filters_and_sorts():
     out = ls.ranked(rows)
     assert [r["id"] for r in out] == ["4", "1"]          # women + tiny sample dropped
     assert [r["id"] for r in ls.ranked(rows, show_all=True)] == ["2", "4", "1"]
+
+
+def test_kind_catches_spanish_womens_names():
+    assert ls.kind_of("Liga MX Femenil") == "women"
+    assert ls.kind_of("Primera División Femenina") == "women"
+    assert ls.kind_of("Regionalliga - Nord") == "senior"
+
+
+def test_top_ids_shows_requested_leagues(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(ls, "OUT", tmp_path / "sweep.csv")
+    base = {"country": "X", "season": "2025", "kind": "senior", "matches": "300",
+            "goals": "3.0", "htfail": "0.8", "at": ""}
+    for i, up2, ours in (("1", "30.0", "0"), ("2", "25.0", "0"), ("39", "20.0", "1")):
+        ls.append_row({**base, "id": i, "league": f"L{i}", "ours": ours, "up2": up2})
+    ls.top(ids=[2, 39, 999])
+    out = capsys.readouterr().out
+    assert "#2 " in out and "OURS" in out and "999" in out and "L1" not in out

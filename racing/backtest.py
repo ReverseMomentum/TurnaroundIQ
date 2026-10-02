@@ -30,19 +30,31 @@ from racing.engine import price_race
 from racing.extra_place import standard_terms
 
 
-def to_calibration_races(races: list[dict]) -> list[dict]:
-    """datasets.load_races output -> calibrate.py input (SP de-vigged)."""
-    from racing import market
+def to_calibration_races(races: list[dict], dnf_table: Optional[dict] = None) -> list[dict]:
+    """
+    datasets.load_races output -> calibrate.py input (SP de-vigged). With a
+    non-finisher table, each race also carries per-runner non-finish rates.
+    """
+    from racing import market, nonfinish
 
-    return [{"p_win": market.devig_power([r["odds"] for r in race["runners"]]), "order": race["order"]}
-            for race in races]
+    out = []
+    for race in races:
+        odds = [r["odds"] for r in race["runners"]]
+        row = {"p_win": market.devig_power(odds), "order": race["order"]}
+        if dnf_table is not None:
+            row["dnf"] = nonfinish.rates_for(odds, race.get("race_type") or "flat", dnf_table)
+        out.append(row)
+    return out
 
 
-def ew_backtest(races: list[dict], calibration: Optional[dict] = None, extra: int = 1,
-                min_runners: int = 8, n_sims: int = 2000, grades=("A", "B")) -> dict:
-    stats = defaultdict(lambda: {"bets": 0, "staked": 0.0, "returned": 0.0, "placed": 0,
-                                 "extra_place_hits": 0, "ev_sum": 0.0})
-    n_races = 0
+def ew_bets(races: list[dict], calibration: Optional[dict] = None, extra: int = 1,
+            min_runners: int = 8, n_sims: int = 2000) -> tuple[int, list[dict]]:
+    """
+    Price each race with a hypothetical offer (standard places + extra, standard
+    fraction, at SP) and settle 1 unit each-way on every runner the engine shows
+    as an opportunity. Returns (races used, one record per bet).
+    """
+    bets, n_races = [], 0
     for race in races:
         n = len(race["runners"])
         if n < min_runners:
@@ -53,31 +65,81 @@ def ew_backtest(races: list[dict], calibration: Optional[dict] = None, extra: in
         n_races += 1
         priced = price_race({
             "handicap": race["handicap"],
+            "race_type": race.get("race_type"),
             "runners": [{"name": f"{i}", "win_odds": r["odds"]} for i, r in enumerate(race["runners"])],
             "terms": [{"bookmaker": "SP", "places": std_places + extra, "fraction": frac}],
         }, calibration, n_sims=n_sims, seed=zlib.crc32(race["key"].encode()))
         for o in priced["opportunities"]:
-            g = o["grade"] if o["grade"] in grades else "other"
             pos = race["finish"][int(o["horse"])]
-            s = stats[g]
-            s["bets"] += 1
-            s["staked"] += 1.0
-            s["ev_sum"] += o["each_way_ev"]
-            ret = 0.0
-            if pos == 1:
-                ret += 0.5 * o["win_odds"]
-            if pos and pos <= o["places_paid"]:
+            ret = (0.5 * o["win_odds"] if pos == 1 else 0.0)
+            placed = bool(pos and pos <= o["places_paid"])
+            if placed:
                 ret += 0.5 * o["place_odds"]
-                s["placed"] += 1
-                if pos > std_places:
-                    s["extra_place_hits"] += 1
-            s["returned"] += ret
-    report = {"races": n_races, "extra_places": extra}
-    for g, s in sorted(stats.items()):
-        report[g] = {**{k: round(v, 3) if isinstance(v, float) else v for k, v in s.items()},
-                     "roi": round((s["returned"] - s["staked"]) / s["staked"], 4) if s["staked"] else None,
-                     "mean_model_ev": round(s["ev_sum"] / s["bets"], 4) if s["bets"] else None}
-    return report
+            bets.append({
+                "grade": o["grade"], "ev": o["each_way_ev"], "win_ev": o["win_ev"],
+                "p_place": o.get("raw_model_probability", o["model_probability"]),
+                "market_place": o["market_probability"], "place_odds": o["place_odds"],
+                "win_odds": o["win_odds"], "return": ret, "placed": placed,
+                "extra_hit": placed and pos > std_places, "race_type": race.get("race_type") or "flat",
+            })
+    return n_races, bets
+
+
+def _summ(rows: list[dict]) -> dict:
+    n = len(rows)
+    if not n:
+        return {"bets": 0}
+    ret = sum(b["return"] for b in rows)
+    return {"bets": n, "model_ev": round(sum(b["ev"] for b in rows) / n, 4),
+            "roi": round(ret / n - 1, 4), "placed": sum(b["placed"] for b in rows),
+            "extra_place_hits": sum(b["extra_hit"] for b in rows)}
+
+
+EV_BANDS = ((0.0, 0.04), (0.04, 0.10), (0.10, 0.20), (0.20, 9.0))
+ODDS_BANDS = ((1.0, 5.0), (5.0, 10.0), (10.0, 20.0), (20.0, 50.0), (50.0, 10000.0))
+
+
+def summarise(bets: list[dict]) -> dict:
+    """Model EV vs actual ROI by grade, by model-EV band, by price band and race type."""
+    out = {"all": _summ(bets),
+           "by_grade": {g: _summ([b for b in bets if b["grade"] == g]) for g in "ABC"},
+           "by_ev": {f"{lo:+.0%} to {hi:+.0%}" if hi < 9 else f"{lo:+.0%}+":
+                     _summ([b for b in bets if lo <= b["ev"] < hi]) for lo, hi in EV_BANDS},
+           "by_odds": {f"{lo:g}-{hi:g}" if hi < 10000 else f"{lo:g}+":
+                       _summ([b for b in bets if lo <= b["win_odds"] < hi]) for lo, hi in ODDS_BANDS},
+           "by_type": {t: _summ([b for b in bets if b["race_type"] == t]) for t in ("flat", "hurdle", "chase")}}
+    return out
+
+
+def adjusted_ev(b: dict, w: float) -> float:
+    adj = min(1.0, max(0.0, b["market_place"] + w * (b["p_place"] - b["market_place"])))
+    return 0.5 * (b["win_ev"] + adj * b["place_odds"] - 1.0)
+
+
+def fit_shrink(bets: list[dict], min_ev: float = 0.04, min_bets: int = 300) -> dict:
+    """
+    Pick w (0..1) so that, among bets whose shrunk EV is still >= min_ev (the
+    ones the page would show as value), the mean shrunk EV matches the actual
+    ROI. Fit on training races only, then checked on the test races.
+    """
+    best = None
+    for w in [i / 20 for i in range(21)]:
+        sel = [(adjusted_ev(b, w), b["return"] - 1) for b in bets]
+        sel = [x for x in sel if x[0] >= min_ev]
+        if len(sel) < min_bets:
+            continue
+        gap = abs(sum(e for e, _ in sel) / len(sel) - sum(r for _, r in sel) / len(sel))
+        if best is None or gap < best[1] - 1e-9 or (abs(gap - best[1]) < 0.002 and w > best[0]):
+            best = (w, gap, len(sel))
+    if best is None:
+        return {"edge_shrink": 1.0, "fitted": False, "reason": f"fewer than {min_bets} bets"}
+    return {"edge_shrink": best[0], "fitted": True, "gap": round(best[1], 4), "bets": best[2]}
+
+
+def ew_backtest(races: list[dict], calibration: Optional[dict] = None, extra: int = 1,
+                min_runners: int = 8, n_sims: int = 2000) -> dict:
+    n_races, bets = ew_bets(races, calibration, extra, min_runners, n_sims)
+    return {"races": n_races, "extra_places": extra, **summarise(bets)}
 
 
 # ---- Betfair BSP files ------------------------------------------------------

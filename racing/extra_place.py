@@ -97,3 +97,19 @@ def evaluate(p_win: float, top: list, win_odds: float, terms: Terms) -> dict:
         "each_way_ev": 0.5 * (win_ev + place_ev),
         "market_win_probability": 1.0 / win_odds,
     }
+
+
+def shrink(ev: dict, w: float) -> dict:
+    """
+    Pull the model's place probability toward the bookmaker's by factor w
+    (1 = trust the model fully, 0 = no edge). Fitted on past races so that
+    the EV shown matches what similar picks actually returned; it corrects
+    for over-confident estimates and for picking the biggest (most
+    over-estimated) edges. The win part is left as it is.
+    """
+    raw = ev["model_probability"]
+    m = ev["market_probability"]
+    adj = min(1.0, max(0.0, m + w * (raw - m)))
+    place_ev = adj * ev["place_odds"] - 1.0
+    return {**ev, "raw_model_probability": raw, "model_probability": adj, "edge": adj - m,
+            "place_ev": place_ev, "each_way_ev": 0.5 * (ev["win_ev"] + place_ev), "edge_shrink": w}

@@ -15,7 +15,8 @@ Run:
     venv/bin/python scripts/stables_kaggle_check.py data/kaggle/hwaitt --train-to 2017 --test-from 2018
     venv/bin/python scripts/stables_kaggle_check.py data/kaggle/hwaitt --train-to 2017 --test-from 2018 --save
 
---save stores discounts refitted on train + test for the app (grade A unlocks).
+--save stores, for the app: discounts and non-finish rates refitted on train +
+test, and the edge shrink fitted on training races (grade A unlocks).
 Output is also written to logs/stables_kaggle_check.json.
 """
 import argparse
@@ -27,7 +28,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from racing import backtest, calibrate, datasets, positions, store  # noqa: E402
+from racing import backtest, calibrate, datasets, nonfinish, positions, store  # noqa: E402
+
+
+def _table(title, rows):
+    print(f"\n{title}")
+    print(f"  {'':<14}{'bets':>6}{'model':>8}{'actual':>8}")
+    for label, r in rows.items():
+        if r.get("bets"):
+            print(f"  {label:<14}{r['bets']:>6}{100 * r['model_ev']:>+7.1f}%{100 * r['roi']:>+7.1f}%")
 
 
 def main():
@@ -40,6 +49,7 @@ def main():
     ap.add_argument("--test-to", type=int, default=2100)
     ap.add_argument("--max-train", type=int, default=20000, help="random sample of training races")
     ap.add_argument("--max-test", type=int, default=5000, help="random sample of test races")
+    ap.add_argument("--shrink-races", type=int, default=3000, help="training races used to fit the edge shrink")
     ap.add_argument("--save", action="store_true")
     a = ap.parse_args()
     if a.peek:
@@ -47,51 +57,73 @@ def main():
         return
     t0 = time.time()
     rng = random.Random(1)
-    train = datasets.load_races(a.paths, years=(a.train_from, a.train_to))
-    test = datasets.load_races(a.paths, years=(a.test_from, a.test_to))
-    print(f"loaded {len(train)} train races ({a.train_from}-{a.train_to}), {len(test)} test races "
-          f"({a.test_from}+) in {time.time() - t0:.0f}s")
+    every = datasets.load_races(a.paths, years=(a.train_from, a.test_to))
+    train = [r for r in every if int(r["date"][:4]) <= a.train_to]
+    test = [r for r in every if int(r["date"][:4]) >= a.test_from]
+    print(f"loaded {len(train)} train races ({a.train_from}-{a.train_to}), {len(test)} test ({a.test_from}+) "
+          f"in {time.time() - t0:.0f}s", flush=True)
     if not train or not test:
         print("nothing to test: check the paths and years (try --peek)")
         sys.exit(1)
     train_s = rng.sample(train, min(len(train), a.max_train))
     test_s = sorted(rng.sample(test, min(len(test), a.max_test)), key=lambda r: r["date"])
 
+    dnf = nonfinish.fit_rates(train)
+    print("\nnon-finish rates by price band (<5, 5-10, 10-20, 20-50, 50+):")
+    for t in ("flat", "hurdle", "chase"):
+        print(f"  {t:<7}" + " ".join(f"{100 * x:4.1f}%" for x in dnf[t]) + f"  ({dnf['runners'][t]} runners)")
+
     fit = calibrate.fit_discounts(backtest.to_calibration_races(train_s))
-    print("prior discounts :", list(positions.DEFAULT_DISCOUNTS))
-    print("fitted discounts:", fit["discounts"], f"(train NLL {fit.get('nll_prior')} -> {fit.get('nll_fitted')})")
+    print("\nprior discounts :", list(positions.DEFAULT_DISCOUNTS))
+    print("fitted discounts:", fit["discounts"], flush=True)
+    cal = {**fit, "dnf": dnf}
 
-    test_cal = backtest.to_calibration_races(test_s)
-    prior = calibrate.evaluate(test_cal, positions.DEFAULT_DISCOUNTS, n_sims=2000)
-    fitted = calibrate.evaluate(test_cal, fit["discounts"], n_sims=2000)
-    print(f"\nheld-back test, {len(test_s)} races (lower is better)")
-    print(f"  {'':<10}{'prior brier':>12}{'fitted':>9}{'prior ECE':>11}{'fitted':>9}{'predicted':>11}{'actual':>8}")
+    shrink_races = rng.sample(train, min(len(train), a.shrink_races))
+    bets = []
+    for extra in (1, 2):
+        bets += backtest.ew_bets(shrink_races, cal, extra=extra)[1]
+    shrink = backtest.fit_shrink(bets)
+    print(f"\nedge shrink (fitted on {len(shrink_races)} training races): {shrink}", flush=True)
+    cal["edge_shrink"] = shrink["edge_shrink"]
+
+    test_plain = backtest.to_calibration_races(test_s)
+    test_dnf = backtest.to_calibration_races(test_s, dnf)
+    scores = {"prior": calibrate.evaluate(test_plain, positions.DEFAULT_DISCOUNTS, n_sims=2000),
+              "prior+dnf": calibrate.evaluate(test_dnf, positions.DEFAULT_DISCOUNTS, n_sims=2000),
+              "fitted+dnf": calibrate.evaluate(test_dnf, fit["discounts"], n_sims=2000)}
+    print(f"\nheld-back test, {len(test_s)} races")
+    print("calibration error (lower is better)")
+    print(f"  {'':<10}" + "".join(f"{k:>11}" for k in scores) + f"{'actual':>8}")
     for key in ("top1", "top3", "top4", "top5", "top6", "extra3to4", "extra3to5"):
-        if key in prior:
-            p, f = prior[key], fitted[key]
-            print(f"  {key:<10}{p['brier']:>12.5f}{f['brier']:>9.5f}{p['calibration_error']:>11.4f}"
-                  f"{f['calibration_error']:>9.4f}{f['mean_predicted']:>11.4f}{f['observed_rate']:>8.4f}")
+        if key in scores["prior"]:
+            print(f"  {key:<10}" + "".join(f"{v[key]['calibration_error']:>11.4f}" for v in scores.values())
+                  + f"{scores['prior'][key]['observed_rate']:>8.3f}")
+    print("brier (lower is better)")
+    for key in ("top3", "top5", "extra3to5"):
+        print(f"  {key:<10}" + "".join(f"{v[key]['brier']:>11.5f}" for v in scores.values()))
 
-    cal = {**fit, "n_races": fit["n_races"]}
     bt = {}
     for extra in (1, 2):
         bt[extra] = backtest.ew_backtest(test_s, cal, extra=extra)
-        print(f"\npaper each-way at SP, standard places + {extra}, {bt[extra]['races']} races (8+ runners)")
-        for g in ("A", "B", "other"):
-            s = bt[extra].get(g)
-            if s:
-                print(f"  grade {g:<6} bets {s['bets']:>6}  model EV {100 * s['mean_model_ev']:+6.1f}%  "
-                      f"actual ROI {100 * s['roi']:+6.1f}%  placed {s['placed']:>5}  via extra places {s['extra_place_hits']:>4}")
-    print("\nSP has more margin than early prices; dead heats and Rule 4 ignored. Illustrative only.")
+        print(f"\n=== paper each-way, places +{extra}, {bt[extra]['races']} test races ===", flush=True)
+        _table("by grade", bt[extra]["by_grade"])
+        _table("by model EV", bt[extra]["by_ev"])
+        _table("by win odds", bt[extra]["by_odds"])
+        _table("by race type", bt[extra]["by_type"])
+    print("\nmodel = EV the page would show; actual = paper ROI at SP.")
+    print("Dead heats and Rule 4 ignored. Illustrative only.")
 
-    out = {"train_races": len(train_s), "test_races": len(test_s), "fit": fit,
-           "test_prior": prior, "test_fitted": fitted, "ew_backtest": bt}
+    out = {"train_races": len(train_s), "test_races": len(test_s), "fit": fit, "dnf": dnf,
+           "shrink": shrink, "test_scores": scores, "ew_backtest": bt}
     (ROOT / "logs").mkdir(exist_ok=True)
     (ROOT / "logs" / "stables_kaggle_check.json").write_text(json.dumps(out, indent=1, default=str))
     if a.save:
-        full = calibrate.fit_discounts(backtest.to_calibration_races(rng.sample(train + test, min(len(train) + len(test), a.max_train))))
-        store.save_calibration({**full, "source": "kaggle", "held_back": {"prior": prior, "fitted": fitted}})
-        print("saved discounts for the app:", full["discounts"])
+        full = calibrate.fit_discounts(backtest.to_calibration_races(
+            rng.sample(every, min(len(every), a.max_train))))
+        payload = {**full, "dnf": nonfinish.fit_rates(every), "edge_shrink": shrink["edge_shrink"],
+                   "source": "kaggle", "held_back": scores}
+        store.save_calibration(payload)
+        print("saved for the app:", full["discounts"], "shrink", shrink["edge_shrink"])
 
 
 if __name__ == "__main__":

@@ -24,6 +24,8 @@ from typing import Iterable, Optional
 
 import pandas as pd
 
+from racing import nonfinish
+
 MIN_RUNNERS = 5
 
 ALIASES = {
@@ -211,6 +213,7 @@ def load_races(paths: list[Path], years: Optional[tuple[int, int]] = None,
                 "course": str(first[col["course"]]) if col["course"] else "",
                 "country": str(first[col["country"]]) if col["country"] else "",
                 "handicap": "handicap" in title.lower() or "h'cap" in title.lower(),
+                "race_type": nonfinish.race_type(title),
                 "runners": [{"name": str(h), "odds": float(o)} for h, o in zip(g[col["horse"]], odds)],
                 "order": order,
                 "finish": pos,

@@ -86,6 +86,7 @@ class ManualTerms(BaseModel):
 class ManualRace(BaseModel):
     name: Optional[str] = Field(default=None, max_length=80)
     handicap: bool = False
+    race_type: Optional[str] = Field(default=None, pattern="^(flat|hurdle|chase)$")
     runners: list[ManualRunner] = Field(min_length=2, max_length=40)
     terms: list[ManualTerms] = Field(default_factory=list, max_length=8)
 
@@ -96,6 +97,7 @@ def stables_price(body: ManualRace, authorization: str | None = Header(default=N
     race = {
         "name": body.name,
         "handicap": body.handicap,
+        "race_type": body.race_type,
         "runners": [
             {
                 "name": r.name,

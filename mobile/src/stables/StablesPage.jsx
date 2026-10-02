@@ -96,7 +96,7 @@ function OpportunityCard({ ui, o, highlight }) {
         <GradeBox ui={ui} grade={o.grade} conf={o.confidence} highlight={highlight} />
       </div>
       <div className="grid grid-cols-3 gap-3">
-        <Metric ui={ui} label={`Top ${o.places_paid}`} value={pct(o.model_probability)} tone={c.green} sub="model" />
+        <Metric ui={ui} label={`Top ${o.places_paid}`} value={pct(o.model_probability)} tone={c.green} sub={o.raw_model_probability != null ? `model ${pct(o.raw_model_probability)}, adjusted` : "model"} />
         <Metric ui={ui} label="Book implies" value={pct(o.market_probability)} sub="from place odds" />
         <Metric ui={ui} label="Edge" value={pts(o.edge)} tone={o.robust_edge > 0 ? c.green : c.orange} sub={o.robust_edge > 0 ? "clears the band" : "inside the band"} />
         <Metric ui={ui} label="Each-way EV" value={signedPct(o.each_way_ev)} tone={o.each_way_ev > 0 ? c.green : c.red} sub="per £1 staked" />
@@ -285,6 +285,7 @@ function ManualTab({ ui }) {
   const [places, setPlaces] = useState(5);
   const [fraction, setFraction] = useState("1/5");
   const [handicap, setHandicap] = useState(true);
+  const [raceType, setRaceType] = useState("flat");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
@@ -296,6 +297,7 @@ function ManualTab({ ui }) {
     try {
       setResult(await api.stablesPrice({
         handicap,
+        race_type: raceType,
         runners: parsed.runners,
         terms: [{ bookmaker: bookmaker.trim() || "Bookmaker", places, fraction }],
       }));
@@ -328,12 +330,21 @@ function ManualTab({ ui }) {
             <div className="flex gap-2">{FRACTIONS.map((f) => <button key={f} onClick={() => setFraction(f)} style={chip(f === fraction)} className="text-xs font-semibold px-3 py-2 rounded-lg num">{f}</button>)}</div>
           </div>
           <div>
-            {label("Race type")}
+            {label("Handicap?")}
             <div className="flex gap-2">
-              <button onClick={() => setHandicap(true)} style={chip(handicap)} className="text-xs font-semibold px-3 py-2 rounded-lg">Handicap</button>
-              <button onClick={() => setHandicap(false)} style={chip(!handicap)} className="text-xs font-semibold px-3 py-2 rounded-lg">Other</button>
+              <button onClick={() => setHandicap(true)} style={chip(handicap)} className="text-xs font-semibold px-3 py-2 rounded-lg">Yes</button>
+              <button onClick={() => setHandicap(false)} style={chip(!handicap)} className="text-xs font-semibold px-3 py-2 rounded-lg">No</button>
             </div>
           </div>
+        </div>
+        <div>
+          {label("Race")}
+          <div className="flex gap-2">
+            {[["flat", "Flat"], ["hurdle", "Hurdle"], ["chase", "Chase"]].map(([k, l]) => (
+              <button key={k} onClick={() => setRaceType(k)} style={chip(raceType === k)} className="text-xs font-semibold px-3 py-2 rounded-lg">{l}</button>
+            ))}
+          </div>
+          <p style={{ color: c.textMuted }} className="text-[11px] mt-1">Jumps races allow for fallers and pulled-up runners, who can't place.</p>
         </div>
         <div>
           {label("Bookmaker (optional)")}

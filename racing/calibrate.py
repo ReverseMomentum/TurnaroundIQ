@@ -42,11 +42,19 @@ def _race_nll(logp: np.ndarray, order: Sequence[int], lam: np.ndarray) -> float:
     return nll
 
 
+def _finishers_only(r: dict):
+    """Log-strengths and order over the runners that finished (non-finishers are modelled separately)."""
+    logp = np.log(np.clip(np.asarray(r["p_win"], float), 1e-9, None))
+    order = list(r["order"])
+    keep = sorted(set(order))
+    if len(keep) == len(logp):
+        return logp, order
+    remap = {old: new for new, old in enumerate(keep)}
+    return logp[keep], [remap[i] for i in order]
+
+
 def fit_discounts(races: list[dict], n_stages: int = N_STAGES) -> dict:
-    prepared = [
-        (np.log(np.clip(np.asarray(r["p_win"], float), 1e-9, None)), list(r["order"]))
-        for r in races if len(r.get("order") or []) >= 2
-    ]
+    prepared = [_finishers_only(r) for r in races if len(r.get("order") or []) >= 2]
     if len(prepared) < MIN_RACES_DISCOUNTS:
         return {"discounts": list(positions.DEFAULT_DISCOUNTS), "fitted": False,
                 "n_races": len(prepared), "reason": f"need {MIN_RACES_DISCOUNTS}+ races with results"}
@@ -147,7 +155,8 @@ def evaluate(races: list[dict], discounts=None, ks=(1, 3, 4, 5, 6),
         n = len(p)
         if n < 2 or not order:
             continue
-        sim = positions.simulate(p, n_sims=n_sims, discounts=discounts, seed=11, batches=2)
+        sim = positions.simulate(p, n_sims=n_sims, discounts=discounts, seed=11, batches=2,
+                                 dnf=r.get("dnf"))
         top = sim["top"]
         finish = np.full(n, n + 1)
         for pos, i in enumerate(order):

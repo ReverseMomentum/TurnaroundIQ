@@ -241,8 +241,8 @@ def test_hwaitt_reader_and_backtest(tmp_path):
     assert datasets.load_races([tmp_path], years=(2020, 2021)) == []
     bt = backtest.ew_backtest(races, None, extra=1, n_sims=500)
     assert bt["races"] == 60
-    graded = [v for k, v in bt.items() if isinstance(v, dict)]
-    assert graded and all(v["returned"] >= 0 for v in graded)
+    assert bt["all"]["bets"] > 0 and bt["all"]["roi"] >= -1
+    assert sum(g["bets"] for g in bt["by_grade"].values()) == bt["all"]["bets"]
 
 
 def test_rpscrape_sqlite_reader(tmp_path):
@@ -298,3 +298,57 @@ def test_date_and_price_detection(tmp_path):
     out = datasets.peek([tmp_path])
     assert "pos      -> position" in out and "dates:" in out
     assert len(datasets.load_races([tmp_path])) == 6
+
+
+def test_non_finishers_never_place_and_others_move_up():
+    from racing import nonfinish
+
+    p = np.array([0.4, 0.3, 0.2, 0.1])
+    sim = positions.simulate(p, 20_000, dnf=[0.5, 0, 0, 0])
+    assert sim["P"][0].sum() == pytest.approx(0.5, abs=0.02)
+    assert sim["P"][1:].sum(axis=1) == pytest.approx(np.ones(3))
+    base = positions.simulate(p, 20_000)
+    assert sim["top"][1, 1] > base["top"][1, 1]
+    assert nonfinish.race_type("2m Handicap Chase") == "chase"
+    assert nonfinish.race_type("Novices' Hurdle") == "hurdle" and nonfinish.race_type("Maiden Stakes") == "flat"
+    rates = nonfinish.rates_for([3.0, 15.0, 100.0], "chase")
+    assert rates[0] < rates[1] < rates[2]
+
+
+def test_jumps_race_lowers_place_chances():
+    race = _race()
+    flat = price_race(race)
+    chase = price_race({**race, "race_type": "chase"})
+    assert chase["runners"][-1]["top5_probability"] < flat["runners"][-1]["top5_probability"]
+
+
+def test_fit_rates_and_finishers_only_fit():
+    from racing import nonfinish
+
+    races = [{"race_type": "chase", "runners": [{"odds": 3.0}, {"odds": 30.0}],
+              "finish": [1, None]}] * 400
+    t = nonfinish.fit_rates(races)
+    assert t["chase"][0] == 0.0 and t["chase"][3] == 1.0
+    assert t["hurdle"] == nonfinish.DEFAULT_RATES["hurdle"]
+    logp, order = calibrate._finishers_only({"p_win": [0.5, 0.3, 0.2], "order": [2, 0]})
+    assert len(logp) == 2 and order == [1, 0]
+
+
+def test_shrink_and_backtest_summary():
+    from racing.extra_place import shrink
+
+    ev = evaluate(0.10, [0.1, 0.2, 0.3, 0.38, 0.45], 11.0, Terms("B", 5, 0.2, 3))
+    half = shrink(ev, 0.5)
+    assert half["raw_model_probability"] == pytest.approx(0.45)
+    assert half["model_probability"] == pytest.approx(1 / 3 + 0.5 * (0.45 - 1 / 3))
+    assert half["each_way_ev"] < ev["each_way_ev"] and half["win_ev"] == ev["win_ev"]
+    out = price_race(_race(), {"edge_shrink": 0.0})
+    assert all(o["edge"] == pytest.approx(0) for o in out["opportunities"])
+    # synthetic bets where the model is twice as optimistic as reality
+    bets = [{"p_place": 0.5, "market_place": 0.3, "place_odds": 3.4, "win_ev": 0.0, "grade": "B",
+             "ev": 0.35, "win_odds": 13.0, "return": 0.5 + 0.5 * 3.4 * (i % 10 < 4), "placed": i % 10 < 4,
+             "extra_hit": False, "race_type": "flat"} for i in range(1000)]
+    fit = backtest.fit_shrink(bets)
+    assert fit["fitted"] and 0.4 <= fit["edge_shrink"] <= 0.6
+    summ = backtest.summarise(bets)
+    assert summ["all"]["bets"] == 1000 and summ["by_grade"]["B"]["roi"] == pytest.approx(0.5 + 0.4 * 1.7 - 1)

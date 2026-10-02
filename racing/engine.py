@@ -16,8 +16,8 @@ from typing import Optional
 
 import numpy as np
 
-from racing import calibrate, confidence, kelly, market, positions
-from racing.extra_place import Terms, evaluate, parse_fraction, standard_terms
+from racing import calibrate, confidence, kelly, market, nonfinish, positions
+from racing.extra_place import Terms, evaluate, parse_fraction, shrink, standard_terms
 
 MAX_POSITIONS = 9
 DEFAULT_BOOK = "Best price"
@@ -61,8 +61,12 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
 
     disc = calibration.get("discounts") or positions.DEFAULT_DISCOUNTS
     n_cal = int(calibration.get("n_races") or 0) if calibration.get("fitted") else 0
-    sim = positions.simulate(p_win, n_sims=n_sims, discounts=disc, seed=seed)
-    harv = positions.simulate(p_win, n_sims=n_sims, discounts=[1.0], seed=seed + 1)
+    rtype = nonfinish.race_type(race.get("race_type"), race.get("name"))
+    odds_for_dnf = [r.get("win_odds") or market.best_price(r.get("odds") or {}) or 1 / max(p, 1e-6)
+                    for r, p in zip(runners, p_win)]
+    dnf = nonfinish.rates_for(odds_for_dnf, rtype, calibration.get("dnf"))
+    sim = positions.simulate(p_win, n_sims=n_sims, discounts=disc, seed=seed, dnf=dnf)
+    harv = positions.simulate(p_win, n_sims=n_sims, discounts=[1.0], seed=seed + 1, dnf=dnf)
     P, top, top_se, top_h = sim["P"], sim["top"], sim["top_se"], harv["top"]
     offers = _offers(race, n)
     std_places, std_frac = standard_terms(n, bool(race.get("handicap")))
@@ -90,10 +94,13 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
             if not market.implied(odds):
                 continue
             ev = evaluate(float(p_win[i]), list(top[i]), float(odds), t)
+            if calibration.get("edge_shrink") is not None:
+                ev = shrink(ev, float(calibration["edge_shrink"]))
+            raw_place = ev.get("raw_model_probability", ev["model_probability"])
             k = t.places
             p_h = topk(top_h, i, k)
-            se = confidence.place_uncertainty(ev["model_probability"], p_h, topk(top_se, i, k), n_cal)
-            parts = confidence.components(ev["model_probability"], p_h, topk(top_se, i, k), p_book, p_ex, n_cal)
+            se = confidence.place_uncertainty(raw_place, p_h, topk(top_se, i, k), n_cal)
+            parts = confidence.components(raw_place, p_h, topk(top_se, i, k), p_book, p_ex, n_cal)
             conf = confidence.score(parts)
             se_win = confidence.place_uncertainty(float(p_win[i]), float(p_win[i]), float(top_se[i, 0]), n_cal)
             robust_edge = ev["edge"] - se

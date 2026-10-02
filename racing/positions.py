@@ -61,19 +61,36 @@ def simulate_orders(p_win: Sequence[float], n_sims: int = N_SIMS,
 
 
 def position_matrix(orders: np.ndarray, n: int) -> np.ndarray:
-    """orders (sims, depth) -> P[i, k] = share of sims runner i finished k-th."""
+    """orders (sims, depth) -> P[i, k] = share of sims runner i finished k-th (index n = nobody)."""
     sims, depth = orders.shape
     P = np.zeros((n, depth))
     for k in range(depth):
-        P[:, k] = np.bincount(orders[:, k], minlength=n) / sims
+        P[:, k] = np.bincount(orders[:, k], minlength=n + 1)[:n] / sims
     return P
+
+
+def apply_non_finishers(orders: np.ndarray, dnf: Sequence[float], seed: Optional[int] = None) -> np.ndarray:
+    """
+    Each runner independently fails to finish (fall, pulled up, unseated) with
+    probability dnf[i]. Finishers keep their relative order and move up; the
+    slots left at the bottom hold n ("nobody"), so a faller is never placed.
+    """
+    sims, n = orders.shape
+    q = np.asarray(dnf, dtype=float)
+    out_flag = np.random.default_rng(None if seed is None else seed + 99).random((sims, n)) < q
+    key = out_flag[np.arange(sims)[:, None], orders]
+    idx = np.argsort(key, axis=1, kind="stable")
+    moved = np.take_along_axis(orders, idx, axis=1).astype(np.int16)
+    moved[np.take_along_axis(key, idx, axis=1)] = n
+    return moved
 
 
 def simulate(p_win: Sequence[float], n_sims: int = N_SIMS,
              discounts: Optional[Sequence[float]] = None,
              seed: Optional[int] = 7, depth: Optional[int] = None,
-             batches: int = 10) -> dict:
+             batches: int = 10, dnf: Optional[Sequence[float]] = None) -> dict:
     """
+    dnf: optional per-runner chance of not finishing (jumps races)
     Returns
       P        (n, depth) position probabilities
       top      (n, depth) cumulative P(finish in top k), column k-1 = top k
@@ -81,7 +98,12 @@ def simulate(p_win: Sequence[float], n_sims: int = N_SIMS,
       n_sims
     """
     n = len(p_win)
-    orders = simulate_orders(p_win, n_sims, discounts, seed, depth)
+    if dnf is not None and np.any(np.asarray(dnf) > 0):
+        orders = apply_non_finishers(simulate_orders(p_win, n_sims, discounts, seed), dnf, seed)
+        if depth is not None:
+            orders = orders[:, :min(depth, n)]
+    else:
+        orders = simulate_orders(p_win, n_sims, discounts, seed, depth)
     d = orders.shape[1]
     P = position_matrix(orders, n)
     top = np.cumsum(P, axis=1)

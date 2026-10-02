@@ -113,15 +113,55 @@ def _frames(paths: list[Path]) -> Iterable[pd.DataFrame]:
             con.close()
 
 
+DATE_FORMATS = ("ISO8601", "%y/%m/%d %H:%M", "%y/%m/%d", "%d/%m/%Y %H:%M", "%d/%m/%Y",
+                "%d-%m-%Y %H:%M", "%d-%m-%Y", "%m/%d/%Y %H:%M", "%m/%d/%Y")
+
+
+def parse_dates(col: pd.Series) -> pd.Series:
+    """Try each explicit format and keep the one that parses the most rows (no guessing per row)."""
+    best, best_ok = None, -1
+    raw = col.astype(str).str.strip()
+    for fmt in DATE_FORMATS:
+        try:
+            d = pd.to_datetime(raw, format=fmt, errors="coerce", utc=True)
+        except (ValueError, TypeError):
+            continue
+        ok = int(d.notna().sum())
+        if ok > best_ok:
+            best, best_ok = d, ok
+        if ok == len(raw):
+            break
+    return best.dt.tz_localize(None) if best is not None else pd.Series(pd.NaT, index=col.index)
+
+
+def odds_from_price_column(v: pd.Series) -> pd.Series:
+    """hwaitt decimalPrice: 1/odds in the results files, real odds in forward.csv. Decide from the values."""
+    x = pd.to_numeric(v, errors="coerce")
+    if x.dropna().median() < 1:
+        return 1.0 / x.where(x > 0)
+    return x
+
+
 def peek(paths: list[Path]) -> str:
-    """Columns and how each was matched, for the first source found."""
+    """Columns, how each was matched, and parsed samples, for the first results file found."""
     for df in _frames(paths):
+        if not (_pick(df.columns, "horse") and _pick(df.columns, "pos")):
+            continue
         lines = [f"{len(df)} rows; columns: {', '.join(map(str, df.columns))}"]
         for key in ALIASES:
             lines.append(f"  {key:<8} -> {_pick(df.columns, key)}")
+        dc = _pick(df.columns, "date")
+        if dc:
+            d = parse_dates(df[dc])
+            lines.append(f"  dates: {df[dc].iloc[0]!r} -> {d.iloc[0]}  ({int(d.notna().sum())}/{len(d)} parsed, "
+                         f"{d.min()} to {d.max()})")
+        pc = _pick(df.columns, "implied") or _pick(df.columns, "dec")
+        if pc:
+            o = odds_from_price_column(df[pc]) if pc == _pick(df.columns, "implied") else pd.to_numeric(df[pc], errors="coerce")
+            lines.append(f"  odds: {df[pc].iloc[0]!r} -> {o.iloc[0]:.2f}  (median {o.median():.2f})")
         lines.append(df.head(3).to_string()[:1500])
         return "\n".join(lines)
-    return "no readable files found"
+    return "no results files found (need a horse column and a finishing position column)"
 
 
 def load_races(paths: list[Path], years: Optional[tuple[int, int]] = None,
@@ -132,7 +172,7 @@ def load_races(paths: list[Path], years: Optional[tuple[int, int]] = None,
         if not col["horse"] or not col["pos"] or not col["date"]:
             continue
         df = df.copy()
-        df["_date"] = pd.to_datetime(df[col["date"]], errors="coerce", dayfirst=False)
+        df["_date"] = parse_dates(df[col["date"]])
         df = df[df["_date"].notna()]
         if years:
             df = df[(df["_date"].dt.year >= years[0]) & (df["_date"].dt.year <= years[1])]
@@ -141,8 +181,7 @@ def load_races(paths: list[Path], years: Optional[tuple[int, int]] = None,
         if df.empty:
             continue
         if col["implied"]:
-            imp = pd.to_numeric(df[col["implied"]], errors="coerce")
-            df["_odds"] = 1.0 / imp.where(imp > 0)
+            df["_odds"] = odds_from_price_column(df[col["implied"]])
         elif col["dec"]:
             df["_odds"] = pd.to_numeric(df[col["dec"]], errors="coerce")
         else:

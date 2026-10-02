@@ -280,3 +280,21 @@ def test_bsp_join_and_check():
     rep = backtest.bsp_check(races * 5, {"prior": positions.DEFAULT_DISCOUNTS, "harville": [1.0]}, n_sims=500)
     assert set(rep["top4"]) == {"prior", "harville", "place_market_bsp"}
     assert rep["top4"]["prior"]["n"] == 40 and rep["top4"]["prior"]["observed_rate"] == 0.5
+
+
+def test_date_and_price_detection(tmp_path):
+    import pandas as pd
+
+    d = datasets.parse_dates(pd.Series(["90/01/01 12:30", "90/12/31 14:00"]))
+    assert [x.year for x in d] == [1990, 1990] and d.iloc[1].month == 12
+    assert datasets.odds_from_price_column(pd.Series([0.2, 0.5])).tolist() == [5.0, 2.0]
+    assert datasets.odds_from_price_column(pd.Series([50.0, 6.0])).tolist() == [50.0, 6.0]
+    # forward.csv-style file (no results) is skipped by peek and load
+    pd.DataFrame([{"course": "X", "marketTime": "2020-09-11", "horseName": "A", "decimalPrice": 5.0}]
+                 ).to_csv(tmp_path / "forward.csv", index=False)
+    r, h = _synthetic(n_races=6)
+    pd.DataFrame(r).to_csv(tmp_path / "races_2019.csv", index=False)
+    pd.DataFrame(h).to_csv(tmp_path / "horses_2019.csv", index=False)
+    out = datasets.peek([tmp_path])
+    assert "pos      -> position" in out and "dates:" in out
+    assert len(datasets.load_races([tmp_path])) == 6

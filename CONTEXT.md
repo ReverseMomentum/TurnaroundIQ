@@ -45,7 +45,7 @@ Read this first. It is what a fresh session needs to work on this repo.
   - FTA% = P(team goes 2 up) × P(fails to win once 2 up).
   - Inputs are built only from earlier matches (no look-ahead).
   - Calibrated, with recency weighting.
-  - 27 leagues, including the youth leagues PL2 (702) and PDL (703).
+  - 28 leagues, including the youth leagues PL2 (702) and PDL (703) and the Eerste Divisie (89).
 - **Odds** (`collectors/odds_apisports.py`):
   - Best UK back price per side.
   - Estimated lay = fair price plus one Betfair tick.

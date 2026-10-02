@@ -23,19 +23,30 @@ def test_score_fixtures_counts_two_up_and_ht_collapses():
 
 def test_candidates_need_league_events_and_odds():
     def item(i, name, typ="League", events=True, odds=True, current=False):
+        # last season: events but (as api-sports reports) no odds; this season: odds flag
+        seasons = [{"year": 2025, "current": current,
+                    "coverage": {"fixtures": {"events": events}, "odds": False}},
+                   {"year": 2026, "current": not current,
+                    "coverage": {"fixtures": {"events": events}, "odds": odds}}]
+        if current:
+            seasons = seasons[:1]
+            seasons[0]["coverage"]["odds"] = odds
         return {"league": {"id": i, "name": name, "type": typ}, "country": {"name": "X"},
-                "seasons": [{"year": 2025, "current": current,
-                             "coverage": {"fixtures": {"events": events}, "odds": odds}}]}
+                "seasons": seasons}
+    why = {}
     cands = ls.candidates([
         item(1, "Good League"), item(2, "Some Cup", typ="Cup"), item(3, "No Events", events=False),
         item(4, "No Odds", odds=False), item(5, "Only Current", current=True), item(39, "Premier League"),
         item(6, "Liga U19"), item(7, "Women's League"),
-    ])
+    ], why)
     ids = {c["id"]: c for c in cands}
     assert set(ids) == {1, 39, 6, 7}
     assert ids[39]["ours"] and not ids[1]["ours"]
     assert ids[6]["kind"] == "youth" and ids[7]["kind"] == "women" and ids[1]["kind"] == "senior"
     assert cands[0]["id"] == 39  # benchmark leagues first
+    assert all(c["season"] == 2025 for c in cands)  # the finished season, not the current
+    assert why == {"cup / not a league": 1, "no finished season with goal events": 2,
+                   "no odds this season": 1}
 
 
 def test_ranked_filters_and_sorts():

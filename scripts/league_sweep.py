@@ -19,8 +19,10 @@ Our current leagues are swept too, as the benchmark ("ours" column).
 Stage 2: confirm the best few with goal timelines, the real FTA:
     venv/bin/python -u scripts/league_scout.py probe <id> <id> --sample 300
 
-Only leagues whose latest completed season has goal events AND odds coverage
-are swept (no events = can't be modelled; no odds = no prices in the app).
+Only leagues with goal events in their latest completed season AND odds
+coverage in the current season are swept (no events = can't be modelled; no
+odds = no prices in the app; api-sports drops odds for old seasons, so those
+are judged on the current one).
 Results are saved in data/league_sweep.csv, so a run that stops at the call
 limit or the daily quota carries on where it left off next time.
 """
@@ -74,26 +76,42 @@ def load_catalog(refresh=False):
     return leagues
 
 
+def _seasons(item):
+    return sorted(item.get("seasons") or [], key=lambda s: s.get("year") or 0, reverse=True)
+
+
 def sweep_season(item):
-    """Latest completed season with goal events and odds, or None."""
-    seasons = sorted(item.get("seasons") or [], key=lambda s: s.get("year") or 0, reverse=True)
-    for s in seasons:
+    """Latest completed season with goal events, or None."""
+    for s in _seasons(item):
         if s.get("current"):
             continue
-        cov = s.get("coverage") or {}
-        if (cov.get("fixtures") or {}).get("events") and cov.get("odds"):
+        if ((s.get("coverage") or {}).get("fixtures") or {}).get("events"):
             return s.get("year")
     return None
 
 
-def candidates(catalog):
+def has_live_odds(item):
+    """Odds coverage NOW. api-sports only keeps odds for recent fixtures, so past
+    seasons usually say odds=false; what matters is the current (or newest) season."""
+    seasons = _seasons(item)
+    current = next((s for s in seasons if s.get("current")), seasons[0] if seasons else None)
+    return bool(current and (current.get("coverage") or {}).get("odds"))
+
+
+def candidates(catalog, why=None):
     out = []
+    why = why if why is not None else {}
     for item in catalog:
         lg, country = item.get("league") or {}, item.get("country") or {}
         if lg.get("type") != "League":
+            why["cup / not a league"] = why.get("cup / not a league", 0) + 1
             continue
         season = sweep_season(item)
         if not season:
+            why["no finished season with goal events"] = why.get("no finished season with goal events", 0) + 1
+            continue
+        if not has_live_odds(item):
+            why["no odds this season"] = why.get("no odds this season", 0) + 1
             continue
         name = lg.get("name") or ""
         out.append({"id": lg.get("id"), "league": name, "country": country.get("name") or "",
@@ -146,11 +164,14 @@ def append_row(row):
 
 def sweep(max_calls, refresh_catalog=False):
     catalog = load_catalog(refresh_catalog)
-    cands = candidates(catalog)
+    why = {}
+    cands = candidates(catalog, why)
     done = load_done()
     todo = [c for c in cands if c["id"] not in done]
     print(f"leagues listed: {len(catalog)}; sweepable (league, events + odds): {len(cands)}; "
           f"already swept: {len(cands) - len(todo)}; to do: {len(todo)}")
+    for reason, n in sorted(why.items(), key=lambda kv: -kv[1]):
+        print(f"  skipped {n}: {reason}")
     used = 0
     for c in todo:
         if used >= max_calls:

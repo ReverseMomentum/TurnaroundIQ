@@ -57,6 +57,9 @@ SUPPORTED_LEAGUE_IDS = {
     # because far more games reach 2-up (scripts/league_scout.py probe).
     702: "Premier League 2",
     703: "Professional Development League",
+    # Netherlands second tier: games reach 2-up ~27% vs our 23.6% (2024+2025
+    # probes, ~1.3x our FTA rate); bookmakers run 2UP on it.
+    89: "Eerste Divisie",
 }
 
 SUPPORTED_LEAGUES = list(SUPPORTED_LEAGUE_IDS.values())

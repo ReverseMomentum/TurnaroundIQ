@@ -81,4 +81,7 @@ export const api = {
   paper: () => request("/paper"),
   autoSettle: () => request("/paper/auto-settle", { method: "POST" }),
   modelRuns: () => request("/model/runs"),
+  // The Stables (horse racing extra places)
+  stablesRaces: (date) => request(date ? `/stables/races?date=${encodeURIComponent(date)}` : "/stables/races"),
+  stablesPrice: (race) => request("/stables/price", { method: "POST", body: race }),
 };

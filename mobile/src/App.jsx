@@ -40,9 +40,11 @@ import {
   ChevronDown,
   Check,
   Sparkles,
+  Medal,
 } from "lucide-react";
 
 import { LOGO_SRC } from "./logo";
+import StablesPage from "./stables/StablesPage";
 import { api, API_BASE, ApiError, MIN_FTA, MIN_SCORE } from "./lib/api";
 import {
   clearSession,
@@ -323,6 +325,7 @@ const NAV_MORE = [
   ...(SHOW_DEV_TOOLS ? [{ key: "model-testing", icon: FlaskConical, label: "Model Testing (dev)" }] : []),
   { key: "early-goal-hunter", icon: Crosshair, label: "Early Goal Hunter" },
   { key: "chaos-factor", icon: Flame, label: "Chaos Factor" },
+  { key: "stables", icon: Medal, label: "The Stables" },
   { key: "calculator", icon: Calculator, label: "Calculator" },
   { key: "settings", icon: Settings, label: "Settings" },
 ];
@@ -2132,6 +2135,7 @@ export default function App() {
     opportunities: <OpportunitiesPage {...common} opps={opps} onOpen={setSelected} />,
     "early-goal-hunter": <EarlyGoalHunterPage {...common} />,
     "chaos-factor": <ChaosFactorPage {...common} />,
+    stables: <StablesPage {...common} ui={STABLES_UI} />,
     live: <LiveMonitorPage {...common} />,
     bets: <MyBetsPage {...common} reloadMe={loadMe} />,
     calculator: <CalculatorPage {...common} prefs={me?.prefs} />,
@@ -2146,6 +2150,12 @@ export default function App() {
     </Account.Provider>
   );
 }
+
+// Design system handed to pages that live in their own files (The Stables).
+const STABLES_UI = {
+  c, card, accentCard, primaryBtn, chip, useApi,
+  PageShell, PageTitle, SectionLabel, Paywall, Loading, ErrorBox, Empty, Bar,
+};
 
 // After web sign-in the session token is already set on the API client.
 async function initPurchasesToken() {

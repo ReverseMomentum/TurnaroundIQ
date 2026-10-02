@@ -49,6 +49,8 @@ from ops.health import check as data_health
 from collectors import odds_apisports as odds_store
 from api import odds_refresh
 from api import auth
+from api import stables
+from racing import store as racing_store
 from urllib.parse import quote
 
 try:
@@ -82,6 +84,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(stables.router)
 
 _upcoming_cache = {"ts": 0.0, "pairs": []}
 _fixture_status = {"source": "none", "error": None, "failed_at": 0.0}
@@ -145,6 +149,7 @@ def startup():
     ensure_tables()
     tracked_store.ensure_tracked_tables()
     auth.ensure_auth_tables()
+    racing_store.ensure_tables()
     # Warm the FTA path model's team state (~2s) off the request path.
     import threading
     from models import fta_path_model

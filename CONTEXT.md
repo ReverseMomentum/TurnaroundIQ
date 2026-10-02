@@ -52,6 +52,21 @@ Read this first. It is what a fresh session needs to work on this repo.
   - Refreshed by a 24h-window cron job, plus an in-app refresh button.
 - **Other pages:** Early Goal Hunter, Chaos Factor, the bet tracker (paper P/L) and the calculator.
 
+## The Stables (horse racing extra places)
+- Not a winner model: estimates P(finish k-th) for every runner and compares the
+  chance of landing in a bookmaker's paid places (incl. extra places) with what the
+  each-way terms imply. Code in `racing/`, API in `api/stables.py` (`/stables/races`,
+  `/stables/price`, Pro), page in `mobile/src/stables/StablesPage.jsx` (gets the
+  design system from App.jsx as the `ui` prop).
+- Model: win prices de-vigged (power method; exchange mid if every runner has one)
+  -> discounted Plackett-Luce/Harville, 10,000 Monte Carlo races -> P1..P9 ->
+  each-way EV, edge, 0-100 confidence, robust ¼ Kelly, grade A-D. Grade A is held
+  back until the discounts are fitted on results.
+- Data: no feed yet. Load JSON cards with `scripts/stables_import.py <file>` (format in
+  its docstring). Results in the same file feed `scripts/stables_calibrate.py`.
+  `scripts/stables_run.py [date]` stores predictions/opportunities. Tables are `rac_*`
+  in two_up.db. The app also has a "Price a race" form for typing a race in by hand.
+
 ## Working alongside other chats
 More than one chat may push to `main`. Pull before starting. Keep new work in new
 files where possible, so two chats aren't both editing `App.jsx` at the same time.

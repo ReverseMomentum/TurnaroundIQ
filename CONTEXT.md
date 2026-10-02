@@ -66,6 +66,10 @@ Read this first. It is what a fresh session needs to work on this repo.
   its docstring). Results in the same file feed `scripts/stables_calibrate.py`.
   `scripts/stables_run.py [date]` stores predictions/opportunities. Tables are `rac_*`
   in two_up.db. The app also has a "Price a race" form for typing a race in by hand.
+- Free checks (no racing subscription): `scripts/stables_kaggle_check.py` fits on
+  Kaggle results up to a year and tests on later years (`--peek` shows column
+  matching, `--save` stores the fit for the app); `scripts/stables_bsp_check.py
+  FROM TO` scores P(top k) on recent races from Betfair's free BSP files.
 
 ## Working alongside other chats
 More than one chat may push to `main`. Pull before starting. Keep new work in new

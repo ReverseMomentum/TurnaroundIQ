@@ -23,3 +23,5 @@ data/ginf*.csv
 data/events*.csv
 data/*_skipped.csv
 data/football_data/
+data/kaggle/
+data/bsp/

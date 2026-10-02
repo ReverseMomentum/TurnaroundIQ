@@ -193,3 +193,90 @@ def test_api_endpoints(monkeypatch):
         })
         assert r.status_code == 200 and len(r.json()["runners"]) == 12
         assert client.post("/stables/price", json={"runners": [{"name": "x", "odds": 2}]}).status_code == 422
+
+
+# ---- free checks: Kaggle readers, paper backtest, Betfair BSP -------------
+
+import sqlite3  # noqa: E402
+
+from racing import backtest, datasets  # noqa: E402
+
+
+def _synthetic(n_races=60, seed=0):
+    rng = np.random.default_rng(seed)
+    rows_r, rows_h = [], []
+    for rid in range(n_races):
+        odds = np.sort(rng.uniform(2, 30, size=10))
+        p = market.devig_power(odds)
+        order = positions.simulate_orders(p, n_sims=1, seed=rid)[0]
+        pos = np.empty(10, int)
+        pos[order] = np.arange(1, 11)
+        rows_r.append({"rid": rid, "date": f"2019-0{1 + rid % 9}-1{rid % 9} 14:30:00", "course": "Testford",
+                       "title": "Test Handicap" if rid % 2 else "Test Stakes", "countryCode": "GB"})
+        for i in range(10):
+            rows_h.append({"rid": rid, "horseName": f"H{rid}-{i}", "decimalPrice": 1 / odds[i],
+                           "position": 40 if (i == 9 and pos[i] == 10) else int(pos[i])})
+    return rows_r, rows_h
+
+
+def test_parsers():
+    assert datasets.parse_sp("9/2F") == 5.5 and datasets.parse_sp("Evens") == 2.0
+    assert datasets.parse_sp("11/10JF") == pytest.approx(2.1) and datasets.parse_sp("") is None
+    assert datasets.parse_pos("3=") == 3 and datasets.parse_pos("PU") is None and datasets.parse_pos(40) is None
+
+
+def test_hwaitt_reader_and_backtest(tmp_path):
+    import pandas as pd
+
+    r, h = _synthetic()
+    pd.DataFrame(r).to_csv(tmp_path / "races_2019.csv", index=False)
+    pd.DataFrame(h).to_csv(tmp_path / "horses_2019.csv", index=False)
+    assert "horse    -> horseName" in datasets.peek([tmp_path])
+    races = datasets.load_races([tmp_path], years=(2019, 2019))
+    assert len(races) == 60
+    race = races[0]
+    assert len(race["runners"]) == 10 and race["runners"][0]["odds"] > 1
+    assert race["finish"][race["order"][0]] == 1
+    assert sum(r["handicap"] for r in races) == 30
+    assert datasets.load_races([tmp_path], years=(2020, 2021)) == []
+    bt = backtest.ew_backtest(races, None, extra=1, n_sims=500)
+    assert bt["races"] == 60
+    graded = [v for k, v in bt.items() if isinstance(v, dict)]
+    assert graded and all(v["returned"] >= 0 for v in graded)
+
+
+def test_rpscrape_sqlite_reader(tmp_path):
+    con = sqlite3.connect(tmp_path / "results.db")
+    con.execute("CREATE TABLE data (date TEXT, region TEXT, course TEXT, off TEXT, race_name TEXT, "
+                "horse TEXT, pos TEXT, sp TEXT)")
+    sps = ["2/1F", "3/1", "5/1", "8/1", "12/1", "20/1"]
+    for race in range(3):
+        for i, sp in enumerate(sps):
+            con.execute("INSERT INTO data VALUES (?,?,?,?,?,?,?,?)",
+                        ("2025-05-0%d" % (race + 1), "GB", "Testford", "2:30", "Novice Hurdle",
+                         f"R{race}-{i}", "PU" if i == 5 else str(i + 1), sp))
+    con.execute("INSERT INTO data VALUES ('2025-05-01','FR','Paris','3:00','Prix','X','1','2/1')")
+    con.commit()
+    con.close()
+    races = datasets.load_races([tmp_path])
+    assert len(races) == 3
+    assert races[0]["runners"][0]["odds"] == 3.0 and races[0]["finish"][5] is None
+    assert races[0]["order"] == [0, 1, 2, 3, 4]
+
+
+def _bsp_csv(rows):
+    head = "EVENT_ID,MENU_HINT,EVENT_NAME,EVENT_DT,SELECTION_ID,SELECTION_NAME,WIN_LOSE,BSP\n"
+    return head + "\n".join(",".join(map(str, r)) for r in rows)
+
+
+def test_bsp_join_and_check():
+    bsps = [3.0, 4.0, 6.0, 9.0, 13.0, 21.0, 34.0, 51.0]
+    win = _bsp_csv([(1, "Testford 2nd Oct", "2m Hcap", "02-10-2026 14:30", 100 + i, f"H{i}",
+                     int(i == 1), b) for i, b in enumerate(bsps)])
+    place = _bsp_csv([(2, "Testford 2nd Oct", "4 TBP", "02-10-2026 14:30", 100 + i, f"H{i}",
+                       int(i in (0, 1, 4, 6)), round(1 + (b - 1) / 4, 2)) for i, b in enumerate(bsps)])
+    races = backtest.bsp_races(win, place)
+    assert len(races) == 1 and races[0]["places"] == 4 and sum(races[0]["p_win"]) == pytest.approx(1)
+    rep = backtest.bsp_check(races * 5, {"prior": positions.DEFAULT_DISCOUNTS, "harville": [1.0]}, n_sims=500)
+    assert set(rep["top4"]) == {"prior", "harville", "place_market_bsp"}
+    assert rep["top4"]["prior"]["n"] == 40 and rep["top4"]["prior"]["observed_rate"] == 0.5

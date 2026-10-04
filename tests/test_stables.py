@@ -519,3 +519,20 @@ def test_recalibration_corrects_a_longshot_bias():
     assert p_c.sum() == pytest.approx(1) and np.all(np.diff(top_c, axis=1) >= 0)
     out = price_race(_race(), {"recal": recal})
     assert out["recalibrated"] and out["runners"][0]["value_from"]
+
+
+def test_no_value_calls_beyond_50_1_and_win_stage_fixed():
+    race = {"handicap": True, "terms": [{"bookmaker": "B", "places": 6, "fraction": "1/4"}],
+            "runners": [{"name": f"H{i}", "win_odds": o} for i, o in enumerate(ODDS + [67.0, 101.0])]}
+    out = price_race(race)
+    longshots = [r for r in out["runners"] if r["best_win_odds"] > 51]
+    assert longshots and all(r["value_from"] == {} and r["beyond_value_range"] for r in longshots)
+    assert all(v is None or v <= 51 for r in out["runners"] for v in r["value_from"].values())
+    assert all(o["grade"] == "C" for o in out["opportunities"] if o["win_odds"] > 51)
+    rng = np.random.default_rng(1)
+    races = []
+    for i in range(250):
+        p = market.devig_power(np.sort(rng.uniform(2, 40, size=8)))
+        races.append({"p_win": p, "order": list(positions.simulate_orders(p, 1, seed=i)[0])})
+    assert calibrate.fit_discounts(races)["discounts"][0] == 1.0
+    assert calibrate.fit_discounts(races, fix_first=False)["discounts"][0] != 1.0

@@ -20,6 +20,10 @@ from racing import calibrate, confidence, kelly, market, nonfinish, positions, r
 from racing.extra_place import Terms, evaluate, min_value_odds, parse_fraction, shrink, standard_terms
 
 MAX_POSITIONS = 9
+# Backtest 2018-20: at 50/1+ the model's EV was far above what came in (+12% vs
+# -4% at one extra place), while every shorter band was close. Runners priced
+# beyond this get no value call: no grade above C, no "value from" price.
+MAX_VALUE_ODDS = 51.0
 DEFAULT_BOOK = "Best price"
 
 
@@ -28,6 +32,14 @@ def _runner_features(runners, names):
         return None
     X = np.array([[(r.get("features") or {}).get(f, np.nan) for f in names] for r in runners], float)
     return X if np.isfinite(X).any() else None
+
+
+def _within_range(price):
+    return price if price is not None and price <= MAX_VALUE_ODDS else None
+
+
+def _cap_grade(grade: str, odds: float) -> str:
+    return "C" if odds > MAX_VALUE_ODDS and grade in ("A", "B") else grade
 
 
 def _offers(race: dict, field_size: int) -> list[Terms]:
@@ -79,6 +91,9 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
     def topk(arr, i, k):
         return float(arr[i, min(k, n) - 1]) if k >= 1 else 0.0
 
+    ref_price = [r.get("win_odds") or market.best_price(r.get("odds") or {})
+                 or (r.get("exchange") or {}).get("back") or 1.0 / max(float(p), 1e-6)
+                 for r, p in zip(runners, p_raw)]
     rows, opps = [], []
     for i, r in enumerate(runners):
         p_book = diag["p_book"][i] if diag["p_book"] is not None else None
@@ -92,11 +107,12 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
             "positions": [round(float(x), 5) for x in P[i, :MAX_POSITIONS]],
             "best_win_odds": r.get("win_odds") or market.best_price(r.get("odds") or {}),
             "exchange_back": (r.get("exchange") or {}).get("back"),
-            "value_from": {
-                str(extra): min_value_odds(float(p_win[i]), topk(top, i, std_places + extra), std_frac,
-                                           edge_shrink)
+            "value_from": {} if ref_price[i] > MAX_VALUE_ODDS else {
+                str(extra): _within_range(min_value_odds(float(p_win[i]), topk(top, i, std_places + extra),
+                                                         std_frac, edge_shrink))
                 for extra in (0, 1, 2, 3) if std_frac and std_places + extra <= n
             },
+            "beyond_value_range": ref_price[i] > MAX_VALUE_ODDS,
             "exchange": r.get("exchange"),
             "offers": [],
         }
@@ -127,8 +143,9 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
                 "confidence_parts": parts,
                 "stakes": stakes,
                 "recommended_stake_pct": stakes["quarter"]["each_way_pct"],
-                "grade": confidence.grade(ev["each_way_ev"], robust_edge, conf,
-                                          stakes["quarter"]["each_way_pct"], bool(n_cal)),
+                "grade": _cap_grade(confidence.grade(ev["each_way_ev"], robust_edge, conf,
+                                                     stakes["quarter"]["each_way_pct"], bool(n_cal)),
+                                    float(odds)),
             })
             row["offers"].append(ev)
             # An each-way bet includes the win part, so that is what must pay.

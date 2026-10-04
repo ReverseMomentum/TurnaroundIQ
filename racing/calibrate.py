@@ -53,20 +53,30 @@ def _finishers_only(r: dict):
     return logp[keep], [remap[i] for i in order]
 
 
-def fit_discounts(races: list[dict], n_stages: int = N_STAGES) -> dict:
+def fit_discounts(races: list[dict], n_stages: int = N_STAGES, fix_first: bool = True) -> dict:
+    """
+    fix_first keeps lambda_1 = 1, so win chances stay the market's: a fitted
+    lambda_1 (1.07 on 2005-17) did not hold up on later years.
+    """
     prepared = [_finishers_only(r) for r in races if len(r.get("order") or []) >= 2]
     if len(prepared) < MIN_RACES_DISCOUNTS:
         return {"discounts": list(positions.DEFAULT_DISCOUNTS), "fitted": False,
                 "n_races": len(prepared), "reason": f"need {MIN_RACES_DISCOUNTS}+ races with results"}
 
-    def f(lam):
+    def full(x):
+        return np.concatenate([[1.0], x]) if fix_first else x
+
+    def f(x):
+        lam = full(x)
         return sum(_race_nll(lp, o, lam) for lp, o in prepared) / len(prepared)
 
     x0 = np.array(positions.stage_discounts(n_stages))
-    res = minimize(f, x0, method="L-BFGS-B", bounds=[(0.2, 1.6)] * n_stages)
+    if fix_first:
+        x0 = x0[1:]
+    res = minimize(f, x0, method="L-BFGS-B", bounds=[(0.2, 1.6)] * len(x0))
     base = f(x0)
     return {
-        "discounts": [round(float(v), 4) for v in res.x],
+        "discounts": [round(float(v), 4) for v in full(res.x)],
         "fitted": True,
         "n_races": len(prepared),
         "nll_prior": round(base, 5),

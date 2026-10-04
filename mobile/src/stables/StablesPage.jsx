@@ -217,6 +217,7 @@ function RaceCard({ ui, race, extra }) {
             <p style={{ color: c.textMuted }} className="text-[11px] mt-2">
               Value from: the smallest bookmaker price worth taking each-way at {race.standard_terms.places + extra} places,{" "}
               {fractionLabel(race.standard_terms.fraction)} odds. Green where the exchange price is already that big.
+              No value calls on runners over 50/1: in past races the model overrated them.
             </p>
           )}
         </div>

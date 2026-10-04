@@ -91,7 +91,10 @@ Read this first. It is what a fresh session needs to work on this repo.
   beats the market). Live: `racing/live_features.py` builds the same features
   from Betfair runner data + rac_history (load Kaggle once with
   `scripts/stables_history.py KAGGLE`; Betfair results are added after each race).
-  Retraining is a deliberate ops step, as for FTA.
+  Retraining is a deliberate ops step, as for FTA. Both training scripts fit and
+  test only on fields of `--min-runners` (default 8; history features still use
+  every race). Odds brackets (shared, racing/extra_place.ODDS_BANDS): 1-3, 3-5,
+  5-8, 8-12, 12-16, 16-21, 21-34, 34-51, 51+.
 - Manual data: load JSON cards with `scripts/stables_import.py <file>` (format in
   its docstring). Results in the same file feed `scripts/stables_calibrate.py`.
   `scripts/stables_run.py [date]` stores predictions/opportunities. Tables are `rac_*`

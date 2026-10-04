@@ -50,6 +50,8 @@ def main():
     ap.add_argument("--max-train", type=int, default=20000, help="random sample of training races")
     ap.add_argument("--max-test", type=int, default=5000, help="random sample of test races")
     ap.add_argument("--recal-races", type=int, default=5000, help="training races used to fit the calibration")
+    ap.add_argument("--min-runners", type=int, default=8,
+                    help="fit and test only on fields this big (extra places are rarely offered below 8)")
     ap.add_argument("--save", action="store_true")
     a = ap.parse_args()
     if a.peek:
@@ -58,6 +60,9 @@ def main():
     t0 = time.time()
     rng = random.Random(1)
     every = datasets.load_races(a.paths, years=(a.train_from, a.test_to))
+    all_races = every                       # non-finish rates use every race
+    every = [r for r in every if len(r["runners"]) >= a.min_runners]
+    print(f"{len(every)} of {len(all_races)} races have {a.min_runners}+ runners", flush=True)
     train = [r for r in every if int(r["date"][:4]) <= a.train_to]
     test = [r for r in every if int(r["date"][:4]) >= a.test_from]
     print(f"loaded {len(train)} train races ({a.train_from}-{a.train_to}), {len(test)} test ({a.test_from}+) "
@@ -108,7 +113,7 @@ def main():
 
     bt = {}
     for extra in (1, 2):
-        bt[extra] = backtest.ew_backtest(test_s, cal, extra=extra)
+        bt[extra] = backtest.ew_backtest(test_s, cal, extra=extra, min_runners=a.min_runners)
         print(f"\n=== paper each-way, places +{extra}, {bt[extra]['races']} test races ===", flush=True)
         _table("by grade", bt[extra]["by_grade"])
         _table("by model EV", bt[extra]["by_ev"])

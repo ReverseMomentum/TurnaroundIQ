@@ -513,7 +513,7 @@ def test_recalibration_corrects_a_longshot_bias():
     recal = recalibrate.fit(recalibrate.build_rows(train, n_sims=500))
     assert recal["fitted"] and recal["win"][1] > 1.1          # sharpens toward favourites
     rep = recalibrate.report(recalibrate.build_rows(test, n_sims=500), recal)
-    big = rep["50+"] if "50+" in rep else rep["20-50"]
+    big = rep.get("51+") or rep["34-51"]
     assert abs(big["calibrated"] - big["actual"]) < abs(big["raw"] - big["actual"])
     p_c, top_c = recalibrate.apply(np.array([0.5, 0.3, 0.2]), np.array([[.5, .8, 1], [.3, .7, 1], [.2, .5, 1]]), recal)
     assert p_c.sum() == pytest.approx(1) and np.all(np.diff(top_c, axis=1) >= 0)
@@ -772,3 +772,16 @@ def test_training_features_ignore_unreadable_dates(tmp_path):
     j30 = [f["jockey_30d"] for f in out.values()]
     assert all(v is not None and 0 < v < 1 for v in j30)
     assert F.shrink(0, -5, 10) == pytest.approx(0.3)
+
+
+def test_odds_brackets():
+    from racing.extra_place import ODDS_BANDS, odds_band
+
+    assert len(ODDS_BANDS) == 9
+    assert odds_band(2.5) == "1-3" and odds_band(3.0) == "3-5" and odds_band(11.0) == "8-12"
+    assert odds_band(26.0) == "21-34" and odds_band(51.0) == "51+" and odds_band(400) == "51+"
+    from racing import backtest
+    out = backtest.summarise([{"grade": "B", "ev": 0.05, "win_odds": o, "return": 1.0, "placed": False,
+                               "extra_hit": False, "race_type": "flat"} for o in (2.0, 13.0, 60.0)])
+    assert list(out["by_odds"]) == ["1-3", "3-5", "5-8", "8-12", "12-16", "16-21", "21-34", "34-51", "51+"]
+    assert out["by_odds"]["12-16"]["bets"] == 1

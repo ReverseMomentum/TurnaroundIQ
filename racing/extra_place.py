@@ -149,3 +149,20 @@ def min_value_odds(p_win: float, p_place: float, fraction: float, edge_shrink=No
         else:
             lo = mid
     return round(hi, 2)
+
+
+# Win-odds brackets (decimal) shared by the backtest, calibration report and Tracker:
+# evens-2/1, 2/1-4/1, 4/1-7/1, 7/1-11/1, 11/1-15/1, 15/1-20/1, 20/1-33/1, 33/1-50/1, 50/1+
+ODDS_BANDS = ((1.0, 3.0), (3.0, 5.0), (5.0, 8.0), (8.0, 12.0), (12.0, 16.0), (16.0, 21.0),
+              (21.0, 34.0), (34.0, 51.0), (51.0, 1e9))
+
+
+def band_label(lo: float, hi: float) -> str:
+    return f"{lo:g}+" if hi >= 1e9 else f"{lo:g}-{hi:g}"
+
+
+def odds_band(odds: float) -> str:
+    for lo, hi in ODDS_BANDS:
+        if odds < hi:
+            return band_label(lo, hi)
+    return band_label(*ODDS_BANDS[-1])

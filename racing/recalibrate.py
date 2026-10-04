@@ -29,7 +29,7 @@ from racing import learn, market, nonfinish, positions
 from racing.extra_place import standard_terms
 
 MIN_ROWS = 2000
-ODDS_BANDS = ((1.0, 5.0), (5.0, 10.0), (10.0, 20.0), (20.0, 50.0), (50.0, 1e9))
+from racing.extra_place import ODDS_BANDS, band_label  # noqa: E402
 
 
 def logit(p):
@@ -131,8 +131,7 @@ def report(rows: dict, recal: dict) -> dict:
     cal = calibrate_place(raw, rows["place_win"], rows["place_n"], recal)
     y, odds = rows["place_y"], rows["place_odds"]
     out = {}
-    for label, lo, hi in [("all", 0, 1e9), *[(f"{lo:g}-{hi:g}" if hi < 1e9 else f"{lo:g}+", lo, hi)
-                                            for lo, hi in ODDS_BANDS]]:
+    for label, lo, hi in [("all", 0, 1e9), *[(band_label(lo, hi), lo, hi) for lo, hi in ODDS_BANDS]]:
         m = (odds >= lo) & (odds < hi)
         if m.sum() < 50:
             continue

@@ -12,7 +12,8 @@ The Stables: learn runner features on Kaggle history and test them on later year
     venv/bin/python -u scripts/stables_learn.py data/kaggle/hwaitt
     venv/bin/python -u scripts/stables_learn.py data/kaggle/hwaitt --save
 
-Defaults: train 2008-2015, validate 2016-2017, test 2018+. About 20-30 minutes.
+Defaults: train 2008-2015, validate 2016-2017, test 2018+, fields of 8+ runners
+(--min-runners). About 20-30 minutes.
 Writes logs/stables_learn.json.
 """
 import argparse
@@ -49,6 +50,8 @@ def main():
     ap.add_argument("--max-valid", type=int, default=8000)
     ap.add_argument("--max-test", type=int, default=5000)
     ap.add_argument("--recal-races", type=int, default=4000)
+    ap.add_argument("--min-runners", type=int, default=8,
+                    help="train / test only on fields this big (extra places are rarely offered below 8)")
     ap.add_argument("--save", action="store_true")
     a = ap.parse_args()
     t0 = time.time()
@@ -62,6 +65,10 @@ def main():
     print(f"features for {n}/{total} runners in {time.time() - t0:.0f}s", flush=True)
 
     year = lambda r: int(r["date"][:4])  # noqa: E731
+    # Features above used every race (a small-field run is still form); the model is
+    # fitted and tested only on fields where bookmakers pay extra places.
+    every = [r for r in every if len(r["runners"]) >= a.min_runners]
+    print(f"{len(every)} races with {a.min_runners}+ runners", flush=True)
     train = [r for r in every if year(r) <= a.train_to]
     valid = [r for r in every if a.train_to < year(r) <= a.valid_to]
     test = [r for r in every if year(r) >= a.test_from]
@@ -106,7 +113,7 @@ def main():
 
     bt = {}
     for label, cal in (("current", cal_m), ("learned", cal_l)):
-        bt[label] = backtest.ew_backtest(test_s, cal, extra=1)
+        bt[label] = backtest.ew_backtest(test_s, cal, extra=1, min_runners=a.min_runners)
         print(f"\n=== paper each-way, places +1, {bt[label]['races']} test races: {label} model ===")
         _table("by grade", bt[label]["by_grade"])
         _table("by model EV", bt[label]["by_ev"])
@@ -115,7 +122,8 @@ def main():
 
     out = {"selection": sel, "blend": blend, "test_loss": {"market": lm, "learned": ll},
            "test_eval": {"market": ev_m, "learned": ev_l}, "backtest": bt,
-           "races": {"train": len(train_s), "valid": len(valid_s), "test": len(test_s)}}
+           "races": {"train": len(train_s), "valid": len(valid_s), "test": len(test_s)},
+           "min_runners": a.min_runners}
     (ROOT / "logs").mkdir(exist_ok=True)
     (ROOT / "logs" / "stables_learn.json").write_text(json.dumps(out, indent=1, default=str))
     conn = get_db()
@@ -125,7 +133,8 @@ def main():
                      ("stables_learned", datetime.now(timezone.utc).strftime("%Y%m%d%H%M"),
                       datetime.now(timezone.utc).isoformat(timespec="seconds"), len(train_s) + len(valid_s),
                       ev_l.get("top5", {}).get("brier"), ll,
-                      f"features={','.join(sel['features']) or 'none'}; market_loss={lm:.5f}; saved={a.save}"))
+                      f"features={','.join(sel['features']) or 'none'}; market_loss={lm:.5f}; "
+                      f"min_runners={a.min_runners}; saved={a.save}"))
         conn.commit()
     except Exception as e:  # model_runs is optional
         print("model_runs not written:", e)
@@ -135,7 +144,7 @@ def main():
         if ll >= lm:
             print("\nnot saved: the learned model did not beat the market on test races")
             return
-        store.save_calibration({**base, **cal_l, "source": "kaggle+learned",
+        store.save_calibration({**base, **cal_l, "source": "kaggle+learned", "min_runners": a.min_runners,
                                 "learned_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
         print("\nsaved for the app: features", sel["features"])
 

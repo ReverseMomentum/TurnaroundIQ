@@ -98,7 +98,7 @@ def _summ(rows: list[dict]) -> dict:
 
 
 EV_BANDS = ((0.0, 0.04), (0.04, 0.10), (0.10, 0.20), (0.20, 9.0))
-ODDS_BANDS = ((1.0, 5.0), (5.0, 10.0), (10.0, 20.0), (20.0, 50.0), (50.0, 10000.0))
+from racing.extra_place import ODDS_BANDS, band_label  # noqa: E402
 
 
 def summarise(bets: list[dict]) -> dict:
@@ -107,7 +107,7 @@ def summarise(bets: list[dict]) -> dict:
            "by_grade": {g: _summ([b for b in bets if b["grade"] == g]) for g in "ABC"},
            "by_ev": {f"{lo:+.0%} to {hi:+.0%}" if hi < 9 else f"{lo:+.0%}+":
                      _summ([b for b in bets if lo <= b["ev"] < hi]) for lo, hi in EV_BANDS},
-           "by_odds": {f"{lo:g}-{hi:g}" if hi < 10000 else f"{lo:g}+":
+           "by_odds": {band_label(lo, hi):
                        _summ([b for b in bets if lo <= b["win_odds"] < hi]) for lo, hi in ODDS_BANDS},
            "by_type": {t: _summ([b for b in bets if b["race_type"] == t]) for t in ("flat", "hurdle", "chase")}}
     return out

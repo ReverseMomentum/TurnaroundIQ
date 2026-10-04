@@ -26,7 +26,7 @@ from api import tracked as tracked_store
 from database import get_db
 from racing import store
 from racing.engine import price_race
-from racing.extra_place import parse_fraction
+from racing.extra_place import ODDS_BANDS, band_label, odds_band, parse_fraction
 
 UK = ZoneInfo("Europe/London")
 SNAPSHOT_RUNNER_KEYS = ("number", "draw", "jockey", "trainer", "age", "weight", "official_rating", "form",
@@ -149,10 +149,7 @@ def auto_settle() -> int:
 
 
 def _band(odds: float) -> str:
-    for hi, label in ((5, "1-5"), (10, "5-10"), (20, "10-20"), (51, "20-50")):
-        if odds < hi:
-            return label
-    return "50+"
+    return odds_band(odds)
 
 
 def _summ(rows: list[dict]) -> dict:
@@ -193,7 +190,9 @@ def report(app_user_id: str, paper: Optional[bool] = None) -> dict:
             "race_type": (snap.get("race") or {}).get("race_type") or "flat",
             "bookmaker": b["bookmaker"], "places": f"{b['places']} places",
         })
+    band_order = {band_label(lo, hi): i for i, (lo, hi) in enumerate(ODDS_BANDS)}
+    order = lambda k: (band_order.get(k, 99), str(k))  # noqa: E731  odds brackets in price order
     split = lambda key: {k: _summ([r for r in rows if r[key] == k])  # noqa: E731
-                         for k in sorted({r[key] for r in rows})}
+                         for k in sorted({r[key] for r in rows}, key=order)}
     return {"all": _summ(rows), "by_grade": split("grade"), "by_odds": split("band"),
             "by_race_type": split("race_type"), "by_bookmaker": split("bookmaker"), "by_places": split("places")}

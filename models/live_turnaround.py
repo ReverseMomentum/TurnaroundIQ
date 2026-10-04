@@ -41,6 +41,9 @@ VERSION = "LIVE-1"
 STEP = 5            # minutes between sampled states
 LAST_MINUTE = 85    # states after this say little (and stoppage minutes are fuzzy)
 HOLDOUT = 0.15
+# Turnarounds have become more common (longer added time), so recent seasons can
+# count more. check() keeps the weighting only if it scores the latest games better.
+RECENCY_OPTIONS = [None, 1460.0, 730.0]   # half-life in days; None = every season equal
 
 PRE = ["is_home", "t_fail_rate", "o_rescue_rate", "lg_fail_rate", "lg_goals",
        "t_gf", "t_ga", "o_gf", "o_ga", "t_lead_keep", "o_lead_keep"]
@@ -134,12 +137,16 @@ def build_states(matches=None, rows=None):
             np.array(days), np.array(first, dtype=bool))
 
 
-def _fit(X, y):
+def _fit(X, y, days=None, half_life=None):
     from sklearn.linear_model import LogisticRegression
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
     model = make_pipeline(StandardScaler(), LogisticRegression(C=0.5, max_iter=3000))
-    model.fit(X, y)
+    if half_life and days is not None:
+        w = pm.recency_weights(days, half_life)
+        model.fit(X, y, logisticregression__sample_weight=w)
+    else:
+        model.fit(X, y)
     return model
 
 
@@ -195,8 +202,13 @@ def check(data=None, verbose=True):
         raise SystemExit(f"only {len(y)} in-play states - need goal timelines (run the historical pipeline)")
     cut = np.quantile(days, 1 - HOLDOUT)
     tr, te = days < cut, days >= cut
-    model = _fit(X[tr], y[tr])
-    p = model.predict_proba(X[te])[:, 1]
+    tried = {}
+    best_hl, p = None, None
+    for hl in RECENCY_OPTIONS:
+        ph = _fit(X[tr], y[tr], days[tr], hl).predict_proba(X[te])[:, 1]
+        tried[hl] = float(log_loss(y[te], np.clip(ph, 1e-6, 1 - 1e-6), labels=[0, 1]))
+        if p is None or tried[hl] < tried[best_hl] - 1e-5:
+            best_hl, p = hl, ph
     base = _table_baseline(X[tr], y[tr])(X[te])
     flat = np.full_like(p, y[tr].mean())
     out = {
@@ -210,6 +222,8 @@ def check(data=None, verbose=True):
         "actual": float(y[te].mean()), "pred": float(p.mean()),
     }
     out["beats_table"] = out["log_loss"] < out["log_loss_table"]
+    out["half_life_days"] = best_hl
+    out["recency_tried"] = {("equal" if k is None else f"{k / 365:.0f}y"): v for k, v in tried.items()}
     if verbose:
         print(f"in-play states: {len(y)} from {int(first.sum())} team-sides that went 2 up "
               f"(train {out['states_train']}, latest {int(100*HOLDOUT)}% test {out['states_test']})")
@@ -220,6 +234,9 @@ def check(data=None, verbose=True):
         print(f"  no-win rate        predicted {100*out['pred']:.1f}%  actual {100*out['actual']:.1f}%")
         _bands(y[te], p, "Held-out calibration (all states):")
         _bands(y[te & first], p[first[te]], "Held-out calibration (at the moment of going 2 up):")
+        print("  recency weighting (held-out log loss): "
+              + ", ".join(f"{k} {v:.4f}" for k, v in out["recency_tried"].items())
+              + f"  -> using {'equal' if best_hl is None else f'half-life {best_hl / 365:.0f}y'}")
         print(f"  -> model {'BEATS' if out['beats_table'] else 'does NOT beat'} the plain score x minute table")
     return out
 
@@ -227,8 +244,8 @@ def check(data=None, verbose=True):
 def train(save=True):
     data = build_states()
     report = check(data)
-    X, y, _, _ = data
-    model = _fit(X, y)
+    X, y, days, _ = data
+    model = _fit(X, y, days, report["half_life_days"])
     bundle = {"version": VERSION, "features": FEATURES, "model": model, "check": report,
               "trained_at": datetime.now(timezone.utc).isoformat(), "states": int(len(y)),
               # only show model numbers in the app when they beat the simple table

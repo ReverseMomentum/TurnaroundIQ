@@ -83,6 +83,9 @@ export const api = {
   autoSettle: () => request("/paper/auto-settle", { method: "POST" }),
   modelRuns: () => request("/model/runs"),
   // The Stables (horse racing extra places)
-  stablesRaces: (date) => request(date ? `/stables/races?date=${encodeURIComponent(date)}` : "/stables/races"),
+  stablesRaces: (date, refresh = false) => {
+    const qs = [date && `date=${encodeURIComponent(date)}`, refresh && "refresh=true"].filter(Boolean).join("&");
+    return request("/stables/races" + (qs ? "?" + qs : ""));
+  },
   stablesPrice: (race) => request("/stables/price", { method: "POST", body: race }),
 };

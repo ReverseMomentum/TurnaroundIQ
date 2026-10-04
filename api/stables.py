@@ -21,6 +21,7 @@ from racing.engine import price_race
 router = APIRouter(prefix="/stables", tags=["stables"])
 
 CACHE_SECONDS = 300
+REFRESH_COOLDOWN_SECONDS = 20  # a forced refresh within this of the last pricing reuses it
 _cache: dict = {}
 _lock = threading.Lock()
 
@@ -41,7 +42,9 @@ def _calibration_summary(cal: dict) -> dict:
 
 
 @router.get("/races")
-def stables_races(authorization: str | None = Header(default=None), date: Optional[str] = None):
+def stables_races(authorization: str | None = Header(default=None), date: Optional[str] = None,
+                  refresh: bool = False):
+    """refresh=true re-prices the stored races now instead of serving the 5-minute cache."""
     _require_pro(authorization)
     date = date or datetime.now(timezone.utc).date().isoformat()
     try:
@@ -50,7 +53,8 @@ def stables_races(authorization: str | None = Header(default=None), date: Option
         raise HTTPException(400, "date must be YYYY-MM-DD")
     with _lock:
         hit = _cache.get(date)
-        if hit and time.time() - hit[0] < CACHE_SECONDS:
+        max_age = REFRESH_COOLDOWN_SECONDS if refresh else CACHE_SECONDS
+        if hit and time.time() - hit[0] < max_age:
             return hit[1]
     cal = store.latest_calibration()
     races = [price_race(r, cal) for r in store.races_on(date)]
@@ -60,6 +64,7 @@ def stables_races(authorization: str | None = Header(default=None), date: Option
     opps.sort(key=lambda o: (o["grade"], -o["each_way_ev"]))
     body = {
         "date": date,
+        "priced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "dates": store.race_dates(),
         "calibration": _calibration_summary(cal),
         "races": races,

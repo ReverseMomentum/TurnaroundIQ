@@ -352,3 +352,23 @@ def test_shrink_and_backtest_summary():
     assert fit["fitted"] and 0.4 <= fit["edge_shrink"] <= 0.6
     summ = backtest.summarise(bets)
     assert summ["all"]["bets"] == 1000 and summ["by_grade"]["B"]["roi"] == pytest.approx(0.5 + 0.4 * 1.7 - 1)
+
+
+def test_refresh_reprices_but_respects_cooldown(monkeypatch):
+    from api import stables as stables_api
+
+    monkeypatch.setattr(app_module, "require_pro", lambda a: "u_test")
+    store.import_card(CARD)
+    calls = []
+    real = stables_api.price_race
+    monkeypatch.setattr(stables_api, "price_race", lambda r, cal: calls.append(1) or real(r, cal, n_sims=500))
+    stables_api._cache.clear()
+    with TestClient(app_module.app) as client:
+        first = client.get("/stables/races?date=2026-10-02").json()
+        assert first["priced_at"] and len(calls) == 1
+        client.get("/stables/races?date=2026-10-02")                 # cached
+        client.get("/stables/races?date=2026-10-02&refresh=true")    # inside cooldown: cached
+        assert len(calls) == 1
+        stables_api._cache["2026-10-02"] = (0.0, first)              # pricing is old
+        client.get("/stables/races?date=2026-10-02&refresh=true")
+        assert len(calls) == 2

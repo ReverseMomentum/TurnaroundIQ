@@ -6,7 +6,7 @@
  * PageShell, Paywall, ...), so this page looks like every other page.
  */
 import React, { useMemo, useState } from "react";
-import { ChevronDown, Info } from "lucide-react";
+import { ChevronDown, Info, RefreshCw } from "lucide-react";
 import { api } from "../lib/api";
 
 const pct = (v, dp = 1) => (v == null || isNaN(v) ? "—" : (100 * Number(v)).toFixed(dp) + "%");
@@ -241,8 +241,13 @@ function OpportunityList({ ui, list }) {
 function CardsTab({ ui, entitled }) {
   const { c, chip, useApi, Loading, ErrorBox, Empty, SectionLabel } = ui;
   const [date, setDate] = useState(null);
-  const q = useApi(() => api.stablesRaces(date), [entitled, date]);
+  const [refreshes, setRefreshes] = useState(0);
+  const q = useApi(() => api.stablesRaces(date, refreshes > 0), [entitled, date, refreshes]);
   const data = q.data;
+  const refreshing = q.loading && Boolean(data);
+  const updated = data?.priced_at
+    ? new Date(data.priced_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+    : null;
   const dates = useMemo(() => {
     const ds = new Set(data?.dates || []);
     if (data?.date) ds.add(data.date);
@@ -250,6 +255,14 @@ function CardsTab({ ui, entitled }) {
   }, [data]);
   return (
     <>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <button onClick={() => setRefreshes((n) => n + 1)} disabled={q.loading}
+          style={{ color: c.green, border: "1px solid rgba(54,233,143,0.35)", opacity: q.loading ? 0.6 : 1 }}
+          className="flex items-center gap-2 text-xs font-semibold px-3.5 py-2 rounded-lg">
+          <RefreshCw size={14} className={q.loading ? "animate-spin" : ""} /> {refreshing ? "Refreshing…" : "Refresh races"}
+        </button>
+        {updated && <span style={{ color: c.textMuted }} className="text-[11px]">Priced at {updated}</span>}
+      </div>
       {dates.length > 1 && (
         <div className="no-scrollbar flex gap-2 overflow-x-auto mb-4 -mx-1 px-1">
           {dates.map((d) => (
@@ -257,7 +270,7 @@ function CardsTab({ ui, entitled }) {
           ))}
         </div>
       )}
-      {q.loading && <Loading />}
+      {q.loading && !data && <Loading />}
       {q.error && <ErrorBox error={q.error} onRetry={q.reload} />}
       {data && data.races.length === 0 && (
         <Empty>No race cards loaded for {data.date} yet. Use “Price a race” to enter one by hand.</Empty>

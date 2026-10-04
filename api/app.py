@@ -818,6 +818,16 @@ def tracked_edit(
     return bet
 
 
+@app.get("/live")
+def live_monitor_view(authorization: str | None = Header(default=None)):
+    """Live page: the user's open 2UP bets in play + live games where a team is 2 up."""
+    user_id = require_pro(authorization)
+    from api import live_monitor
+    bets = [b for b in tracked_store.list_tracked(user_id, status="open", limit=200)
+            if (b.get("product") or "fta") == "fta"]
+    return live_monitor.monitor(bets)
+
+
 @app.get("/live/turnaround")
 def live_turnaround(
     team: str,

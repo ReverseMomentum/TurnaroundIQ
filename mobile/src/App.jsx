@@ -1559,18 +1559,133 @@ function ChaosFactorPage({ nav, entitled, onPurchased }) {
   );
 }
 
-function LiveMonitorPage({ nav, entitled }) {
+const LIVE_VERDICT = {
+  waiting: { text: "Waiting for 2 up", tone: c.textSecondary },
+  triggered: { text: "2UP triggered", tone: c.green },
+  comeback_on: { text: "Comeback on: your lay is winning", tone: c.orange },
+  turnaround: { text: "Turnaround: both sides won", tone: c.green },
+  held: { text: "2UP paid, they held on", tone: c.textSecondary },
+  no_2up: { text: "Finished, no 2 up", tone: c.textSecondary },
+};
+
+function liveClock(v) {
+  if (v.phase === "live") return v.status === "HT" ? "HT" : v.minute != null ? v.minute + (v.extra ? "+" + v.extra : "") + "'" : "Live";
+  if (v.phase === "finished") return "FT";
+  if (v.phase === "off") return v.status || "Off";
+  return v.kickoff ? formatKickoff(v.kickoff) : "Not linked";
+}
+
+function LiveBetCard({ v, onCalc }) {
+  const isHome = v.team === v.home_team;
+  const known = v.team_goals != null;
+  const hg = known ? (isHome ? v.team_goals : v.opp_goals) : null;
+  const ag = known ? (isHome ? v.opp_goals : v.team_goals) : null;
+  const verdict = LIVE_VERDICT[v.verdict];
+  const live = v.phase === "live";
   return (
-    <PageShell activeTab="live" onNavigate={nav} entitled={entitled}>
-      <PageTitle title="Live monitor" />
-      <div style={card} className="rounded-2xl p-6 text-center">
-        <RadioTower size={28} style={{ color: c.cyan }} className="mx-auto mb-3" />
-        <p style={{ color: c.text }} className="text-base font-medium mb-2">Coming soon</p>
-        <p style={{ color: c.textSecondary }} className="text-sm">
-          In-play tracking of your 2-up bets (live score, 2-up trigger, FTA status) is on the way.
-          Your tracked bets settle automatically after full time in My Bets.
+    <div style={{ ...card, border: "1px solid " + (live ? c.line : c.border) }} className="rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <span style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase truncate">{v.league || "—"}</span>
+        <span style={{ color: live ? c.green : c.textSecondary, border: "1px solid " + (live ? c.line : c.border) }} className="num text-[11px] font-semibold px-2 py-0.5 rounded-md flex items-center gap-1.5">
+          {live && <span style={{ background: c.green }} className="w-1.5 h-1.5 rounded-full animate-pulse" />}
+          {liveClock(v)}
+        </span>
+      </div>
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <p style={{ color: v.team === v.home_team ? c.green : c.text }} className="text-sm font-semibold leading-tight">{v.home_team}</p>
+        <p style={{ color: c.text }} className="num text-3xl font-bold tracking-tight">{known ? hg + " – " + ag : "v"}</p>
+        <p style={{ color: v.team === v.away_team ? c.green : c.text }} className="text-sm font-semibold leading-tight text-right">{v.away_team}</p>
+      </div>
+      {verdict && (
+        <p style={{ color: verdict.tone }} className="text-xs font-semibold mt-3">
+          {verdict.text}{v.two_up_minute != null && (v.verdict === "triggered" || v.verdict === "comeback_on") ? " at " + v.two_up_minute + "'" : ""}
+        </p>
+      )}
+      {v.phase === "unknown" && <p style={{ color: c.textMuted }} className="text-xs mt-3">Manual bet without a fixture link, so there is no live score.</p>}
+      {v.turnaround_pct != null && (
+        <p style={{ color: c.textSecondary }} className="text-xs mt-1">
+          Live turnaround chance <span className="num font-bold" style={{ color: c.orange }}>{v.turnaround_pct}%</span>
+        </p>
+      )}
+      {live && v.went_2up && (
+        <button onClick={() => onCalc(v)} style={{ color: c.cyan, border: "1px solid " + c.border, background: c.cardAlt }} className="w-full rounded-xl py-2.5 text-xs font-semibold mt-3 flex items-center justify-center gap-2">
+          <Calculator size={14} /> Cash-out calculator
+        </button>
+      )}
+    </div>
+  );
+}
+
+function LiveGameRow({ g }) {
+  return (
+    <div style={{ borderBottom: "1px solid " + c.border }} className="py-3 flex items-center gap-3">
+      <div className="flex-1 min-w-0">
+        <p style={{ color: c.text }} className="text-sm font-semibold truncate">
+          {g.home_team} <span className="num">{g.home_goals}–{g.away_goals}</span> {g.away_team}
+        </p>
+        <p style={{ color: c.textSecondary }} className="text-xs truncate">
+          <span className="num">{g.status === "HT" ? "HT" : (g.minute ?? "") + "'"}</span> · {g.league} · <span style={{ color: g.comeback_on ? c.orange : c.green }}>{g.team} {g.comeback_on ? "no longer winning" : "2 up"}</span>
         </p>
       </div>
+      {g.turnaround_pct != null && (
+        <div className="text-right">
+          <p className="num text-base font-bold leading-none" style={{ color: c.orange }}>{g.turnaround_pct}%</p>
+          <p style={{ color: c.textMuted }} className="text-[10px] mt-1">turnaround</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LiveMonitorPage({ nav, entitled, onPurchased }) {
+  const q = useApi(() => (entitled ? api.live() : Promise.resolve(null)), [entitled]);
+  const [editing, setEditing] = useState(null);
+  const reload = q.reload;
+  useEffect(() => {
+    if (!entitled) return undefined;
+    const t = setInterval(() => {
+      if (!document.hidden) reload();
+    }, 60000);
+    return () => clearInterval(t);
+  }, [entitled, reload]);
+  const data = q.data;
+  return (
+    <PageShell activeTab="live" onNavigate={nav} entitled={entitled}>
+      <PageTitle title="Live monitor" subtitle="Your 2UP bets in play, and live games where a team is 2 goals up. Updates every minute." />
+      {(q.needsPro || !entitled) && <Paywall title="Live monitor is a Pro feature" onPurchased={onPurchased} />}
+      {entitled && q.loading && !data && <Loading />}
+      {entitled && q.error && !data && <ErrorBox error={q.error} onRetry={q.reload} />}
+      {entitled && data && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+          <div>
+            <SectionLabel>Your bets</SectionLabel>
+            {data.my_bets.length === 0 ? (
+              <Empty>No tracked bets kicking off in the next 3 hours. Track a pick and it shows up here when the game is on.</Empty>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {data.my_bets.map((v) => <LiveBetCard key={v.tracked_id} v={v} onCalc={setEditing} />)}
+              </div>
+            )}
+          </div>
+          <div>
+            <SectionLabel>2 up right now</SectionLabel>
+            <div style={card} className="rounded-2xl px-4">
+              {data.live_now.length === 0 ? (
+                <p style={{ color: c.textSecondary }} className="text-sm py-4">No team in our leagues is 2 up right now.</p>
+              ) : (
+                data.live_now.map((g) => <LiveGameRow key={g.fixture_id + g.team} g={g} />)
+              )}
+            </div>
+            <p style={{ color: c.textMuted }} className="text-[11px] mt-3">
+              Updated {new Date(data.updated_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}. Live scores can lag by a minute.
+              Turnaround chances are probabilities from past games, not predictions.
+            </p>
+          </div>
+        </div>
+      )}
+      {editing && (
+        <BetEditSheet bet={editing.bet} live={editing} onClose={() => setEditing(null)} onChanged={() => { setEditing(null); q.reload(); }} />
+      )}
     </PageShell>
   );
 }
@@ -1773,10 +1888,10 @@ function BetRow({ b, onClick }) {
 
 // In-play chance the 2-up team still fails to win (models/live_turnaround.py),
 // set against the market price and the user's own trade-out numbers.
-function LiveTurnaroundCheck({ bet, price, now, trade }) {
-  const [minute, setMinute] = useState("");
-  const [tg, setTg] = useState("2");
-  const [og, setOg] = useState("0");
+function LiveTurnaroundCheck({ bet, price, now, trade, live }) {
+  const [minute, setMinute] = useState(live?.minute != null ? String(live.minute) : "");
+  const [tg, setTg] = useState(live?.team_goals != null ? String(live.team_goals) : "2");
+  const [og, setOg] = useState(live?.opp_goals != null ? String(live.opp_goals) : "0");
   const [res, setRes] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -1843,8 +1958,8 @@ function LiveTurnaroundCheck({ bet, price, now, trade }) {
 }
 
 // Cash-out / trade-out calculator for an open 2UP bet (inside the bet sheet).
-function TradeOutCalc({ bet, form, busy, onSettle }) {
-  const [paid, setPaid] = useState(false);
+function TradeOutCalc({ bet, form, busy, onSettle, live }) {
+  const [paid, setPaid] = useState(!!live?.went_2up);
   const [price, setPrice] = useState("");
   const [actual, setActual] = useState("");
   const stake = parseFloat(form.stake) || 0;
@@ -1898,7 +2013,7 @@ function TradeOutCalc({ bet, form, busy, onSettle }) {
           {t.action === "lay" && <span style={{ color: c.textSecondary }}> (liability £{t.liability.toFixed(2)})</span>}
         </p>
       )}
-      {paid && <LiveTurnaroundCheck bet={bet} price={p > 1 ? p : null} now={now} trade={t && !balanced ? t : null} />}
+      {paid && <LiveTurnaroundCheck bet={bet} live={live} price={p > 1 ? p : null} now={now} trade={t && !balanced ? t : null} />}
       <p style={{ color: c.textMuted }} className="text-[11px] mt-2 mb-4">Prices move fast in play. Use the price you can actually get when you tap, and do it in one go. Includes {comm}% exchange commission.</p>
 
       <NumField label="Actual result if you traded out" prefix="£" value={actual !== "" ? actual : settleAt != null && !balanced ? String(settleAt) : ""} onChange={setActual} step="0.01" />
@@ -1909,7 +2024,7 @@ function TradeOutCalc({ bet, form, busy, onSettle }) {
   );
 }
 
-function BetEditSheet({ bet, onClose, onChanged }) {
+function BetEditSheet({ bet, onClose, onChanged, live }) {
   const [form, setForm] = useState(null);
   const [lastId, setLastId] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -1925,7 +2040,7 @@ function BetEditSheet({ bet, onClose, onChanged }) {
     });
     setConfirmDelete(false);
     setError(null);
-    setShowCalc(false);
+    setShowCalc(!!live);
   }
   if (!bet || !form) return null;
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
@@ -1984,7 +2099,7 @@ function BetEditSheet({ bet, onClose, onChanged }) {
           <button onClick={() => setShowCalc((v) => !v)} style={{ color: c.cyan, border: "1px solid " + c.border, background: c.cardAlt }} className="w-full rounded-xl py-3 text-sm font-semibold mb-3 flex items-center justify-center gap-2">
             <Calculator size={16} /> {showCalc ? "Hide cash-out calculator" : "Cash-out calculator"}
           </button>
-          {showCalc && <TradeOutCalc bet={bet} form={form} busy={busy} onSettle={(profit) => run(() => api.settleTracked(bet.id, "traded", profit))} />}
+          {showCalc && <TradeOutCalc bet={bet} form={form} busy={busy} live={live} onSettle={(profit) => run(() => api.settleTracked(bet.id, "traded", profit))} />}
         </>
       )}
 

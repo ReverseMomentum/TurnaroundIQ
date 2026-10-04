@@ -50,7 +50,10 @@ Read this first. It is what a fresh session needs to work on this repo.
   - Best UK back price per side.
   - Estimated lay = fair price plus one Betfair tick.
   - Refreshed by a 24h-window cron job, plus an in-app refresh button.
-- **Other pages:** Early Goal Hunter, Chaos Factor, the bet tracker (paper P/L) and the calculator.
+- **Other pages:** Early Goal Hunter, Chaos Factor, the bet tracker (paper P/L, with a cash-out calculator
+  that uses the live turnaround model `models/live_turnaround.py`), the calculator, and the Live monitor
+  (`api/live_monitor.py`, `GET /live`: open bets in play + live games 2 up, shared 60s api-sports cache).
+- **Scorecard:** pre-kick-off predictions logged to `prediction_log`; `scripts/scorecard.py` vs results.
 
 ## The Stables (horse racing extra places)
 - Not a winner model: estimates P(finish k-th) for every runner and compares the

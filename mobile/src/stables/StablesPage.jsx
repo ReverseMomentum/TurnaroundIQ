@@ -383,6 +383,11 @@ function OffersPanel({ ui, races, onSaved }) {
     return [...m.entries()].sort((a, b) => (a[1][0].time || "").localeCompare(b[1][0].time || ""));
   }, [upcoming]);
   const knownBooks = [...new Set(races.flatMap((r) => realOffers(r).map((t) => t.bookmaker)))];
+  const books = [...new Map(book.split(",").map((b) => b.trim()).filter(Boolean).map((b) => [b.toLowerCase(), b])).values()];
+  const toggleBook = (b) => {
+    const has = books.some((x) => x.toLowerCase() === b.toLowerCase());
+    setBook((has ? books.filter((x) => x.toLowerCase() !== b.toLowerCase()) : [...books, b]).join(", "));
+  };
   const toggle = (id) => setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleCourse = (list) => setSel((s) => {
     const n = new Set(s);
@@ -395,7 +400,7 @@ function OffersPanel({ ui, races, onSaved }) {
     setMsg(null);
     try {
       const out = await api.stablesAddOffers({ bookmaker: book.trim(), places, fraction, race_ids: [...sel] });
-      setMsg(`Added ${book.trim()} ${places} places ${fraction} to ${out.updated} race${out.updated === 1 ? "" : "s"}.`);
+      setMsg(`Added ${out.bookmakers.join(", ")} · ${places} places ${fraction} to ${out.races} race${out.races === 1 ? "" : "s"}.`);
       setSel(new Set());
       onSaved?.();
     } catch (e) {
@@ -412,7 +417,7 @@ function OffersPanel({ ui, races, onSaved }) {
       </button>
     );
   }
-  const ready = book.trim() && sel.size > 0;
+  const ready = books.length > 0 && sel.size > 0;
   return (
     <div style={card} className="rounded-xl p-4 flex flex-col gap-4 mb-5">
       <div className="flex items-center justify-between">
@@ -420,12 +425,12 @@ function OffersPanel({ ui, races, onSaved }) {
         <button onClick={() => setOpen(false)} aria-label="Close" style={{ color: c.textMuted }}><X size={18} /></button>
       </div>
       <div>
-        {label("Bookmaker")}
-        <input value={book} onChange={(e) => setBook(e.target.value)} maxLength={40} placeholder="e.g. Bet365"
+        {label("Bookmakers · separate with commas")}
+        <input value={book} onChange={(e) => setBook(e.target.value)} maxLength={400} placeholder="e.g. Bet365, Paddy Power"
           style={{ background: c.cardAlt, border: "1px solid " + c.border, color: c.text }} className="w-full rounded-lg px-3 py-2 text-sm outline-none" />
         {knownBooks.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-2">
-            {knownBooks.map((b) => <button key={b} onClick={() => setBook(b)} style={chip(b === book)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">{b}</button>)}
+            {knownBooks.map((b) => <button key={b} onClick={() => toggleBook(b)} style={chip(books.some((x) => x.toLowerCase() === b.toLowerCase()))} className="text-xs font-semibold px-3 py-1.5 rounded-lg">{b}</button>)}
           </div>
         )}
       </div>
@@ -444,7 +449,7 @@ function OffersPanel({ ui, races, onSaved }) {
                 <div className="flex flex-wrap gap-2">
                   {list.map((r) => {
                     const on = sel.has(r.race_id);
-                    const has = book.trim() && realOffers(r).some((t) => t.bookmaker === book.trim());
+                    const has = books.length > 0 && books.every((b) => realOffers(r).some((t) => t.bookmaker.toLowerCase() === b.toLowerCase()));
                     return (
                       <button key={r.race_id} onClick={() => toggle(r.race_id)} style={chip(on)} className="num text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1">
                         {has && <Check size={12} />}{r.time}
@@ -467,9 +472,9 @@ function OffersPanel({ ui, races, onSaved }) {
       </div>
       {msg && <p style={{ color: c.textSecondary }} className="text-xs">{msg}</p>}
       <button disabled={!ready || busy} onClick={save} style={{ ...primaryBtn, opacity: !ready || busy ? 0.5 : 1 }} className="rounded-xl py-3 text-sm font-bold">
-        {busy ? "Saving…" : `Add to ${sel.size} race${sel.size === 1 ? "" : "s"}`}
+        {busy ? "Saving…" : `Add${books.length > 1 ? ` ${books.length} bookmakers` : ""} to ${sel.size} race${sel.size === 1 ? "" : "s"}`}
       </button>
-      <p style={{ color: c.textMuted }} className="text-[11px] -mt-2">Offers are shared with everyone using The Stables. A tick shows races that already have this bookmaker's offer; saving again replaces it.</p>
+      <p style={{ color: c.textMuted }} className="text-[11px] -mt-2">Offers are shared with everyone using The Stables. Several bookmakers with the same terms: separate them with commas. A tick shows races that already have these offers; saving again replaces them.</p>
     </div>
   );
 }

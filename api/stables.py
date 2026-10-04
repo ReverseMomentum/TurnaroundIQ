@@ -131,8 +131,19 @@ def _races_body(date: Optional[str], refresh: bool) -> dict:
     return _with_live_status(body)
 
 
+def split_bookmakers(text: str) -> list[str]:
+    """'Bet365, Paddy Power,bet365' -> ['Bet365', 'Paddy Power'] (comma-separated, de-duplicated)."""
+    out, seen = [], set()
+    for name in (text or "").split(","):
+        name = name.strip()[:40]
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            out.append(name)
+    return out
+
+
 class OffersIn(BaseModel):
-    bookmaker: str = Field(min_length=1, max_length=40)
+    bookmaker: str = Field(min_length=1, max_length=400)   # one name, or several separated by commas
     places: int = Field(ge=1, le=10)
     fraction: str = Field(default="1/5", max_length=8)
     race_ids: list[int] = Field(min_length=1, max_length=200)
@@ -154,10 +165,13 @@ def stables_add_offers(body: OffersIn, authorization: str | None = Header(defaul
     frac = parse_fraction(body.fraction)
     if not frac or frac > 1:
         raise HTTPException(400, "fraction must look like 1/5")
-    n = store.set_offers(body.race_ids, body.bookmaker.strip(), body.places, frac)
+    books = split_bookmakers(body.bookmaker)
+    if not books:
+        raise HTTPException(400, "bookmaker name needed")
+    n = sum(store.set_offers(body.race_ids, b, body.places, frac) for b in books)
     with _lock:
         _cache.clear()
-    return {"updated": n}
+    return {"updated": n, "bookmakers": books, "races": n // len(books)}
 
 
 @router.delete("/offers")

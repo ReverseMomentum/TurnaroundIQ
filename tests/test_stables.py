@@ -685,3 +685,20 @@ def test_betfair_results_collection(monkeypatch, tmp_path):
     assert rows["R1"].startswith("1|3|")
     assert "R4" in rows and rows["R4"].split("|")[1:3] == ["4", "3"]
     assert betfair.collect_results(betfair.Client(http=Fake()), hours=48)["result_races"] == 0  # done once
+
+
+def test_comma_separated_bookmakers(monkeypatch):
+    from api import stables as stables_api
+
+    assert stables_api.split_bookmakers(" Bet365, Paddy Power ,bet365,, ") == ["Bet365", "Paddy Power"]
+    store.import_card(CARD)
+    race_id = store.races_on("2026-10-02")[0]["race_id"]
+    monkeypatch.setattr(app_module, "require_pro", lambda a: "u_admin")
+    monkeypatch.setattr(app_module, "ADMIN_USER_IDS", {"u_admin"})
+    with TestClient(app_module.app) as client:
+        r = client.post("/stables/offers", json={"bookmaker": "Book P, Book Q", "places": 5, "fraction": "1/5",
+                                                 "race_ids": [race_id]})
+        assert r.json() == {"updated": 2, "bookmakers": ["Book P", "Book Q"], "races": 1}
+        assert client.post("/stables/offers", json={"bookmaker": " , ", "places": 5, "race_ids": [race_id]}).status_code == 400
+    books = {t["bookmaker"] for t in store.races_on("2026-10-02")[0]["terms"]}
+    assert {"Book P", "Book Q"} <= books

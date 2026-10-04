@@ -1598,7 +1598,9 @@ function LiveBetCard({ v, onCalc }) {
       </div>
       {verdict && (
         <p style={{ color: verdict.tone }} className="text-xs font-semibold mt-3">
-          {verdict.text}{v.two_up_minute != null && (v.verdict === "triggered" || v.verdict === "comeback_on") ? " at " + v.two_up_minute + "'" : ""}
+          {verdict.text}
+          {v.two_up_minute != null && v.verdict === "triggered" ? " at " + v.two_up_minute + "'" : ""}
+          {v.two_up_minute != null && v.verdict === "comeback_on" ? " (2 up at " + v.two_up_minute + "')" : ""}
         </p>
       )}
       {v.phase === "unknown" && <p style={{ color: c.textMuted }} className="text-xs mt-3">Manual bet without a fixture link, so there is no live score.</p>}

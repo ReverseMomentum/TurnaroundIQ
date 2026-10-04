@@ -61,9 +61,22 @@ def configured() -> bool:
     return all(os.environ.get(k, "").strip() for k in ("BETFAIR_APP_KEY", "BETFAIR_USERNAME", "BETFAIR_PASSWORD"))
 
 
+USER_AGENT = "TurnaroundIQ/1.0 (+https://turnaroundiq.co.uk)"
+
+
+def _blocked_hint(status: int) -> str:
+    if status == 403:
+        return (" HTTP 403 means Betfair's firewall refused this server before checking the login: "
+                "usually the server's country or hosting network. Check with: curl -s https://ipinfo.io/country")
+    return ""
+
+
 class Client:
     def __init__(self, http=None):
-        self.http = http or requests.Session()
+        if http is None:
+            http = requests.Session()
+            http.headers["User-Agent"] = USER_AGENT
+        self.http = http
         self.app_key = os.environ.get("BETFAIR_APP_KEY", "").strip()
         self.token = None
 
@@ -88,8 +101,7 @@ class Client:
         try:
             body = r.json()
         except ValueError:
-            raise BetfairError(f"login: HTTP {r.status_code}, not JSON (Betfair may be blocking this server): "
-                               f"{r.text[:120]!r}")
+            raise BetfairError(f"login: HTTP {r.status_code}, not JSON: {r.text[:80]!r}." + _blocked_hint(r.status_code))
         if body.get("status") != "SUCCESS" or not body.get("token"):
             raise BetfairError(f"login refused: {body.get('error') or body}")
         self.token = body["token"]
@@ -111,7 +123,7 @@ class Client:
         try:
             body = r.json()
         except ValueError:
-            raise BetfairError(f"{method}: HTTP {r.status_code}, not JSON: {r.text[:120]!r}")
+            raise BetfairError(f"{method}: HTTP {r.status_code}, not JSON: {r.text[:80]!r}." + _blocked_hint(r.status_code))
         if "error" in body:
             err = json.dumps(body["error"])
             if _retry and ("INVALID_SESSION" in err or "NO_SESSION" in err):

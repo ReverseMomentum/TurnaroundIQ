@@ -57,8 +57,13 @@ def _diff_bucket(d):
     return 0 if d <= 0 else min(d, 4)
 
 
-def state_features(pre, minute, team_goals, opp_goals):
-    """Features for one in-play state. pre = pre-match features (fta_path_model)."""
+TREND_REF = date(2020, 1, 1).toordinal()
+
+
+def state_features(pre, minute, team_goals, opp_goals, day=None):
+    """Features for one in-play state. pre = pre-match features (fta_path_model).
+    day (ordinal): adds the season trend (years since 2020), so the model can learn
+    that leads are thrown away more often than they used to be."""
     m = max(0.0, min(float(minute), 90.0))
     rem = (90.0 - m) / 90.0
     b = _diff_bucket(team_goals - opp_goals)
@@ -71,12 +76,18 @@ def state_features(pre, minute, team_goals, opp_goals):
         f[k] = float(pre.get(k, 0.0) or 0.0)
     for k in PRE_X_TIME:
         f[k + "_rem"] = f[k] * rem
+    trend = (day - TREND_REF) / 365.0 if day is not None else 0.0
+    f["trend"] = trend
+    f["trend_rem"] = trend * rem
     return f
 
 
 FEATURES = (["rem", "rem2", "goals_so_far"]
             + [n for name in DIFF_BUCKETS for n in (name, name + "_rem")]
             + PRE + [k + "_rem" for k in PRE_X_TIME])
+TREND = ["trend", "trend_rem"]
+ALL_FEATURES = FEATURES + TREND
+FEATURE_SETS = {"base": FEATURES, "+trend": ALL_FEATURES}
 
 
 def side_states(goals, side):
@@ -128,8 +139,8 @@ def build_states(matches=None, rows=None):
             pre = rows[2 * i + side - 1]
             won = (m["fh"] > m["fa"]) if side == 1 else (m["fa"] > m["fh"])
             for j, (minute, a, b) in enumerate(side_states(goals, side)):
-                f = state_features(pre, minute, a, b)
-                X.append([f[k] for k in FEATURES])
+                f = state_features(pre, minute, a, b, day=m["day"])
+                X.append([f[k] for k in ALL_FEATURES])
                 y.append(0 if won else 1)
                 days.append(m["day"])
                 first.append(j == 0)
@@ -238,13 +249,17 @@ def check(data=None, verbose=True):
     tr, te = days < cut, days >= cut
     tried = {}
     best, p = None, None
-    candidates = [("logistic", hl) for hl in RECENCY_OPTIONS] + [("boosted", None), ("boosted", 1460.0)]
-    for kind, hl in candidates:
-        ph = _fit(X[tr], y[tr], days[tr], hl, kind).predict_proba(X[te])[:, 1]
-        tried[(kind, hl)] = float(log_loss(y[te], np.clip(ph, 1e-6, 1 - 1e-6), labels=[0, 1]))
-        if p is None or tried[(kind, hl)] < tried[best] - 1e-5:
-            best, p = (kind, hl), ph
-    best_kind, best_hl = best
+    # boosted trees lost clearly on the real data (0.2647 vs 0.2566), so only the
+    # logistic model is tried, with and without the season trend
+    candidates = [(fs, hl) for fs in FEATURE_SETS for hl in RECENCY_OPTIONS]
+    for fs, hl in candidates:
+        cols = [ALL_FEATURES.index(k) for k in FEATURE_SETS[fs]]
+        ph = _fit(X[tr][:, cols], y[tr], days[tr], hl).predict_proba(X[te][:, cols])[:, 1]
+        tried[(fs, hl)] = float(log_loss(y[te], np.clip(ph, 1e-6, 1 - 1e-6), labels=[0, 1]))
+        if p is None or tried[(fs, hl)] < tried[best] - 1e-5:
+            best, p = (fs, hl), ph
+    best_set, best_hl = best
+    best_kind = "logistic"
     base = _table_baseline(X[tr], y[tr])(X[te])
     flat = np.full_like(p, y[tr].mean())
     out = {
@@ -279,6 +294,7 @@ def check(data=None, verbose=True):
     out["cal"] = _calibrator(cal_method, y[te], p)
     p_shown = _calibrate(_calibrator(cal_method, y[te][a], p[a]), p[b])
     out["kind"] = best_kind
+    out["feature_set"] = best_set
     out["half_life_days"] = best_hl
     out["candidates"] = {f"{k} {'equal' if h is None else f'{h / 365:.0f}y'}": v for (k, h), v in tried.items()}
     if verbose:
@@ -293,7 +309,7 @@ def check(data=None, verbose=True):
         _bands(y[te & first], p[first[te]], "Held-out calibration (at the moment of going 2 up):")
         print("  model candidates (held-out log loss): "
               + ", ".join(f"{k} {v:.4f}" for k, v in out["candidates"].items())
-              + f"  -> using {best_kind}, {'equal' if best_hl is None else f'half-life {best_hl / 365:.0f}y'}")
+              + f"  -> using {best_set}, {'equal' if best_hl is None else f'half-life {best_hl / 365:.0f}y'}")
         c = out["calibration_check"]
         print("  correction, fitted on the first half of the test period, scored on the second: "
               + ", ".join(f"{k} {v:.4f}" for k, v in c.items()) + f"  -> {cal_method}")
@@ -306,8 +322,12 @@ def train(save=True):
     data = build_states()
     report = check(data)
     X, y, days, _ = data
-    model = _fit(X, y, days, report["half_life_days"], report["kind"])
-    bundle = {"version": VERSION, "features": FEATURES, "model": model, "check": report,
+    feats = FEATURE_SETS[report["feature_set"]]
+    cols = [ALL_FEATURES.index(k) for k in feats]
+    model = _fit(X[:, cols], y, days, report["half_life_days"], report["kind"])
+    bundle = {"version": VERSION, "features": feats, "model": model, "check": report,
+              # serving never extrapolates the trend more than half a season past the data
+              "trend_max": float((days.max() - TREND_REF) / 365.0 + 0.5),
               "trained_at": datetime.now(timezone.utc).isoformat(), "states": int(len(y)),
               # only show model numbers in the app when they beat the simple table
               "use_model": bool(report["beats_table"]), "cal": report.get("cal"),
@@ -336,7 +356,10 @@ def predict_live(team, opponent, league, is_home, minute, team_goals, opp_goals)
     if bundle is None:
         return None
     pre, t, o = pm.prematch_features(team, opponent, league, is_home)
-    f = state_features(pre, minute, team_goals, opp_goals)
+    today = date.today().toordinal()
+    if bundle.get("trend_max") is not None:
+        today = min(today, int(TREND_REF + 365.0 * bundle["trend_max"]))
+    f = state_features(pre, minute, team_goals, opp_goals, day=today)
     if bundle.get("use_model", True):
         x = np.array([[f[k] for k in bundle["features"]]], dtype=float)
         p = float(bundle["model"].predict_proba(x)[0, 1])

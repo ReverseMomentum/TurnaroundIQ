@@ -67,3 +67,11 @@ def test_boosted_model_and_isotonic_correction_work(sim_db):  # noqa: F811
     shown = lt._calibrate(cal, np.array([0.01, 0.2, 0.6]))
     assert cal[0] == "isotonic" and (np.diff(shown) >= 0).all()
     assert lt._calibrator("none", y, p[:len(y)] if len(p) == len(y) else np.full(len(y), 0.1)) is None
+
+
+def test_trend_feature_counts_years_since_2020():
+    from datetime import date
+    f = lt.state_features({}, 45, 2, 0, day=date(2025, 1, 1).toordinal())
+    assert f["trend"] == pytest.approx(5.0, abs=0.01) and f["trend_rem"] == pytest.approx(2.5, abs=0.01)
+    assert lt.state_features({}, 45, 2, 0)["trend"] == 0.0
+    assert lt.ALL_FEATURES[: len(lt.FEATURES)] == lt.FEATURES

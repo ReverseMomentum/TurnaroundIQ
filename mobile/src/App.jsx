@@ -1575,16 +1575,66 @@ function LiveMonitorPage({ nav, entitled }) {
   );
 }
 
+// iOS-style sliding switch: a pill track with a thumb that slides to the chosen option.
+function SlideSwitch({ options, value, onChange }) {
+  const i = Math.max(0, options.findIndex((o) => o.key === value));
+  return (
+    <div role="tablist" style={{ background: c.cardAlt, border: "1px solid " + c.border }} className="relative flex rounded-full p-1 mb-4 select-none">
+      <span aria-hidden style={{
+        width: `calc((100% - 8px) / ${options.length})`, transform: `translateX(${i * 100}%)`,
+        background: "linear-gradient(180deg, #43F09A 0%, #2BD47F 100%)",
+        boxShadow: "0 2px 10px rgba(54,233,143,0.35), inset 0 1px 0 rgba(255,255,255,0.35)",
+        transition: "transform 260ms cubic-bezier(0.3, 1.3, 0.5, 1)",
+      }} className="absolute top-1 bottom-1 left-1 rounded-full" />
+      {options.map((o) => (
+        <button key={o.key} role="tab" aria-selected={o.key === value} onClick={() => onChange(o.key)}
+          style={{ color: o.key === value ? "#03140B" : c.textSecondary, transition: "color 200ms" }}
+          className="relative z-10 flex-1 text-sm font-semibold py-2 rounded-full">
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const BET_SPORTS = [
+  { key: "all", label: "All" },
+  { key: "football", label: "Football" },
+  { key: "horses", label: "Horses" },
+];
+const isRacingBet = (b) => b.product === "stables";
+
 function MyBetsPage({ nav, entitled, onPurchased, reloadMe }) {
   const [tab, setTab] = useState("open");
+  const [sport, setSportState] = useState(() => {
+    try { return localStorage.getItem("tiq_bets_sport") || "all"; } catch { return "all"; }
+  });
+  const setSport = (v) => {
+    setSportState(v);
+    try { localStorage.setItem("tiq_bets_sport", v); } catch { /* private mode */ }
+  };
   const [showGraph, setShowGraph] = useState(false);
   const [settling, setSettling] = useState(false);
   const [editing, setEditing] = useState(null);
   const q = useApi(() => api.tracked(), [entitled]);
-  const bets = q.data?.bets || [];
-  const summary = q.data?.summary || {};
+  const allBets = q.data?.bets || [];
+  const bets = sport === "all" ? allBets : allBets.filter((b) => isRacingBet(b) === (sport === "horses"));
   const open = bets.filter((b) => b.status === "open");
   const settled = bets.filter((b) => b.status === "settled");
+  // "All" uses the server's summary; Football / Horses add up the bets shown.
+  const summary = useMemo(() => {
+    if (sport === "all") return q.data?.summary || {};
+    const done = settled.filter((b) => b.result !== "void");
+    const profit = done.reduce((t, b) => t + Number(b.actual_profit || 0), 0);
+    const staked = done.reduce((t, b) => t + Number(b.stake || 0), 0);
+    return {
+      total_profit: profit,
+      roi_pct: staked ? (100 * profit) / staked : null,
+      total: bets.length,
+      fta_hits: settled.filter((b) => b.result === "fta").length,
+      placed: settled.filter((b) => b.result === "won" || b.result === "placed").length,
+    };
+  }, [sport, q.data, bets, settled]);
 
   const chartData = useMemo(() => {
     let run = 0;
@@ -1622,13 +1672,18 @@ function MyBetsPage({ nav, entitled, onPurchased, reloadMe }) {
       {q.error && <ErrorBox error={q.error} onRetry={q.reload} />}
       {q.data && (
         <>
+          <SlideSwitch options={BET_SPORTS} value={sport} onChange={setSport} />
           <div style={(summary.total_profit || 0) >= 0 ? heroCard : card} className="rounded-2xl p-5 mb-3">
-            <p style={{ color: c.textMuted, letterSpacing: "0.12em" }} className="text-[10px] font-semibold uppercase mb-2">Paper profit</p>
+            <p style={{ color: c.textMuted, letterSpacing: "0.12em" }} className="text-[10px] font-semibold uppercase mb-2">
+              Paper profit{sport === "football" ? " · football" : sport === "horses" ? " · horses" : ""}
+            </p>
             <p style={{ color: (summary.total_profit || 0) >= 0 ? c.text : c.red }} className="num text-4xl font-bold tracking-tight mb-4">{money(summary.total_profit || 0)}</p>
             <div className="grid grid-cols-3 gap-3">
               <Metric label="ROI" value={summary.roi_pct == null ? "—" : pct(summary.roi_pct)} tone={(summary.roi_pct || 0) >= 0 ? c.green : c.red} />
               <Metric label="Bets" value={String(summary.total ?? bets.length)} />
-              <Metric label="FTA hits" value={String(summary.fta_hits ?? 0)} tone={c.green} />
+              {sport === "horses"
+                ? <Metric label="Won / placed" value={String(summary.placed ?? 0)} tone={c.green} />
+                : <Metric label="FTA hits" value={String(summary.fta_hits ?? 0)} tone={c.green} />}
             </div>
           </div>
           <button onClick={() => setShowGraph(!showGraph)} style={card} className="w-full rounded-xl px-4 py-3 flex items-center justify-between mb-3">
@@ -1662,7 +1717,11 @@ function MyBetsPage({ nav, entitled, onPurchased, reloadMe }) {
           <div className="flex flex-col gap-3">
             {(tab === "open" ? open : settled).map((b) => <BetRow key={b.id} b={b} onClick={() => setEditing(b)} />)}
             {(tab === "open" ? open : settled).length === 0 && (
-              <Empty>{tab === "open" ? "No open bets. Track one from an opportunity." : "Nothing settled yet."}</Empty>
+              <Empty>
+                {tab === "open"
+                  ? sport === "horses" ? "No open racing bets. Track one from The Stables." : "No open bets. Track one from an opportunity."
+                  : "Nothing settled yet."}
+              </Empty>
             )}
           </div>
           <p style={{ color: c.textMuted }} className="text-[11px] text-center mt-3">Tap a bet to edit, settle or delete it.</p>

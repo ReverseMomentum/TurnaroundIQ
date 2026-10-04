@@ -372,3 +372,108 @@ def test_refresh_reprices_but_respects_cooldown(monkeypatch):
         stables_api._cache["2026-10-02"] = (0.0, first)              # pricing is old
         client.get("/stables/races?date=2026-10-02&refresh=true")
         assert len(calls) == 2
+
+
+# ---- Betfair collector (fake HTTP) and value-from prices ------------------
+
+class _Resp:
+    def __init__(self, body, status=200):
+        self._body, self.status_code, self.text = body, status, str(body)
+
+    def json(self):
+        return self._body
+
+
+class _FakeBetfair:
+    def __init__(self, n=10, start="2026-10-04T13:30:00Z"):
+        self.calls, self.n, self.start = [], n, start
+
+    def post(self, url, data=None, json=None, headers=None, timeout=None):
+        self.calls.append(url if json is None else json["method"].split("/")[-1])
+        if "login" in url:
+            return _Resp({"token": "tok", "status": "SUCCESS"})
+        method = json["method"].split("/")[-1]
+        if method == "listMarketCatalogue":
+            return _Resp({"result": [{
+                "marketId": "1.234", "marketName": "2m4f Hcap Chs", "marketStartTime": self.start,
+                "event": {"venue": "Testford", "countryCode": "GB"},
+                "description": {"raceType": "Chase"},
+                "runners": [{"selectionId": 100 + i, "runnerName": f"Horse {i}",
+                             "metadata": {"CLOTH_NUMBER": str(i + 1), "JOCKEY_NAME": "J Doe", "AGE": "7"}}
+                            for i in range(self.n)]}]})
+        if method == "listMarketBook":
+            odds = [3.5, 4.5, 6, 8, 10, 12, 15, 20, 25, 33, 40, 50][: self.n]
+            return _Resp({"result": [{"marketId": "1.234", "runners": [
+                {"selectionId": 100 + i, "status": "REMOVED" if i == self.n - 1 else "ACTIVE",
+                 "totalMatched": 1000.0,
+                 "ex": {"availableToBack": [{"price": o}], "availableToLay": [{"price": round(o * 1.05, 2)}]}}
+                for i, o in enumerate(odds)]}]})
+        return _Resp({"error": {"code": "?"}})
+
+
+def test_betfair_collect_into_store(monkeypatch, tmp_path):
+    from collectors import betfair
+
+    for k, v in {"BETFAIR_APP_KEY": "k", "BETFAIR_USERNAME": "u", "BETFAIR_PASSWORD": "p"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(betfair, "SESSION_FILE", tmp_path / "s.json")
+    fake = _FakeBetfair(n=12)
+    out = betfair.collect(12, betfair.Client(http=fake))
+    assert out["races"] == 1 and out["runners"] == 12
+    assert fake.calls[0].endswith("/api/login") and "listMarketBook" in fake.calls
+    race = store.races_on("2026-10-04")[-1]
+    assert race["course"] == "Testford" and race["time"] == "14:30"    # UK time (BST)
+    assert race["race_type"] == "chase" and race["handicap"] is True
+    assert sum(r["non_runner"] for r in race["runners"]) == 1
+    assert race["runners"][0]["exchange"]["back"] == 3.5
+    priced = price_race(race)
+    assert priced["probability_source"] == "exchange" and priced["field_size"] == 11
+    vf = priced["runners"][-1]["value_from"]
+    assert set(vf) == {"0", "1", "2", "3"}
+    # more places paid -> a shorter price is already value
+    assert vf["3"] is None or vf["0"] is None or vf["3"] <= vf["0"]
+    # session token is reused on the next run
+    fake2 = _FakeBetfair(n=12)
+    betfair.collect(12, betfair.Client(http=fake2))
+    assert not any(str(c).endswith("/api/login") for c in fake2.calls)
+
+
+def test_betfair_login_refused_is_reported(monkeypatch, tmp_path):
+    from collectors import betfair
+
+    for k, v in {"BETFAIR_APP_KEY": "k", "BETFAIR_USERNAME": "u", "BETFAIR_PASSWORD": "p"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(betfair, "SESSION_FILE", tmp_path / "s.json")
+
+    class Refuse(_FakeBetfair):
+        def post(self, url, **kw):
+            return _Resp({"status": "FAIL", "error": "INVALID_USERNAME_OR_PASSWORD"})
+    with pytest.raises(betfair.BetfairError, match="INVALID_USERNAME_OR_PASSWORD"):
+        betfair.Client(http=Refuse()).login(force=True)
+    monkeypatch.delenv("BETFAIR_APP_KEY")
+    assert not betfair.configured()
+
+
+def test_min_value_odds():
+    from racing.extra_place import min_value_odds
+
+    o = min_value_odds(0.06, 0.40, 0.2)
+    po = 1 + (o - 1) * 0.2
+    assert 0.5 * (0.06 * o - 1) + 0.5 * (0.40 * po - 1) == pytest.approx(0.04, abs=1e-3)
+    assert min_value_odds(0.06, 0.40, 0.2, edge_shrink=0.5) > o
+    assert min_value_odds(0.06, 0.45, 0.2) < o
+    assert min_value_odds(0.0, 0.0, 0.2) is None
+    assert min_value_odds(0.06, 0.40, 0.0) is None
+
+
+def test_prune_keeps_last_snapshot():
+    store.import_card({**CARD, "timestamp": "2020-01-01T10:00:00+00:00",
+                       "races": [{**CARD["races"][0], "runners": [
+                           {**r, "exchange": {"back": 5.0, "lay": 5.2}} for r in CARD["races"][0]["runners"]]}]})
+    store.import_card({**CARD, "timestamp": "2020-01-01T11:00:00+00:00",
+                       "races": [{**CARD["races"][0], "runners": [
+                           {**r, "exchange": {"back": 6.0, "lay": 6.2}} for r in CARD["races"][0]["runners"]]}]})
+    assert store.prune_snapshots() >= 12
+    race = store.races_on("2026-10-02")[0]
+    assert race["runners"][0]["exchange"]["back"] == 6.0
+    assert store.last_snapshot() is not None

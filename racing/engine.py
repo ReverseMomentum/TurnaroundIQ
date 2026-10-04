@@ -17,7 +17,7 @@ from typing import Optional
 import numpy as np
 
 from racing import calibrate, confidence, kelly, market, nonfinish, positions
-from racing.extra_place import Terms, evaluate, parse_fraction, shrink, standard_terms
+from racing.extra_place import Terms, evaluate, min_value_odds, parse_fraction, shrink, standard_terms
 
 MAX_POSITIONS = 9
 DEFAULT_BOOK = "Best price"
@@ -86,6 +86,12 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
             **{f"top{k}_probability": topk(top, i, k) for k in (3, 4, 5, 6)},
             "positions": [round(float(x), 5) for x in P[i, :MAX_POSITIONS]],
             "best_win_odds": r.get("win_odds") or market.best_price(r.get("odds") or {}),
+            "exchange_back": (r.get("exchange") or {}).get("back"),
+            "value_from": {
+                str(extra): min_value_odds(float(p_win[i]), topk(top, i, std_places + extra), std_frac,
+                                           calibration.get("edge_shrink"))
+                for extra in (0, 1, 2, 3) if std_frac and std_places + extra <= n
+            },
             "exchange": r.get("exchange"),
             "offers": [],
         }

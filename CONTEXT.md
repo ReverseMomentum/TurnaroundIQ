@@ -62,7 +62,12 @@ Read this first. It is what a fresh session needs to work on this repo.
   -> discounted Plackett-Luce/Harville, 10,000 Monte Carlo races -> P1..P9 ->
   each-way EV, edge, 0-100 confidence, robust ¼ Kelly, grade A-D. Grade A is held
   back until the discounts are fitted on results.
-- Data: no feed yet. Load JSON cards with `scripts/stables_import.py <file>` (format in
+- Feed: `collectors/betfair.py` (Betfair Exchange API, delayed key) loads UK/IRE
+  cards + exchange prices every 15 min (cron job `racecards`) and on the page's
+  "Refresh races" button (max every 2 min). No bookmaker odds: each runner gets
+  "value from", the smallest bookmaker price worth taking each-way at standard
+  places +0..+3 (EV >= 4% after the edge shrink). `--check` tests the login.
+- Manual data: load JSON cards with `scripts/stables_import.py <file>` (format in
   its docstring). Results in the same file feed `scripts/stables_calibrate.py`.
   `scripts/stables_run.py [date]` stores predictions/opportunities. Tables are `rac_*`
   in two_up.db. The app also has a "Price a race" form for typing a race in by hand.

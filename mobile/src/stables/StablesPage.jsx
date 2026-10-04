@@ -13,6 +13,14 @@ const pct = (v, dp = 1) => (v == null || isNaN(v) ? "—" : (100 * Number(v)).to
 const signedPct = (v, dp = 1) => (v == null || isNaN(v) ? "—" : (v >= 0 ? "+" : "") + (100 * Number(v)).toFixed(dp) + "%");
 const pts = (v) => (v == null || isNaN(v) ? "—" : (v >= 0 ? "+" : "") + (100 * Number(v)).toFixed(1) + " pts");
 const fractionLabel = (f) => (f ? "1/" + Math.round(1 / f) : "—");
+const UK_FRACTIONS = [[1,5],[2,9],[1,4],[2,7],[3,10],[1,3],[4,11],[2,5],[4,9],[1,2],[8,15],[4,7],[8,13],[4,6],[8,11],[4,5],[5,6],[10,11],[1,1],[11,10],[6,5],[5,4],[11,8],[6,4],[13,8],[7,4],[15,8],[2,1],[9,4],[5,2],[11,4],[3,1],[10,3],[7,2],[4,1],[9,2],[5,1],[11,2],[6,1],[13,2],[7,1],[15,2],[8,1],[17,2],[9,1],[10,1],[11,1],[12,1],[14,1],[16,1],[18,1],[20,1],[22,1],[25,1],[28,1],[33,1],[40,1],[50,1],[66,1],[80,1],[100,1],[125,1],[150,1],[200,1],[250,1],[500,1]];
+/** Smallest standard UK price at or above decimal odds d, e.g. 12.57 -> "12/1". */
+export function ukPriceAtLeast(d) {
+  if (d == null || !isFinite(d)) return null;
+  const f = UK_FRACTIONS.find(([a, b]) => 1 + a / b >= d - 1e-9);
+  if (!f) return null;
+  return f[0] === f[1] ? "evs" : `${f[0]}/${f[1]}`;
+}
 const offerKey = (o) => `${o.race_id || ""}|${o.horse}|${o.bookmaker}`;
 
 /** "9/2", "4.5", "evs", "5-2" -> decimal odds (null if unreadable). */
@@ -133,10 +141,13 @@ function OpportunityCard({ ui, o, highlight }) {
   );
 }
 
-function RunnerTable({ ui, race }) {
+function RunnerTable({ ui, race, extra }) {
   const { c } = ui;
   const th = { color: c.textMuted, letterSpacing: "0.1em" };
+  const withValue = extra != null && race.standard_terms?.fraction > 0;
+  const k = (race.standard_terms?.places || 3) + (extra || 0);
   const cols = ["Win", "Top 3", "Top 4", "Top 5", "4th", "5th"];
+  const hideMobile = (h) => h === "Top 3" || h === "Top 4" || (withValue && (h === "4th" || h === "5th"));
   return (
     <div className="overflow-x-auto -mx-1">
       <table className="w-full text-xs lg:text-sm">
@@ -144,22 +155,31 @@ function RunnerTable({ ui, race }) {
           <tr style={{ borderBottom: "1px solid " + c.border }}>
             <th style={th} className="text-[10px] font-semibold uppercase py-2 px-1 text-left">Runner</th>
             <th style={th} className="text-[10px] font-semibold uppercase py-2 px-1 text-right">Odds</th>
-            {cols.map((h) => <th key={h} style={th} className={"text-[10px] font-semibold uppercase py-2 px-1 text-right" + (h === "Top 3" || h === "Top 4" ? " hidden lg:table-cell" : "")}>{h}</th>)}
+            {cols.map((h) => <th key={h} style={th} className={"text-[10px] font-semibold uppercase py-2 px-1 text-right" + (hideMobile(h) ? " hidden lg:table-cell" : "")}>{h}</th>)}
+            {withValue && <th style={{ ...th, color: c.green }} className="text-[10px] font-semibold uppercase py-2 px-1 text-right whitespace-nowrap">Value from</th>}
           </tr>
         </thead>
         <tbody>
           {race.runners.map((r) => {
             const value = race.opportunities.some((o) => o.horse === r.name && (o.grade === "A" || o.grade === "B"));
+            const vf = withValue ? r.value_from?.[String(extra)] : null;
+            const price = r.best_win_odds || r.exchange_back;
+            const reachable = vf && price && price >= vf;
             return (
               <tr key={r.name} style={{ borderBottom: "1px solid " + c.border }}>
                 <td className="py-2 px-1 max-w-[104px] lg:max-w-[220px] truncate" style={{ color: value ? c.green : c.text }}>{r.number ? <span style={{ color: c.textMuted }} className="num mr-1">{r.number}</span> : null}{r.name}</td>
-                <td style={{ color: c.textSecondary }} className="num py-2 px-1 text-right">{r.best_win_odds ? Number(r.best_win_odds).toFixed(2) : "—"}</td>
+                <td style={{ color: c.textSecondary }} className="num py-2 px-1 text-right">{price ? Number(price).toFixed(2) : "—"}</td>
                 <td style={{ color: c.text }} className="num py-2 px-1 text-right">{pct(r.win_probability)}</td>
                 <td style={{ color: c.text }} className="num py-2 px-1 text-right hidden lg:table-cell">{pct(r.top3_probability)}</td>
                 <td style={{ color: c.text }} className="num py-2 px-1 text-right hidden lg:table-cell">{pct(r.top4_probability)}</td>
                 <td style={{ color: c.text }} className="num py-2 px-1 text-right">{pct(r.top5_probability)}</td>
-                <td style={{ color: c.orange }} className="num py-2 px-1 text-right">{pct(r.positions[3])}</td>
-                <td style={{ color: c.orange }} className="num py-2 px-1 text-right">{pct(r.positions[4])}</td>
+                <td style={{ color: c.orange }} className={"num py-2 px-1 text-right" + (withValue ? " hidden lg:table-cell" : "")}>{pct(r.positions[3])}</td>
+                <td style={{ color: c.orange }} className={"num py-2 px-1 text-right" + (withValue ? " hidden lg:table-cell" : "")}>{pct(r.positions[4])}</td>
+                {withValue && (
+                  <td style={{ color: reachable ? c.green : c.textSecondary }} className="num py-2 px-1 text-right whitespace-nowrap font-semibold">
+                    {vf ? ukPriceAtLeast(vf) : "—"}
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -169,7 +189,7 @@ function RunnerTable({ ui, race }) {
   );
 }
 
-function RaceCard({ ui, race }) {
+function RaceCard({ ui, race, extra }) {
   const { c, card } = ui;
   const [open, setOpen] = useState(false);
   const strong = race.opportunities.filter((o) => o.grade === "A" || o.grade === "B").length;
@@ -190,7 +210,17 @@ function RaceCard({ ui, race }) {
           <ChevronDown size={16} style={{ color: c.textMuted, transform: open ? "rotate(180deg)" : "none" }} />
         </span>
       </button>
-      {open && <div className="mt-3"><RunnerTable ui={ui} race={race} /></div>}
+      {open && (
+        <div className="mt-3">
+          <RunnerTable ui={ui} race={race} extra={extra} />
+          {race.standard_terms?.fraction > 0 && (
+            <p style={{ color: c.textMuted }} className="text-[11px] mt-2">
+              Value from: the smallest bookmaker price worth taking each-way at {race.standard_terms.places + extra} places,{" "}
+              {fractionLabel(race.standard_terms.fraction)} odds. Green where the exchange price is already that big.
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -238,13 +268,59 @@ function OpportunityList({ ui, list }) {
   );
 }
 
+// Runners whose exchange price already beats the "value from" line: the ones worth
+// checking against bookmakers' extra-place offers.
+function Shortlist({ ui, races, extra }) {
+  const { c, card, SectionLabel, Empty } = ui;
+  const rows = [];
+  for (const race of races) {
+    if (!(race.standard_terms?.fraction > 0)) continue;
+    for (const r of race.runners) {
+      const vf = r.value_from?.[String(extra)];
+      const price = r.best_win_odds || r.exchange_back;
+      if (vf && price && price >= vf) rows.push({ race, r, vf, price, ratio: price / vf });
+    }
+  }
+  rows.sort((a, b) => b.ratio - a.ratio);
+  const top = rows.slice(0, 12);
+  return (
+    <>
+      <SectionLabel>Worth checking · {rows.length}</SectionLabel>
+      <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-3 leading-snug">
+        The exchange price is already at or above the value line{extra ? ` for ${extra} extra place${extra > 1 ? "s" : ""}` : ""}.
+        If a bookmaker offers those terms at the "value from" price or bigger, the model rates it value.
+      </p>
+      {top.length === 0 && <Empty>No runner clears the value line at exchange prices.</Empty>}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-6">
+        {top.map(({ race, r, vf, price }) => (
+          <div key={race.race_id + r.name} style={card} className="rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p style={{ color: c.text }} className="text-sm font-semibold truncate">{r.name}</p>
+              <p style={{ color: c.textMuted }} className="text-xs truncate">
+                <span className="num">{race.time}</span> {race.course} · {race.standard_terms.places + extra} places {fractionLabel(race.standard_terms.fraction)}
+              </p>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <p style={{ color: c.green }} className="num text-sm font-bold">{ukPriceAtLeast(vf)}+</p>
+              <p style={{ color: c.textMuted }} className="text-[10px]">exchange <span className="num">{Number(price).toFixed(2)}</span></p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function CardsTab({ ui, entitled }) {
   const { c, chip, useApi, Loading, ErrorBox, Empty, SectionLabel } = ui;
   const [date, setDate] = useState(null);
   const [refreshes, setRefreshes] = useState(0);
+  const [extra, setExtra] = useState(1);
   const q = useApi(() => api.stablesRaces(date, refreshes > 0), [entitled, date, refreshes]);
   const data = q.data;
   const refreshing = q.loading && Boolean(data);
+  const clock = (iso) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const fed = data?.feed?.last_fetch ? clock(data.feed.last_fetch) : null;
   const updated = data?.priced_at
     ? new Date(data.priced_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
     : null;
@@ -261,8 +337,9 @@ function CardsTab({ ui, entitled }) {
           className="flex items-center gap-2 text-xs font-semibold px-3.5 py-2 rounded-lg">
           <RefreshCw size={14} className={q.loading ? "animate-spin" : ""} /> {refreshing ? "Refreshing…" : "Refresh races"}
         </button>
-        {updated && <span style={{ color: c.textMuted }} className="text-[11px]">Priced at {updated}</span>}
+        {updated && <span style={{ color: c.textMuted }} className="text-[11px] text-right">Priced at {updated}{fed ? ` · Betfair ${fed}` : ""}</span>}
       </div>
+      {data?.feed?.error && <p style={{ color: c.orange }} className="text-[11px] mb-3">Betfair: {data.feed.error}</p>}
       {dates.length > 1 && (
         <div className="no-scrollbar flex gap-2 overflow-x-auto mb-4 -mx-1 px-1">
           {dates.map((d) => (
@@ -278,9 +355,16 @@ function CardsTab({ ui, entitled }) {
       {data && data.races.length > 0 && (
         <>
           <ModelNote ui={ui} cal={data.calibration} source={data.races[0]?.probability_source} />
-          <OpportunityList ui={ui} list={data.opportunities} />
+          <div className="flex items-center gap-2 mb-4">
+            <span style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mr-1">Extra places</span>
+            {[0, 1, 2, 3].map((x) => (
+              <button key={x} onClick={() => setExtra(x)} style={chip(x === extra)} className="text-xs font-semibold px-3 py-1.5 rounded-lg num">{x === 0 ? "None" : "+" + x}</button>
+            ))}
+          </div>
+          <Shortlist ui={ui} races={data.races} extra={extra} />
+          {data.opportunities.length > 0 && <OpportunityList ui={ui} list={data.opportunities} />}
           <SectionLabel>Races · {data.races.length}</SectionLabel>
-          <div className="flex flex-col gap-3">{data.races.map((r) => <RaceCard key={r.race_id} ui={ui} race={r} />)}</div>
+          <div className="flex flex-col gap-3">{data.races.map((r) => <RaceCard key={r.race_id} ui={ui} race={r} extra={extra} />)}</div>
         </>
       )}
       {data && <p style={{ color: c.textMuted }} className="text-[11px] mt-3">Prices are as loaded; check the live price and terms with the bookmaker.</p>}

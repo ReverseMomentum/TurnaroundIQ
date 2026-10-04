@@ -113,3 +113,39 @@ def shrink(ev: dict, w: float) -> dict:
     place_ev = adj * ev["place_odds"] - 1.0
     return {**ev, "raw_model_probability": raw, "model_probability": adj, "edge": adj - m,
             "place_ev": place_ev, "each_way_ev": 0.5 * (ev["win_ev"] + place_ev), "edge_shrink": w}
+
+
+MIN_VALUE_EV = 0.04   # the grade-B line: smaller edges did not hold up in the backtest
+
+
+def min_value_odds(p_win: float, p_place: float, fraction: float, edge_shrink=None,
+                   min_ev: float = MIN_VALUE_EV) -> Optional[float]:
+    """
+    Lowest decimal win odds at which an each-way bet on these terms has EV >=
+    min_ev, using the model's win and place chances (place chance shrunk
+    toward the bookmaker's as in shrink()). EV rises with the odds, so this is
+    a bisection. None if no price up to 1000 gets there.
+    """
+    if not fraction or p_place <= 0:
+        return None
+
+    def ev(o):
+        po = 1.0 + (o - 1.0) * fraction
+        p = p_place
+        if edge_shrink is not None:
+            m = 1.0 / po
+            p = min(1.0, max(0.0, m + float(edge_shrink) * (p_place - m)))
+        return 0.5 * (p_win * o - 1.0) + 0.5 * (p * po - 1.0)
+
+    lo, hi = 1.01, 1000.0
+    if ev(hi) < min_ev:
+        return None
+    if ev(lo) >= min_ev:
+        return lo
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if ev(mid) >= min_ev:
+            hi = mid
+        else:
+            lo = mid
+    return round(hi, 2)

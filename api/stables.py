@@ -11,17 +11,41 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from collectors import betfair
 from racing import store
 from racing.engine import price_race
 
 router = APIRouter(prefix="/stables", tags=["stables"])
 
+UK = ZoneInfo("Europe/London")
 CACHE_SECONDS = 300
 REFRESH_COOLDOWN_SECONDS = 20  # a forced refresh within this of the last pricing reuses it
+FEED_COOLDOWN_SECONDS = 120    # Betfair is fetched at most this often from the button
+FEED_HOURS = 12
+_feed = {"at": 0.0, "result": None, "error": None}
+
+
+def _fetch_feed() -> None:
+    """Pull fresh cards + exchange prices from Betfair (skipped if not set up, recent, or the cron job is running)."""
+    if not betfair.configured() or time.time() - _feed["at"] < FEED_COOLDOWN_SECONDS:
+        return
+    _feed["at"] = time.time()
+    try:
+        out = betfair.collect_locked(FEED_HOURS, wait=False)
+        if out is not None:
+            _feed.update(result=out, error=None)
+    except Exception as e:  # network / login problems must not break the page
+        _feed["error"] = str(e)[:300]
+
+
+def _feed_status() -> dict:
+    return {"source": "betfair" if betfair.configured() else None,
+            "last_fetch": store.last_snapshot(), "error": _feed["error"]}
 _cache: dict = {}
 _lock = threading.Lock()
 
@@ -46,7 +70,7 @@ def stables_races(authorization: str | None = Header(default=None), date: Option
                   refresh: bool = False):
     """refresh=true re-prices the stored races now instead of serving the 5-minute cache."""
     _require_pro(authorization)
-    date = date or datetime.now(timezone.utc).date().isoformat()
+    date = date or datetime.now(UK).date().isoformat()
     try:
         datetime.strptime(date, "%Y-%m-%d")
     except ValueError:
@@ -56,6 +80,8 @@ def stables_races(authorization: str | None = Header(default=None), date: Option
         max_age = REFRESH_COOLDOWN_SECONDS if refresh else CACHE_SECONDS
         if hit and time.time() - hit[0] < max_age:
             return hit[1]
+    if refresh:
+        _fetch_feed()
     cal = store.latest_calibration()
     races = [price_race(r, cal) for r in store.races_on(date)]
     opps = [{**o, "race_id": r["race_id"], "course": r["course"], "time": r["time"],
@@ -67,6 +93,7 @@ def stables_races(authorization: str | None = Header(default=None), date: Option
         "priced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "dates": store.race_dates(),
         "calibration": _calibration_summary(cal),
+        "feed": _feed_status(),
         "races": races,
         "opportunities": opps,
     }

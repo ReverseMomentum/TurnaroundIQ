@@ -288,6 +288,40 @@ def races_with_results(conn=None) -> list[dict]:
     return out
 
 
+def last_snapshot(conn=None) -> Optional[str]:
+    """Time of the newest exchange price snapshot (any source), ISO."""
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    row = conn.execute("SELECT MAX(timestamp) FROM rac_exchange_markets").fetchone()
+    if own:
+        conn.close()
+    return row[0] if row else None
+
+
+def prune_snapshots(keep_days: float = 1.0, conn=None) -> int:
+    """
+    Every collector run adds a price snapshot per runner. Older than keep_days,
+    keep only the last snapshot per runner (the closing price, useful later).
+    """
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    from datetime import timedelta
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat(timespec="seconds")
+    n = 0
+    for table in ("rac_exchange_markets", "rac_markets"):
+        key = "race_id, horse_id" if table == "rac_exchange_markets" else "race_id, horse_id, bookmaker"
+        n += conn.execute(
+            f"DELETE FROM {table} WHERE timestamp < ? AND id NOT IN "
+            f"(SELECT MAX(id) FROM {table} GROUP BY {key})", (cutoff,)).rowcount
+    conn.commit()
+    if own:
+        conn.close()
+    return n
+
+
 def save_calibration(payload: dict, conn=None):
     own = conn is None
     conn = conn or get_db()

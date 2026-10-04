@@ -14,6 +14,11 @@ J=/root/TurnaroundIQ/scripts/cron_job.sh
 # also press "Refresh odds" in the app (shared 15-min cooldown, same lock).
 40 2,5,8,11,14,17,20,23 * * *  $J odds python -u collectors/odds_apisports.py --hours 24 --max-calls 200
 
+# The Stables: UK/IRE race cards + Betfair exchange prices for the next 12h, every
+# 15 min from 08:00 to 20:45 UTC. Needs BETFAIR_APP_KEY / _USERNAME / _PASSWORD.
+# (Job name is not "betfair": the collector takes logs/betfair.lock itself.)
+*/15 8-20 * * *  $J racecards python -u collectors/betfair.py --hours 12
+
 # Paper log: open picks for today's slate, settle finished ones
 0 9,15 * * *  $J paper python -u scripts/paper_auto_products.py --products fta,early,chaos
 50 */3 * * *  $J paper-settle python -u scripts/paper_auto_products.py --settle-only

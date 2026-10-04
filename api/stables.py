@@ -65,6 +65,25 @@ def _calibration_summary(cal: dict) -> dict:
     }
 
 
+def _started(race: dict, now: datetime) -> bool:
+    """True once the race's UK off time has passed (or it was on an earlier day)."""
+    today = now.date().isoformat()
+    if (race.get("date") or today) != today:
+        return (race.get("date") or today) < today
+    t = race.get("time")
+    return bool(t) and t <= now.strftime("%H:%M")
+
+
+def _with_live_status(body: dict) -> dict:
+    """Mark started races at response time (cached prices can be minutes old)."""
+    now = datetime.now(UK)
+    races = [{**r, "started": _started(r, now)} for r in body["races"]]
+    live = {r["race_id"] for r in races if not r["started"]}
+    return {**body, "races": races,
+            "opportunities": [o for o in body["opportunities"] if o["race_id"] in live],
+            "started_count": len(races) - len(live)}
+
+
 @router.get("/races")
 def stables_races(authorization: str | None = Header(default=None), date: Optional[str] = None,
                   refresh: bool = False):
@@ -79,7 +98,7 @@ def stables_races(authorization: str | None = Header(default=None), date: Option
         hit = _cache.get(date)
         max_age = REFRESH_COOLDOWN_SECONDS if refresh else CACHE_SECONDS
         if hit and time.time() - hit[0] < max_age:
-            return hit[1]
+            return _with_live_status(hit[1])
     if refresh:
         _fetch_feed()
     cal = store.latest_calibration()
@@ -99,7 +118,7 @@ def stables_races(authorization: str | None = Header(default=None), date: Option
     }
     with _lock:
         _cache[date] = (time.time(), body)
-    return body
+    return _with_live_status(body)
 
 
 class ManualRunner(BaseModel):

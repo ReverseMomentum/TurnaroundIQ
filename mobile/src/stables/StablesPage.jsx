@@ -317,6 +317,7 @@ function CardsTab({ ui, entitled }) {
   const [date, setDate] = useState(null);
   const [refreshes, setRefreshes] = useState(0);
   const [extra, setExtra] = useState(1);
+  const [showStarted, setShowStarted] = useState(false);
   const q = useApi(() => api.stablesRaces(date, refreshes > 0), [entitled, date, refreshes]);
   const data = q.data;
   const refreshing = q.loading && Boolean(data);
@@ -362,10 +363,22 @@ function CardsTab({ ui, entitled }) {
               <button key={x} onClick={() => setExtra(x)} style={chip(x === extra)} className="text-xs font-semibold px-3 py-1.5 rounded-lg num">{x === 0 ? "None" : "+" + x}</button>
             ))}
           </div>
-          <Shortlist ui={ui} races={data.races} extra={extra} />
+          <Shortlist ui={ui} races={data.races.filter((r) => !r.started)} extra={extra} />
           {data.opportunities.length > 0 && <OpportunityList ui={ui} list={data.opportunities} />}
-          <SectionLabel>Races · {data.races.length}</SectionLabel>
-          <div className="flex flex-col gap-3">{data.races.map((r) => <RaceCard key={r.race_id} ui={ui} race={r} extra={extra} />)}</div>
+          <SectionLabel>Races · {data.races.filter((r) => !r.started).length} to come</SectionLabel>
+          {data.races.every((r) => r.started) && <Empty>All of this day's races have started.</Empty>}
+          <div className="flex flex-col gap-3">
+            {data.races.filter((r) => showStarted || !r.started).map((r) => (
+              <div key={r.race_id} style={{ opacity: r.started ? 0.5 : 1 }}>
+                <RaceCard ui={ui} race={r} extra={extra} />
+              </div>
+            ))}
+          </div>
+          {data.started_count > 0 && (
+            <button onClick={() => setShowStarted(!showStarted)} style={{ color: c.textSecondary, border: "1px solid " + c.border }} className="w-full rounded-xl py-2.5 text-xs font-medium mt-3">
+              {showStarted ? "Hide started races" : `Show ${data.started_count} started race${data.started_count === 1 ? "" : "s"}`}
+            </button>
+          )}
         </>
       )}
       {data && <p style={{ color: c.textMuted }} className="text-[11px] mt-3">Prices are as loaded; check the live price and terms with the bookmaker.</p>}

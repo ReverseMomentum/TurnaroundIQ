@@ -536,3 +536,21 @@ def test_no_value_calls_beyond_50_1_and_win_stage_fixed():
         races.append({"p_win": p, "order": list(positions.simulate_orders(p, 1, seed=i)[0])})
     assert calibrate.fit_discounts(races)["discounts"][0] == 1.0
     assert calibrate.fit_discounts(races, fix_first=False)["discounts"][0] != 1.0
+
+
+def test_started_races_are_marked_and_dropped_from_opportunities():
+    from datetime import datetime
+    from api import stables as stables_api
+
+    now = datetime(2026, 10, 4, 15, 0, tzinfo=stables_api.UK)
+    assert stables_api._started({"date": "2026-10-04", "time": "14:59"}, now)
+    assert stables_api._started({"date": "2026-10-04", "time": "15:00"}, now)
+    assert not stables_api._started({"date": "2026-10-04", "time": "15:01"}, now)
+    assert stables_api._started({"date": "2026-10-03", "time": "21:00"}, now)
+    assert not stables_api._started({"date": "2026-10-05", "time": "12:00"}, now)
+    body = {"races": [{"race_id": 1, "date": "2000-01-01", "time": "12:00"},
+                      {"race_id": 2, "date": "2099-01-01", "time": "12:00"}],
+            "opportunities": [{"race_id": 1}, {"race_id": 2}]}
+    out = stables_api._with_live_status(body)
+    assert [r["started"] for r in out["races"]] == [True, False]
+    assert out["opportunities"] == [{"race_id": 2}] and out["started_count"] == 1

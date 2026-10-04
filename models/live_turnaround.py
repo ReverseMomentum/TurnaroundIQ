@@ -222,6 +222,19 @@ def check(data=None, verbose=True):
         "actual": float(y[te].mean()), "pred": float(p.mean()),
     }
     out["beats_table"] = out["log_loss"] < out["log_loss_table"]
+    # Level correction (Platt, as in the FTA model), checked honestly: fit on the
+    # first half of the held-out period, score on the second half.
+    te_days = days[te]
+    mid = np.quantile(te_days, 0.5)
+    a, b = te_days < mid, te_days >= mid
+    cal_try = pm.platt_fit(y[te][a], p[a])
+    ll_raw = float(log_loss(y[te][b], np.clip(p[b], 1e-6, 1 - 1e-6), labels=[0, 1]))
+    ll_cal = float(log_loss(y[te][b], np.clip(pm.platt_apply(cal_try, p[b]), 1e-6, 1 - 1e-6), labels=[0, 1]))
+    out["calibration_check"] = {"raw": ll_raw, "calibrated": ll_cal}
+    out["use_calibration"] = ll_cal < ll_raw - 1e-5
+    # for serving: fitted on the whole held-out period (the model's newest blind spot)
+    out["cal"] = list(pm.platt_fit(y[te], p)) if out["use_calibration"] else None
+    p_shown = pm.platt_apply(cal_try, p[b]) if out["use_calibration"] else p[b]
     out["half_life_days"] = best_hl
     out["recency_tried"] = {("equal" if k is None else f"{k / 365:.0f}y"): v for k, v in tried.items()}
     if verbose:
@@ -234,6 +247,10 @@ def check(data=None, verbose=True):
         print(f"  no-win rate        predicted {100*out['pred']:.1f}%  actual {100*out['actual']:.1f}%")
         _bands(y[te], p, "Held-out calibration (all states):")
         _bands(y[te & first], p[first[te]], "Held-out calibration (at the moment of going 2 up):")
+        c = out["calibration_check"]
+        print(f"  level correction, fitted on the first half of the test period, scored on the second: "
+              f"log loss {c['raw']:.4f} -> {c['calibrated']:.4f}  -> {'USE' if out['use_calibration'] else 'skip'}")
+        _bands(y[te][b], p_shown, "Second half of the test period, as the app would show it:")
         print("  recency weighting (held-out log loss): "
               + ", ".join(f"{k} {v:.4f}" for k, v in out["recency_tried"].items())
               + f"  -> using {'equal' if best_hl is None else f'half-life {best_hl / 365:.0f}y'}")
@@ -249,7 +266,7 @@ def train(save=True):
     bundle = {"version": VERSION, "features": FEATURES, "model": model, "check": report,
               "trained_at": datetime.now(timezone.utc).isoformat(), "states": int(len(y)),
               # only show model numbers in the app when they beat the simple table
-              "use_model": bool(report["beats_table"])}
+              "use_model": bool(report["beats_table"]), "cal": report.get("cal")}
     if not bundle["use_model"]:
         bundle["table"] = _table_counts(X, y)
     if save:
@@ -278,6 +295,8 @@ def predict_live(team, opponent, league, is_home, minute, team_goals, opp_goals)
     if bundle.get("use_model", True):
         x = np.array([[f[k] for k in bundle["features"]]], dtype=float)
         p = float(bundle["model"].predict_proba(x)[0, 1])
+        if bundle.get("cal"):
+            p = float(pm.platt_apply(tuple(bundle["cal"]), np.array([p]))[0])
         how = "model"
     else:
         x = np.array([f[k] for k in FEATURES], dtype=float)

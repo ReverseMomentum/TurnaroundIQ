@@ -274,6 +274,7 @@ function ModelNote({ ui, cal, source }) {
           ? `Position model fitted on ${cal.n_races.toLocaleString()} past races.`
           : "Position model is running on published research values and has not been fitted on results yet, so grade A is held back."}
         {cal?.learned?.length ? ` A learned model adjusts each runner using ${cal.learned.length} form, connections and rating inputs.` : ""}
+        {cal?.segments?.length ? ` Position chances use separate curves for ${cal.segments.length} race-type and field-size groups.` : ""}
       </p>
     </div>
   );
@@ -488,6 +489,8 @@ function RunnerFacts({ ui, runner }) {
   const f = runner.features || {};
   if (!Object.keys(f).length) return null;
   const num = (v, dp = 1) => (v == null ? "—" : Number(v).toFixed(dp));
+  // average points a run above (+) or below (-) what its starting prices implied, shrunk towards 0
+  const pts = (v) => (v == null ? "—" : `${v >= 0 ? "+" : "−"}${Math.abs(100 * v).toFixed(0)} pts`);
   const days = runner.days_since_run ?? (f.log_days != null && f.log_days > 0 ? Math.round(Math.exp(f.log_days) - 1) : null);
   const items = [
     ["Last run", f.last_pos == null ? "—" : f.last_pos >= 12 ? "DNF" : ordinal(f.last_pos)],
@@ -502,6 +505,8 @@ function RunnerFacts({ ui, runner }) {
     ["Trainer 30 days", pct(f.trainer_30d, 0)],
     ["Horse + jockey", pct(f.horse_jockey_rate, 0)],
     ["OR vs field", f.or_rel == null ? "—" : (f.or_rel >= 0 ? "+" : "") + num(f.or_rel, 0)],
+    ["Placed vs prices", pts(f.place_excess)],
+    ["Won vs prices", pts(f.win_excess)],
   ];
   return (
     <>
@@ -511,7 +516,9 @@ function RunnerFacts({ ui, runner }) {
       </div>
       <p style={{ color: c.textMuted }} className="text-[11px] mb-4">
         Place = finished in the first three. Rates lean towards the 30% average until there are enough runs
-        {f.history_runs != null ? ` (${f.history_runs} past runs on file)` : ""}.
+        {f.history_runs != null ? ` (${f.history_runs} past runs on file)` : ""}. "vs prices" compares its
+        record with the chances its prices gave it; a horse that places more often than it wins can be under-rated
+        by place terms based on its win price.
       </p>
     </>
   );

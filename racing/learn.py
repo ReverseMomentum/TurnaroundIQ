@@ -9,7 +9,8 @@ engine simulates: at stage s the next finisher is drawn from those left with
 weight exp(lambda_s * u). Fitting maximises the likelihood of the first six
 finishers ("exploded logit"), so the features are learned on 2nd-6th as well
 as the winner, which is where extra-place value sits. Non-finishers are left
-out of the candidate sets (they are modelled separately).
+out of the candidate sets (they are modelled separately). A race tagged with
+its own "discounts" (race type / field size) uses those.
 
 Feature groups are added one at a time and kept only if they lower the
 held-back (validation) loss, like the FTA model's input selection.
@@ -63,7 +64,9 @@ def _arrays(races: list[dict], names: Sequence[str], discounts, stats: Optional[
     if Fn:
         X = (raw - mean) / std
         X[~np.isfinite(X)] = 0.0
-    lam = positions.stage_discounts(STAGES, discounts)
+    # per race: its own race-type / field-size discounts when tagged (calibrate.fit_segment_discounts)
+    lam = np.array([positions.stage_discounts(STAGES, race.get("discounts") or discounts) for race in races])
+    lam = lam.reshape(R, STAGES)
     return {"logp": logp, "X": X, "ok": ok, "order": order, "lam": lam, "stats": stats}
 
 
@@ -83,16 +86,17 @@ def _loss_grad(theta, A, l2=L2):
         live = (pick >= 0) & (left.sum(1) >= 2)
         if not live.any():
             break
-        z = np.where(left, lam[s] * u, -np.inf)
+        ls = lam[:, s]
+        z = np.where(left, ls[:, None] * u, -np.inf)
         zmax = z.max(1, keepdims=True)
         e = np.exp(z - zmax)
         P = e / e.sum(1, keepdims=True)
         lse = (zmax[:, 0] + np.log(e.sum(1)))
         idx = np.where(live, pick, 0)
-        ll += (lam[s] * u[rows, idx] - lse)[live].sum()
+        ll += (ls * u[rows, idx] - lse)[live].sum()
         chosen = feats[rows, idx]                                 # (R,1+F)
         expected = np.einsum("rn,rnf->rf", P, feats)
-        grad += lam[s] * (chosen - expected)[live].sum(0)
+        grad += (ls[:, None] * (chosen - expected))[live].sum(0)
         count += live.sum()
         left[rows[live], pick[live]] = False
     loss = -ll / max(1, count) + l2 * float(beta @ beta)
@@ -155,6 +159,18 @@ def apply(p_win, runners: Sequence[dict], blend: Optional[dict]) -> np.ndarray:
         u = u + Z @ w[1:]
     e = np.exp(u - u.max())
     return e / e.sum()
+
+
+def tag_segments(races: list[dict], segments: Optional[dict]) -> None:
+    """Give each dataset race its race-type / field-size discounts (or clear them with None)."""
+    from racing.calibrate import segment
+
+    for race in races:
+        d = (segments or {}).get(segment(race.get("race_type"), len(race["runners"])))
+        if d:
+            race["discounts"] = d
+        else:
+            race.pop("discounts", None)
 
 
 def importance(blend: dict) -> list:

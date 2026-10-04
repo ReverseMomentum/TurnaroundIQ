@@ -31,17 +31,21 @@ from racing.extra_place import standard_terms
 
 
 def to_calibration_races(races: list[dict], dnf_table: Optional[dict] = None,
-                         blend: Optional[dict] = None) -> list[dict]:
+                         blend: Optional[dict] = None, segments: Optional[dict] = None) -> list[dict]:
     """
     datasets.load_races output -> calibrate.py input (SP de-vigged). With a
-    non-finisher table, each race also carries per-runner non-finish rates.
+    non-finisher table, each race also carries per-runner non-finish rates;
+    with segment discounts, its own race-type / field-size discounts.
     """
     from racing import learn, market, nonfinish
 
     out = []
     for race in races:
         odds = [r["odds"] for r in race["runners"]]
-        row = {"p_win": learn.apply(market.devig_power(odds), race["runners"], blend), "order": race["order"]}
+        row = {"p_win": learn.apply(market.devig_power(odds), race["runners"], blend), "order": race["order"],
+               "race_type": race.get("race_type") or "flat"}
+        if segments:
+            row["discounts"] = segments.get(calibrate.segment(row["race_type"], len(odds)))
         if dnf_table is not None:
             row["dnf"] = nonfinish.rates_for(odds, race.get("race_type") or "flat", dnf_table)
         out.append(row)

@@ -37,7 +37,7 @@ def _runner_features(runners, names):
 
 SHOWN_FEATURES = ("last_pos", "avg3_pos", "avg5_pos", "log_days", "course_rate", "distance_rate",
                   "jockey_rate", "trainer_rate", "jockey_30d", "trainer_30d", "horse_jockey_rate",
-                  "or_rel", "or_gap_top", "history_runs")
+                  "or_rel", "or_gap_top", "history_runs", "place_excess", "win_excess")
 
 
 def opportunity_score(edge: float, confidence: int, volume, field_size: int) -> float:
@@ -91,9 +91,9 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
     elif blend and blend.get("fitted"):
         p_win = calibrate.apply_blend(p_win, _runner_features(runners, blend["features"][1:]), blend)
 
-    disc = calibration.get("discounts") or positions.DEFAULT_DISCOUNTS
     n_cal = int(calibration.get("n_races") or 0) if calibration.get("fitted") else 0
     rtype = nonfinish.race_type(race.get("race_type"), race.get("name"))
+    disc = calibrate.discounts_for(calibration, rtype, n)   # race type / field size curve when fitted
     odds_for_dnf = [r.get("win_odds") or market.best_price(r.get("odds") or {}) or 1 / max(p, 1e-6)
                     for r, p in zip(runners, p_win)]
     dnf = nonfinish.rates_for(odds_for_dnf, rtype, calibration.get("dnf"))
@@ -200,6 +200,8 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
         "standard_terms": {"places": std_places, "fraction": std_frac},
         "offers": [t.__dict__ for t in offers],
         "discounts": list(disc),
+        "position_segment": calibrate.segment(rtype, n)
+        if calibrate.segment(rtype, n) in (calibration.get("segment_discounts") or {}) else None,
         "calibrated": bool(n_cal),
         "recalibrated": bool(recal and recal.get("fitted")),
         "n_sims": sim["n_sims"],

@@ -62,6 +62,7 @@ def _calibration_summary(cal: dict) -> dict:
         "n_races": cal.get("n_races") or 0,
         "discounts": cal.get("discounts"),
         "created_at": cal.get("created_at"),
+        "segments": sorted(cal.get("segment_discounts") or {}),
         "learned": ((cal.get("blend") or {}).get("features") or [])[1:] if (cal.get("blend") or {}).get("fitted") else [],
     }
 

@@ -37,6 +37,27 @@ def stage_discounts(n: int, discounts: Optional[Sequence[float]] = None) -> np.n
     return np.array([d[min(s, len(d) - 1)] for s in range(n)], dtype=float)
 
 
+def harville_top3(p_win: Sequence[float]) -> np.ndarray:
+    """
+    Exact Harville P(finish in the first three) for every runner, O(n^2):
+    P(i 3rd) = p_i * sum over ordered pairs (j, k) without i of
+               p_j p_k / ((1 - p_j)(1 - p_j - p_k)).
+    """
+    p = np.asarray(p_win, float)
+    n = len(p)
+    if n <= 3:
+        return np.ones(n)
+    q = 1.0 - p
+    with np.errstate(divide="ignore", invalid="ignore"):
+        second = p[None, :] / q[:, None]                         # P(k 2nd | j 1st)
+        M = p[:, None] * second / np.clip(q[:, None] - p[None, :], 1e-12, None)
+    np.fill_diagonal(M, 0.0)
+    M = np.nan_to_num(M)
+    p2 = p * (p[:, None] / q[:, None] * (1 - np.eye(n))).sum(0)  # sum_j p_j p_i / (1 - p_j)
+    p3 = p * (M.sum() - M.sum(1) - M.sum(0))
+    return np.clip(p + p2 + p3, 0.0, 1.0)
+
+
 def simulate_orders(p_win: Sequence[float], n_sims: int = N_SIMS,
                     discounts: Optional[Sequence[float]] = None,
                     seed: Optional[int] = 7, depth: Optional[int] = None) -> np.ndarray:

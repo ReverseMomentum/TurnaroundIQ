@@ -95,6 +95,15 @@ Read this first. It is what a fresh session needs to work on this repo.
   test only on fields of `--min-runners` (default 8; history features still use
   every race). Odds brackets (shared, racing/extra_place.ODDS_BANDS): 1-3, 3-5,
   5-8, 8-12, 12-16, 16-21, 21-34, 34-51, 51+.
+- Placer features (group "placer"): place_excess / win_excess = shrunk average
+  of placed (top 3) / won minus the chances the race prices gave (de-vigged,
+  exact Harville top 3, `positions.harville_top3`). rac_history stores exp_win /
+  exp_place per run (re-run stables_history.py once to fill old rows).
+- Position curves by race type x field size (`calibrate.fit_segment_discounts`,
+  segments like "hurdle 12-15", 400+ races each, pulled towards the overall
+  curve). stables_learn keeps them only if validation loss falls; saved as
+  calibration["segment_discounts"], used via `calibrate.discounts_for` by the
+  engine, recalibration and the ranking model. Missing segments use the overall curve.
 - Manual data: load JSON cards with `scripts/stables_import.py <file>` (format in
   its docstring). Results in the same file feed `scripts/stables_calibrate.py`.
   `scripts/stables_run.py [date]` stores predictions/opportunities. Tables are `rac_*`

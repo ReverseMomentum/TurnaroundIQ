@@ -785,3 +785,102 @@ def test_odds_brackets():
                                "extra_hit": False, "race_type": "flat"} for o in (2.0, 13.0, 60.0)])
     assert list(out["by_odds"]) == ["1-3", "3-5", "5-8", "8-12", "12-16", "16-21", "21-34", "34-51", "51+"]
     assert out["by_odds"]["12-16"]["bets"] == 1
+
+
+def test_harville_top3_matches_exact():
+    p = np.array([0.35, 0.2, 0.15, 0.12, 0.08, 0.06, 0.04])
+    exact = positions.exact_positions(p, [1.0])[:, :3].sum(1)
+    assert np.allclose(positions.harville_top3(p), exact)
+    assert positions.harville_top3([0.5, 0.3, 0.2]).tolist() == [1.0, 1.0, 1.0]
+
+
+def test_placer_features_training_and_live(tmp_path):
+    import pandas as pd
+    from racing import features as F, live_features
+
+    # "Plodder" is 20/1 every time and always finishes 3rd: places far more than its price says, never wins.
+    races = [{"rid": i, "course": "A", "date": f"2016-02-{i + 1:02d}", "title": "Hcap Hurdle", "metric": 3200,
+              "condition": "Soft", "countryCode": "GB"} for i in range(5)]
+    prices = [2.5, 4.0, 6.0, 8.0, 12.0, 21.0]
+    horses = [{"rid": i, "horseName": "Plodder" if k == 5 else f"H{i}{k}", "decimalPrice": 1 / prices[k],
+               "position": 3 if k == 5 else (k + 1 if k < 2 else k + 2), "jockeyName": "J", "trainerName": "T",
+               "weightSt": 10, "weightLb": 0, "OR": 100, "TR": 0, "saddle": k + 1}
+              for i in range(5) for k in range(6)]
+    pd.DataFrame(races).to_csv(tmp_path / "races_2016.csv", index=False)
+    pd.DataFrame(horses).to_csv(tmp_path / "horses_2016.csv", index=False)
+    out = F.training_features([tmp_path], (2016, 2016))
+    first, last = out[("0", "Plodder")], out[("4", "Plodder")]
+    assert first["place_excess"] == 0 and first["win_excess"] == 0      # no history yet
+    assert last["place_excess"] > 0.3 and last["win_excess"] < 0         # placer, not a winner
+    assert "placer" in F.GROUPS
+
+    # live: the same numbers come from rac_history's stored chances
+    h = [{"placed": 1, "won": 0, "exp_place": 0.2, "exp_win": 0.05} for _ in range(4)]
+    f = live_features._placer(h + [{"placed": 1, "won": 0, "exp_place": None, "exp_win": None}])
+    assert f["place_excess"] == pytest.approx(4 * 0.8 / (4 + F.SHRINK_HORSE))
+    assert f["win_excess"] == pytest.approx(-4 * 0.05 / (4 + F.SHRINK_HORSE))
+    assert live_features._placer([]) == {"place_excess": 0.0, "win_excess": 0.0}
+
+
+def test_history_from_results_stores_expected_chances():
+    from database import get_db
+    from racing import live_features
+
+    store.import_card({"timestamp": "2026-10-04T09:00:00Z", "races": [{
+        "id": "bf:6.666", "date": "2026-10-04", "time": "13:00", "course": "Placeton", "name": "1m Hcap",
+        "runners": [{"horse": f"P{i}", "exchange": {"back": o, "lay": o + 0.1}}
+                    for i, o in enumerate([2.5, 4, 6, 9, 15])]}]})
+    rid = store.race_ids_for(["bf:6.666"])[0]
+    conn = get_db()
+    hid = {r["name"]: r["horse_id"] for r in store.load_race(conn, rid)["runners"]}
+    conn.execute("INSERT INTO rac_results (race_id, horse_id, finish_position, placed_within, outside_within) "
+                 "VALUES (?,?,?,?,?)", (rid, hid["P4"], None, 3, None))
+    conn.commit()
+    conn.close()
+    live_features.history_from_results([rid])
+    conn = get_db()
+    row = conn.execute("SELECT placed, exp_win, exp_place FROM rac_history WHERE race_ref = ? AND horse_key = 'p4'",
+                       (f"live:{rid}",)).fetchone()
+    conn.close()
+    assert row[0] == 1 and 0 < row[1] < row[2] < 1
+
+
+def test_segment_discounts_fit_and_fallback():
+    from racing import backtest, learn
+
+    rng = np.random.default_rng(1)
+    races = []
+    for i in range(500):     # big hurdle fields with a steep drop-off after the winner
+        p = rng.dirichlet(np.ones(14) * 2)
+        order = positions.simulate_orders(p, 1, [1.0, 0.45, 0.45, 0.45, 0.45, 0.45], seed=i)[0]
+        races.append({"p_win": p, "order": list(order), "race_type": "hurdle"})
+    for i in range(50):      # too few to get their own curve
+        p = rng.dirichlet(np.ones(9) * 2)
+        races.append({"p_win": p, "order": list(positions.simulate_orders(p, 1, None, seed=900 + i)[0]),
+                      "race_type": "flat"})
+    base = list(positions.DEFAULT_DISCOUNTS)
+    seg = calibrate.fit_segment_discounts(races, base)
+    assert set(seg["segments"]) == {"hurdle 12-15"} and seg["n_races"]["flat 8-11"] == 50
+    d = seg["segments"]["hurdle 12-15"]
+    assert d[0] == 1.0 and d[1] < 0.7                       # steeper than the 0.81 default
+    cal = {"discounts": base, "segment_discounts": seg["segments"]}
+    assert calibrate.discounts_for(cal, "hurdle", 13) == d
+    assert calibrate.discounts_for(cal, "flat", 9) == base
+    assert calibrate.discounts_for(None, "chase", 20) == list(positions.DEFAULT_DISCOUNTS)
+    assert calibrate.segment("chase", 18) == "chase 16+" and calibrate.segment(None, 5) == "flat 2-7"
+
+    # the engine and the ranking model pick the segment curve up
+    runners = [{"name": f"R{i}", "win_odds": o} for i, o in enumerate([3, 5, 7, 9, 11, 13, 15, 17, 21, 26, 34, 41, 51])]
+    out = price_race({"runners": runners, "race_type": "hurdle", "handicap": True}, cal, n_sims=2000)
+    assert out["discounts"] == d and out["position_segment"] == "hurdle 12-15"
+    assert price_race({"runners": runners[:9]}, cal, n_sims=2000)["position_segment"] is None
+    ds = [{"runners": [{"odds": 1 / p} for p in r["p_win"]], "finish": [1] * len(r["p_win"]),
+           "order": r["order"], "race_type": r["race_type"]} for r in races[:50] + races[-10:]]
+    plain = learn.loss(ds, None, base)
+    learn.tag_segments(ds, seg["segments"])
+    assert ds[0]["discounts"] == d and "discounts" not in ds[-1]
+    assert learn.loss(ds, None, base) < plain              # the steeper curve fits these races better
+    learn.tag_segments(ds, None)
+    assert "discounts" not in ds[0] and learn.loss(ds, None, base) == pytest.approx(plain)
+    rows = backtest.to_calibration_races(ds[:3], segments=seg["segments"])
+    assert rows[0]["discounts"] == d and rows[0]["race_type"] == "hurdle"

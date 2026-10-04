@@ -2,12 +2,15 @@
 """
 The Stables: learn runner features on Kaggle history and test them on later years.
 
-  1. Builds point-in-time features for every runner (racing/features.py)
-  2. Picks feature groups on validation years (kept only if they help)
-  3. Fits the ranking model on the first six finishers (racing/learn.py)
-  4. On test years, compares it with the current model: finishing-order loss,
+  1. Builds point-in-time features for every runner (racing/features.py),
+     including the "placer" features (placed / won vs what the prices said)
+  2. Fits position curves per race type and field size; kept only if they
+     score the validation years better than one curve for every race
+  3. Picks feature groups on validation years (kept only if they help)
+  4. Fits the ranking model on the first six finishers (racing/learn.py)
+  5. On test years, compares it with the current model: finishing-order loss,
      top-3 / top-5 / extra-place calibration, and a paper each-way backtest
-  5. Logs the run in model_runs; --save puts it live (with a calibration refit)
+  6. Logs the run in model_runs; --save puts it live (with a calibration refit)
 
     venv/bin/python -u scripts/stables_learn.py data/kaggle/hwaitt
     venv/bin/python -u scripts/stables_learn.py data/kaggle/hwaitt --save
@@ -29,6 +32,9 @@ sys.path.insert(0, str(ROOT))
 from database import get_db  # noqa: E402
 from racing import (backtest, calibrate, datasets, features, learn, nonfinish, positions,  # noqa: E402
                     recalibrate, store)
+
+
+SEGMENT_GAIN = 5e-5     # validation loss must fall by this to use the per-segment curves
 
 
 def _table(title, rows):
@@ -84,6 +90,21 @@ def main():
     dnf = base.get("dnf") or nonfinish.fit_rates(train)
     print("position discounts:", disc)
 
+    print("\nposition curves by race type and field size (pulled towards the one above):")
+    seg = calibrate.fit_segment_discounts(backtest.to_calibration_races(train_s), disc)
+    for label, k in seg["n_races"].items():
+        d = seg["segments"].get(label)
+        print(f"  {label:<14}{k:>6} races  {d if d else 'too few, uses the overall curve'}")
+    lv0 = learn.loss(valid_s, None, disc)
+    learn.tag_segments(every, seg["segments"])
+    lv1 = learn.loss(valid_s, None, disc)
+    keep_seg = bool(seg["segments"]) and lv1 < lv0 - SEGMENT_GAIN
+    print(f"  validation loss: one curve {lv0:.5f}  by segment {lv1:.5f}  -> "
+          f"{'kept' if keep_seg else 'dropped'}")
+    segments = seg["segments"] if keep_seg else {}
+    if not keep_seg:
+        learn.tag_segments(every, None)
+
     print("\nfeature groups (kept only if validation loss falls):")
     sel = learn.select(train_s, valid_s, disc)
     blend = learn.fit(train_s + valid_s, sel["features"], disc)
@@ -93,10 +114,14 @@ def main():
         print(f"  {name:<20}{w:+.3f}")
 
     print(f"\ntest races {a.test_from}+ (lower is better)")
-    lm, ll = learn.loss(test_s, None, disc), learn.loss(test_s, blend, disc)
-    print(f"  finishing-order loss: market {lm:.5f}  learned {ll:.5f}  ({100 * (lm - ll) / lm:+.2f}%)")
+    learn.tag_segments(test_s, None)
+    lm = learn.loss(test_s, None, disc)
+    learn.tag_segments(test_s, segments)
+    lsg, ll = learn.loss(test_s, None, disc), learn.loss(test_s, blend, disc)
+    print(f"  finishing-order loss: market {lm:.5f}  + position curves {lsg:.5f}  learned {ll:.5f}  "
+          f"({100 * (lm - ll) / lm:+.2f}%)")
     ev_m = calibrate.evaluate(backtest.to_calibration_races(test_s, dnf), disc, n_sims=2000)
-    ev_l = calibrate.evaluate(backtest.to_calibration_races(test_s, dnf, blend), disc, n_sims=2000)
+    ev_l = calibrate.evaluate(backtest.to_calibration_races(test_s, dnf, blend, segments), disc, n_sims=2000)
     print(f"  {'':<11}{'brier mkt':>10}{'learned':>9}{'ECE mkt':>9}{'learned':>9}{'actual':>8}")
     for key in ("top1", "top3", "top4", "top5", "top6", "extra3to5"):
         if key in ev_m:
@@ -106,8 +131,9 @@ def main():
 
     recal_races = rng.sample(train + valid, min(len(train) + len(valid), a.recal_races))
     cal_m = {"discounts": disc, "fitted": True, "n_races": len(train_s), "dnf": dnf,
+             "segment_discounts": base.get("segment_discounts") or {},
              "recal": base.get("recal") or recalibrate.fit(recalibrate.build_rows(recal_races, {"discounts": disc, "dnf": dnf}))}
-    cal_l = {**cal_m, "blend": blend}
+    cal_l = {**cal_m, "blend": blend, "segment_discounts": segments}
     cal_l["recal"] = recalibrate.fit(recalibrate.build_rows(recal_races, {**cal_l, "recal": None}))
     print("\ncalibration refitted on the learned model:", cal_l["recal"].get("fitted"), flush=True)
 
@@ -120,7 +146,8 @@ def main():
         _table("by win odds", bt[label]["by_odds"])
     print("\nSP prices; dead heats and Rule 4 ignored. Illustrative only.")
 
-    out = {"selection": sel, "blend": blend, "test_loss": {"market": lm, "learned": ll},
+    out = {"selection": sel, "blend": blend, "segments": seg, "segments_kept": keep_seg,
+           "test_loss": {"market": lm, "position_curves": lsg, "learned": ll},
            "test_eval": {"market": ev_m, "learned": ev_l}, "backtest": bt,
            "races": {"train": len(train_s), "valid": len(valid_s), "test": len(test_s)},
            "min_runners": a.min_runners}
@@ -134,7 +161,7 @@ def main():
                       datetime.now(timezone.utc).isoformat(timespec="seconds"), len(train_s) + len(valid_s),
                       ev_l.get("top5", {}).get("brier"), ll,
                       f"features={','.join(sel['features']) or 'none'}; market_loss={lm:.5f}; "
-                      f"min_runners={a.min_runners}; saved={a.save}"))
+                      f"min_runners={a.min_runners}; segments={len(segments)}; saved={a.save}"))
         conn.commit()
     except Exception as e:  # model_runs is optional
         print("model_runs not written:", e)
@@ -146,7 +173,7 @@ def main():
             return
         store.save_calibration({**base, **cal_l, "source": "kaggle+learned", "min_runners": a.min_runners,
                                 "learned_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
-        print("\nsaved for the app: features", sel["features"])
+        print("\nsaved for the app: features", sel["features"], "| position curves", sorted(segments) or "one")
 
 
 if __name__ == "__main__":

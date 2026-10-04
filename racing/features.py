@@ -15,6 +15,11 @@ Feature groups (the learner keeps a group only if it improves held-back fit):
   suitability  course_rate, distance_rate, going_rate
   connections  jockey_rate, trainer_rate, jockey_30d, trainer_30d, horse_jockey_rate
   market       market_rank_pct
+  placer       place_excess, win_excess: how often the horse placed (first
+               three) and won compared with what its prices said (Harville from
+               the de-vigged price), shrunk towards zero. A horse that keeps
+               placing but rarely wins has place_excess > 0, win_excess <= 0:
+               the "placer" that an each-way model built on win prices misses.
 Logged only (not learned): speed ratings (no live source), race-wide values
 (field_avg_or, race_depth, competitiveness: equal for every runner in a race,
 so they cannot separate runners), matched volume (live only).
@@ -30,7 +35,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from racing import market, nonfinish
+from racing import market, nonfinish, positions
 
 GROUPS = {
     "rating": ["or_rel", "or_gap_top", "or_missing"],
@@ -40,6 +45,7 @@ GROUPS = {
     "suitability": ["course_rate", "distance_rate", "going_rate"],
     "connections": ["jockey_rate", "trainer_rate", "jockey_30d", "trainer_30d", "horse_jockey_rate"],
     "market": ["market_rank_pct"],
+    "placer": ["place_excess", "win_excess"],
 }
 LOGGED_ONLY = ["last_speed", "avg3_speed", "avg5_speed", "field_avg_or", "race_depth", "competitiveness"]
 BASE_PLACE = 0.30
@@ -53,6 +59,20 @@ def shrink(placed, runs, m, base=BASE_PLACE):
     runs = np.maximum(runs, 0)
     placed = np.clip(placed, 0, runs)
     return (placed + m * base) / (runs + m)
+
+
+def excess(actual, expected, runs, m=SHRINK_HORSE):
+    """Shrunk average of (what happened - what the prices said); 0 with no history."""
+    return np.asarray(actual - expected, float) / (np.maximum(runs, 0) + m)
+
+
+def expected_from_odds(odds) -> tuple:
+    """(win, top-3) chances from one race's prices, or (None, None) if any price is missing."""
+    o = np.asarray(odds, float)
+    if len(o) < 2 or not np.all(np.isfinite(o)) or not np.all(o > 1):
+        return None, None
+    p = market.devig_power(o)
+    return p, positions.harville_top3(p)
 
 
 def going_group(text) -> str:
@@ -191,6 +211,26 @@ def _prior_rate(df, keys, m):
     return shrink(placed, runs, m)
 
 
+def _expected(df) -> tuple:
+    """Per-row chances from each race's prices (NaN where a race has a missing price)."""
+    ew, ep = np.full(len(df), np.nan), np.full(len(df), np.nan)
+    odds = df["odds"].to_numpy(float)
+    for idx in df.groupby("rid", sort=False).indices.values():
+        p, top3 = expected_from_odds(odds[idx])
+        if p is not None:
+            ew[idx], ep[idx] = p, top3
+    return ew, ep
+
+
+def _prior_excess(df, actual, expected):
+    """Shrunk (actual - expected) over the horse's earlier runs (no look-ahead)."""
+    ok = np.isfinite(expected)
+    tmp = pd.DataFrame({"h": df["horseName"].to_numpy(), "r": np.where(ok, actual - expected, 0.0),
+                        "n": ok.astype(float)})
+    g = tmp.groupby("h", sort=False)
+    return excess((g["r"].cumsum() - tmp["r"]).to_numpy(), 0.0, (g["n"].cumsum() - tmp["n"]).to_numpy())
+
+
 def _rolling_30d(df, key):
     """Shrunk place rate over the previous 30 days (same day excluded). df is sorted by date."""
     out = np.empty(len(df))
@@ -225,6 +265,10 @@ def training_features(paths: list[Path], years: Optional[tuple[int, int]] = None
     df["jockey_rate"] = _prior_rate(df, ["jockeyName"], SHRINK_PEOPLE)
     df["trainer_rate"] = _prior_rate(df, ["trainerName"], SHRINK_PEOPLE)
     df["horse_jockey_rate"] = _prior_rate(df, ["horseName", "jockeyName"], SHRINK_HORSE)
+    df["exp_win"], df["exp_place"] = _expected(df)
+    df["won"] = (df["pos"].fillna(99) == 1).astype(float)
+    df["place_excess"] = _prior_excess(df, df["placed"].to_numpy(), df["exp_place"].to_numpy())
+    df["win_excess"] = _prior_excess(df, df["won"].to_numpy(), df["exp_win"].to_numpy())
     df["jockey_30d"] = _rolling_30d(df, "jockeyName")
     df["trainer_30d"] = _rolling_30d(df, "trainerName")
     if years:

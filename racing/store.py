@@ -104,6 +104,8 @@ MIGRATIONS = {
         ("outside_within", "INTEGER"),  # largest k of a place market it did NOT place in
         ("result_at", "TEXT"),
     ],
+    # chances from the race's prices, for the "placer" features (racing/features.py)
+    "rac_history": [("exp_win", "REAL"), ("exp_place", "REAL")],
 }
 
 
@@ -487,12 +489,13 @@ def save_runner_features(race_id: int, by_horse: dict, conn=None):
 
 
 def add_history(rows: list[dict], conn=None) -> int:
-    """rows: race_ref, date, course, dist_f, going, race_type, horse_key, jockey_key, trainer_key, pos, placed, source."""
+    """rows: race_ref, date, course, dist_f, going, race_type, horse_key, jockey_key, trainer_key, pos, placed,
+    source, exp_win, exp_place."""
     own = conn is None
     conn = conn or get_db()
     ensure_tables(conn)
     cols = ("race_ref", "date", "course", "dist_f", "going", "race_type", "horse_key", "jockey_key",
-            "trainer_key", "pos", "placed", "source")
+            "trainer_key", "pos", "placed", "source", "exp_win", "exp_place")
     conn.executemany(f"INSERT OR REPLACE INTO rac_history ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
                      [tuple(r.get(c) for c in cols) for r in rows])
     conn.commit()

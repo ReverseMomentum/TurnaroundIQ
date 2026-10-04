@@ -23,7 +23,7 @@ import numpy as np
 
 from database import get_db
 from racing import features as F
-from racing import market, nonfinish, store
+from racing import market, nonfinish, positions, store
 
 
 def horse_key(name: Optional[str]) -> str:
@@ -81,11 +81,12 @@ def build(races: list[dict], conn=None, today: Optional[date] = None) -> dict:
     hk = {horse_key(r["name"]) for _, r in runners}
     hist = {}
     for chunk in [list(hk)[i:i + 500] for i in range(0, len(hk), 500)]:
-        q = ("SELECT horse_key, date, course, dist_f, jockey_key, placed FROM rac_history WHERE horse_key IN "
-             f"({','.join('?' * len(chunk))})")
-        for h, d, course, dist, jk, placed in conn.execute(q, chunk):
+        q = ("SELECT horse_key, date, course, dist_f, jockey_key, placed, pos, exp_win, exp_place FROM rac_history "
+             f"WHERE horse_key IN ({','.join('?' * len(chunk))})")
+        for h, d, course, dist, jk, placed, pos, ew, ep in conn.execute(q, chunk):
             hist.setdefault(h, []).append({"date": d, "course": (course or "").lower(), "dist_f": dist,
-                                           "jockey": jk, "placed": placed})
+                                           "jockey": jk, "placed": placed, "won": 1 if pos == 1 else 0,
+                                           "exp_win": ew, "exp_place": ep})
     people = {}
     since = (today - timedelta(days=30)).isoformat()
     for col in ("jockey_key", "trainer_key"):
@@ -131,6 +132,7 @@ def build(races: list[dict], conn=None, today: Optional[date] = None) -> dict:
                 "trainer_rate": F.shrink(*_people(people["trainer_key"], tk), F.SHRINK_PEOPLE),
                 "jockey_30d": F.shrink(*_people(people["jockey_key_30"], jk), F.SHRINK_PEOPLE / 3),
                 "trainer_30d": F.shrink(*_people(people["trainer_key_30"], tk), F.SHRINK_PEOPLE / 3),
+                **_placer(h),
                 "or": r.get("official_rating"), "lbs": weight_lbs(r.get("weight")), "draw": r.get("draw"),
                 "race_type": rtype, "history_runs": len(h),
             }
@@ -139,6 +141,15 @@ def build(races: list[dict], conn=None, today: Optional[date] = None) -> dict:
         out[race["race_id"]] = {r["horse_id"]: {k: F._clean(v) for k, v in f.items() if k not in ("race_type",)}
                                 for r, f in zip(live, rows)}
     return out
+
+
+def _placer(h: list) -> dict:
+    """Placed / won vs what the prices said, over runs with stored chances (features.py "placer")."""
+    known = [x for x in h if x["placed"] is not None and x.get("exp_place") is not None]
+    return {"place_excess": float(F.excess(sum(x["placed"] for x in known), sum(x["exp_place"] for x in known),
+                                           len(known))),
+            "win_excess": float(F.excess(sum(x["won"] for x in known), sum(x["exp_win"] or 0 for x in known),
+                                         len(known)))}
 
 
 def _people(table: dict, key) -> tuple:
@@ -171,6 +182,13 @@ def history_from_results(race_ids: list[int]) -> int:
             res = {hid: (pos, pw, ow) for hid, pos, pw, ow in conn.execute(
                 "SELECT horse_id, finish_position, placed_within, outside_within FROM rac_results WHERE race_id = ?",
                 (rid,))}
+            live = [r for r in race["runners"] if not r.get("non_runner")]
+            exp = {}
+            if len(live) >= 2:
+                p, source, _ = market.fair_win_probs(live)
+                if source in ("exchange", "bookmaker"):
+                    exp = {r["horse_id"]: (float(pw_), float(pp)) for r, pw_, pp in
+                           zip(live, p, positions.harville_top3(p))}
             for r in race["runners"]:
                 if r.get("non_runner") or r["horse_id"] not in res:
                     continue
@@ -181,7 +199,9 @@ def history_from_results(race_ids: list[int]) -> int:
                              "race_type": nonfinish.race_type(race.get("race_type"), race.get("name")),
                              "horse_key": horse_key(r["name"]), "jockey_key": person_key(r.get("jockey")),
                              "trainer_key": person_key(r.get("trainer")), "pos": 1 if pos == 1 else None,
-                             "placed": placed, "source": "betfair"})
+                             "placed": placed, "source": "betfair",
+                             "exp_win": exp.get(r["horse_id"], (None, None))[0],
+                             "exp_place": exp.get(r["horse_id"], (None, None))[1]})
         return store.add_history(rows, conn)
     finally:
         conn.close()
@@ -192,14 +212,20 @@ def history_from_kaggle(paths, since_year: int = 2015) -> int:
     df = F._hwaitt_frame(paths, (since_year, 2100))
     if df.empty:
         return 0
+    df = df.assign(**dict(zip(("exp_win", "exp_place"), F._expected(df))))
     df = df[df["date"].dt.year >= since_year]
     rows = [{"race_ref": f"kaggle:{r.rid}", "date": r.date.strftime("%Y-%m-%d"), "course": r.course,
              "dist_f": None if r.dist_f is None or (isinstance(r.dist_f, float) and np.isnan(r.dist_f)) else int(r.dist_f),
              "going": r.going, "race_type": r.race_type, "horse_key": horse_key(r.horseName),
              "jockey_key": person_key(r.jockeyName), "trainer_key": person_key(r.trainerName),
              "pos": None if r.pos is None or (isinstance(r.pos, float) and np.isnan(r.pos)) else int(r.pos),
-             "placed": int(r.placed), "source": "kaggle"} for r in df.itertuples()]
+             "placed": int(r.placed), "source": "kaggle",
+             "exp_win": _num(r.exp_win), "exp_place": _num(r.exp_place)} for r in df.itertuples()]
     n = 0
     for i in range(0, len(rows), 20000):
         n += store.add_history(rows[i:i + 20000])
     return n
+
+
+def _num(v):
+    return None if v is None or not math.isfinite(v) else float(v)

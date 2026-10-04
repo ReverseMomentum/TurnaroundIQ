@@ -5,6 +5,11 @@ fit_discounts  maximum-likelihood stage discounts lambda_1..lambda_6 for the
                discounted Plackett-Luce model, from finishing orders.
                lambda_1 != 1 corrects the win probabilities themselves
                (favourite-longshot bias left after de-vigging).
+fit_segment_discounts
+               the same, per race type (flat / hurdle / chase) and field size,
+               pulled towards the overall curve so thin segments stay close to it.
+               A big-field handicap hurdle does not drop off like a 6-runner
+               flat race, and positions 4th-6th are where extra places pay.
 fit_blend      Benter-style second stage: conditional logit on
                log(market probability) plus standardised form features.
                Only used once enough races with features are loaded.
@@ -28,6 +33,25 @@ from racing import positions
 N_STAGES = 6
 MIN_RACES_DISCOUNTS = 200
 MIN_RACES_BLEND = 500
+MIN_RACES_SEGMENT = 400
+SEGMENT_PRIOR = 100          # pull towards the overall curve, in races
+SIZE_BANDS = ((2, 7, "2-7"), (8, 11, "8-11"), (12, 15, "12-15"), (16, 99, "16+"))
+
+
+def size_band(n: int) -> str:
+    return next((label for lo, hi, label in SIZE_BANDS if lo <= n <= hi), SIZE_BANDS[-1][2])
+
+
+def segment(race_type: Optional[str], n: int) -> str:
+    """'hurdle 12-15'. race_type is nonfinish.race_type output (flat / hurdle / chase)."""
+    return f"{race_type or 'flat'} {size_band(n)}"
+
+
+def discounts_for(calibration: Optional[dict], race_type: Optional[str], n: int):
+    """The segment's fitted discounts, else the overall ones, else the published defaults."""
+    cal = calibration or {}
+    seg = (cal.get("segment_discounts") or {}).get(segment(race_type, n))
+    return seg or cal.get("discounts") or list(positions.DEFAULT_DISCOUNTS)
 
 
 def _race_nll(logp: np.ndarray, order: Sequence[int], lam: np.ndarray) -> float:
@@ -82,6 +106,35 @@ def fit_discounts(races: list[dict], n_stages: int = N_STAGES, fix_first: bool =
         "nll_prior": round(base, 5),
         "nll_fitted": round(float(res.fun), 5),
     }
+
+
+def fit_segment_discounts(races: list[dict], base, min_races: int = MIN_RACES_SEGMENT,
+                          prior: float = SEGMENT_PRIOR) -> dict:
+    """
+    races: {"p_win", "order", "race_type"} (backtest.to_calibration_races).
+    Returns {"segments": {label: discounts}, "n_races": {label: races}} for segments
+    with min_races+; the rest use the overall base discounts. lambda_1 stays 1.
+    """
+    base = np.array(positions.stage_discounts(N_STAGES, base), float)
+    groups: dict = {}
+    for r in races:
+        if len(r.get("order") or []) >= 2:
+            groups.setdefault(segment(r.get("race_type"), len(r["p_win"])), []).append(_finishers_only(r))
+    out, counts = {}, {}
+    for label, prepared in sorted(groups.items()):
+        counts[label] = len(prepared)
+        if len(prepared) < min_races:
+            continue
+        w = prior / len(prepared)
+
+        def f(x, prepared=prepared, w=w):
+            lam = np.concatenate([[1.0], x])
+            return (sum(_race_nll(lp, o, lam) for lp, o in prepared) / len(prepared)
+                    + w * float(((x - base[1:]) ** 2).sum()))
+
+        res = minimize(f, base[1:], method="L-BFGS-B", bounds=[(0.2, 1.6)] * (N_STAGES - 1))
+        out[label] = [1.0, *[round(float(v), 4) for v in res.x]]
+    return {"segments": out, "n_races": counts}
 
 
 def _standardise(X: np.ndarray) -> np.ndarray:
@@ -165,8 +218,8 @@ def evaluate(races: list[dict], discounts=None, ks=(1, 3, 4, 5, 6),
         n = len(p)
         if n < 2 or not order:
             continue
-        sim = positions.simulate(p, n_sims=n_sims, discounts=discounts, seed=11, batches=2,
-                                 dnf=r.get("dnf"))
+        sim = positions.simulate(p, n_sims=n_sims, discounts=r.get("discounts") or discounts, seed=11,
+                                 batches=2, dnf=r.get("dnf"))
         top = sim["top"]
         finish = np.full(n, n + 1)
         for pos, i in enumerate(order):

@@ -137,17 +137,51 @@ def build_states(matches=None, rows=None):
             np.array(days), np.array(first, dtype=bool))
 
 
-def _fit(X, y, days=None, half_life=None):
+MODEL_KINDS = ("logistic", "boosted")
+
+
+def _fit(X, y, days=None, half_life=None, kind="logistic"):
+    """logistic: smooth and simple. boosted: gradient-boosted trees, which can bend
+    where score, minute and team profile combine unevenly. check() keeps whichever
+    scores the latest games better."""
+    w = pm.recency_weights(days, half_life) if (half_life and days is not None) else None
+    if kind == "boosted":
+        from sklearn.ensemble import HistGradientBoostingClassifier
+        model = HistGradientBoostingClassifier(learning_rate=0.06, max_iter=300, max_leaf_nodes=31,
+                                               min_samples_leaf=200, l2_regularization=1.0,
+                                               random_state=0)
+        model.fit(X, y, sample_weight=w)
+        return model
     from sklearn.linear_model import LogisticRegression
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
     model = make_pipeline(StandardScaler(), LogisticRegression(C=0.5, max_iter=3000))
-    if half_life and days is not None:
-        w = pm.recency_weights(days, half_life)
+    if w is not None:
         model.fit(X, y, logisticregression__sample_weight=w)
     else:
         model.fit(X, y)
     return model
+
+
+def _calibrator(method, y, p):
+    """Fitted correction from raw model chance -> shown chance, or None."""
+    if method == "platt":
+        return ("platt", list(pm.platt_fit(y, p)))
+    if method == "isotonic":
+        from sklearn.isotonic import IsotonicRegression
+        iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0005, y_max=0.9995)
+        iso.fit(p, y)
+        return ("isotonic", iso)
+    return None
+
+
+def _calibrate(cal, p):
+    if not cal:
+        return p
+    method, obj = cal
+    if method == "platt":
+        return pm.platt_apply(tuple(obj), p)
+    return obj.predict(p)
 
 
 def _table_key(row):
@@ -203,12 +237,14 @@ def check(data=None, verbose=True):
     cut = np.quantile(days, 1 - HOLDOUT)
     tr, te = days < cut, days >= cut
     tried = {}
-    best_hl, p = None, None
-    for hl in RECENCY_OPTIONS:
-        ph = _fit(X[tr], y[tr], days[tr], hl).predict_proba(X[te])[:, 1]
-        tried[hl] = float(log_loss(y[te], np.clip(ph, 1e-6, 1 - 1e-6), labels=[0, 1]))
-        if p is None or tried[hl] < tried[best_hl] - 1e-5:
-            best_hl, p = hl, ph
+    best, p = None, None
+    candidates = [("logistic", hl) for hl in RECENCY_OPTIONS] + [("boosted", None), ("boosted", 1460.0)]
+    for kind, hl in candidates:
+        ph = _fit(X[tr], y[tr], days[tr], hl, kind).predict_proba(X[te])[:, 1]
+        tried[(kind, hl)] = float(log_loss(y[te], np.clip(ph, 1e-6, 1 - 1e-6), labels=[0, 1]))
+        if p is None or tried[(kind, hl)] < tried[best] - 1e-5:
+            best, p = (kind, hl), ph
+    best_kind, best_hl = best
     base = _table_baseline(X[tr], y[tr])(X[te])
     flat = np.full_like(p, y[tr].mean())
     out = {
@@ -222,21 +258,29 @@ def check(data=None, verbose=True):
         "actual": float(y[te].mean()), "pred": float(p.mean()),
     }
     out["beats_table"] = out["log_loss"] < out["log_loss_table"]
-    # Level correction (Platt, as in the FTA model), checked honestly: fit on the
-    # first half of the held-out period, score on the second half.
+    # Correction of the shown chance, checked honestly: fit on the first half of the
+    # held-out period, score on the second half. Platt shifts/scales everything;
+    # isotonic can also bend the middle (where the first real run read low).
     te_days = days[te]
     mid = np.quantile(te_days, 0.5)
     a, b = te_days < mid, te_days >= mid
-    cal_try = pm.platt_fit(y[te][a], p[a])
-    ll_raw = float(log_loss(y[te][b], np.clip(p[b], 1e-6, 1 - 1e-6), labels=[0, 1]))
-    ll_cal = float(log_loss(y[te][b], np.clip(pm.platt_apply(cal_try, p[b]), 1e-6, 1 - 1e-6), labels=[0, 1]))
-    out["calibration_check"] = {"raw": ll_raw, "calibrated": ll_cal}
-    out["use_calibration"] = ll_cal < ll_raw - 1e-5
+
+    def ll(yy, pp):
+        return float(log_loss(yy, np.clip(pp, 1e-6, 1 - 1e-6), labels=[0, 1]))
+    cal_scores = {"none": ll(y[te][b], p[b])}
+    for method in ("platt", "isotonic"):
+        cal_scores[method] = ll(y[te][b], _calibrate(_calibrator(method, y[te][a], p[a]), p[b]))
+    cal_method = min(cal_scores, key=lambda k: (cal_scores[k], k != "none"))
+    if cal_scores[cal_method] > cal_scores["none"] - 1e-5:
+        cal_method = "none"
+    out["calibration_check"] = cal_scores
+    out["calibration_method"] = cal_method
     # for serving: fitted on the whole held-out period (the model's newest blind spot)
-    out["cal"] = list(pm.platt_fit(y[te], p)) if out["use_calibration"] else None
-    p_shown = pm.platt_apply(cal_try, p[b]) if out["use_calibration"] else p[b]
+    out["cal"] = _calibrator(cal_method, y[te], p)
+    p_shown = _calibrate(_calibrator(cal_method, y[te][a], p[a]), p[b])
+    out["kind"] = best_kind
     out["half_life_days"] = best_hl
-    out["recency_tried"] = {("equal" if k is None else f"{k / 365:.0f}y"): v for k, v in tried.items()}
+    out["candidates"] = {f"{k} {'equal' if h is None else f'{h / 365:.0f}y'}": v for (k, h), v in tried.items()}
     if verbose:
         print(f"in-play states: {len(y)} from {int(first.sum())} team-sides that went 2 up "
               f"(train {out['states_train']}, latest {int(100*HOLDOUT)}% test {out['states_test']})")
@@ -247,13 +291,13 @@ def check(data=None, verbose=True):
         print(f"  no-win rate        predicted {100*out['pred']:.1f}%  actual {100*out['actual']:.1f}%")
         _bands(y[te], p, "Held-out calibration (all states):")
         _bands(y[te & first], p[first[te]], "Held-out calibration (at the moment of going 2 up):")
+        print("  model candidates (held-out log loss): "
+              + ", ".join(f"{k} {v:.4f}" for k, v in out["candidates"].items())
+              + f"  -> using {best_kind}, {'equal' if best_hl is None else f'half-life {best_hl / 365:.0f}y'}")
         c = out["calibration_check"]
-        print(f"  level correction, fitted on the first half of the test period, scored on the second: "
-              f"log loss {c['raw']:.4f} -> {c['calibrated']:.4f}  -> {'USE' if out['use_calibration'] else 'skip'}")
+        print("  correction, fitted on the first half of the test period, scored on the second: "
+              + ", ".join(f"{k} {v:.4f}" for k, v in c.items()) + f"  -> {cal_method}")
         _bands(y[te][b], p_shown, "Second half of the test period, as the app would show it:")
-        print("  recency weighting (held-out log loss): "
-              + ", ".join(f"{k} {v:.4f}" for k, v in out["recency_tried"].items())
-              + f"  -> using {'equal' if best_hl is None else f'half-life {best_hl / 365:.0f}y'}")
         print(f"  -> model {'BEATS' if out['beats_table'] else 'does NOT beat'} the plain score x minute table")
     return out
 
@@ -262,11 +306,12 @@ def train(save=True):
     data = build_states()
     report = check(data)
     X, y, days, _ = data
-    model = _fit(X, y, days, report["half_life_days"])
+    model = _fit(X, y, days, report["half_life_days"], report["kind"])
     bundle = {"version": VERSION, "features": FEATURES, "model": model, "check": report,
               "trained_at": datetime.now(timezone.utc).isoformat(), "states": int(len(y)),
               # only show model numbers in the app when they beat the simple table
-              "use_model": bool(report["beats_table"]), "cal": report.get("cal")}
+              "use_model": bool(report["beats_table"]), "cal": report.get("cal"),
+              "kind": report["kind"]}
     if not bundle["use_model"]:
         bundle["table"] = _table_counts(X, y)
     if save:
@@ -295,8 +340,11 @@ def predict_live(team, opponent, league, is_home, minute, team_goals, opp_goals)
     if bundle.get("use_model", True):
         x = np.array([[f[k] for k in bundle["features"]]], dtype=float)
         p = float(bundle["model"].predict_proba(x)[0, 1])
-        if bundle.get("cal"):
-            p = float(pm.platt_apply(tuple(bundle["cal"]), np.array([p]))[0])
+        cal = bundle.get("cal")
+        if cal and isinstance(cal[0], str):
+            p = float(_calibrate(cal, np.array([p]))[0])
+        elif cal:  # bundles saved before isotonic: plain Platt pair
+            p = float(pm.platt_apply(tuple(cal), np.array([p]))[0])
         how = "model"
     else:
         x = np.array([f[k] for k in FEATURES], dtype=float)

@@ -55,3 +55,15 @@ def test_endpoint_validates_and_reports_missing_model(tmp_path, monkeypatch):
     with pytest.raises(HTTPException) as e:
         app_module.live_turnaround("A", "B", 30, 2, 0, authorization="x")
     assert e.value.status_code == 503
+
+
+def test_boosted_model_and_isotonic_correction_work(sim_db):  # noqa: F811
+    import numpy as np
+    X, y, days, _ = lt.build_states()
+    model = lt._fit(X, y, days, 1460.0, "boosted")
+    p = model.predict_proba(X[:500])[:, 1]
+    assert ((p > 0) & (p < 1)).all()
+    cal = lt._calibrator("isotonic", y[:2000], model.predict_proba(X[:2000])[:, 1])
+    shown = lt._calibrate(cal, np.array([0.01, 0.2, 0.6]))
+    assert cal[0] == "isotonic" and (np.diff(shown) >= 0).all()
+    assert lt._calibrator("none", y, p[:len(y)] if len(p) == len(y) else np.full(len(y), 0.1)) is None

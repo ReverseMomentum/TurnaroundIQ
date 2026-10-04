@@ -340,12 +340,12 @@ function depthLabel(score) {
 }
 
 function resultTone(result) {
-  if (result === "fta" || result === "won") return c.green;
+  if (result === "fta" || result === "won" || result === "placed") return c.green;
   if (result === "no_fta" || result === "lost") return c.red;
   return c.textSecondary;
 }
 function resultLabel(result) {
-  const labels = { fta: "FTA hit", no_fta: "No FTA", won: "Hit", lost: "Miss", void: "Void", traded: "Traded out" };
+  const labels = { fta: "FTA hit", no_fta: "No FTA", won: "Hit", lost: "Miss", void: "Void", traded: "Traded out", placed: "Placed" };
   return labels[result] || result || "Open";
 }
 
@@ -1682,13 +1682,22 @@ function BetRow({ b, onClick }) {
   return (
     <button onClick={onClick} style={{ ...card, textAlign: "left" }} className="w-full rounded-xl p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span style={{ color: c.textMuted, letterSpacing: "0.06em" }} className="text-[10px] font-semibold uppercase truncate">{b.league || "—"} · {b.product === "fta" ? "FTA" : b.product}</span>
+        <span style={{ color: c.textMuted, letterSpacing: "0.06em" }} className="text-[10px] font-semibold uppercase truncate">{b.product === "stables" ? b.league : `${b.league || "—"} · ${b.product === "fta" ? "FTA" : b.product}`}</span>
         <span style={{ color: tone, border: "1px solid " + tone + "66", background: tone + "14", letterSpacing: "0.08em" }} className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md flex-shrink-0">{isOpen ? "Open" : resultLabel(b.result)}</span>
       </div>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p style={{ color: c.text }} className="text-base font-semibold truncate">{b.home_team} <span style={{ color: c.textMuted }} className="font-normal">vs</span> {b.away_team}</p>
-          <p style={{ color: c.textMuted }} className="text-xs mt-0.5 truncate">2-up team <span style={{ color: c.green }}>{b.team}</span></p>
+          {b.product === "stables" ? (
+            <>
+              <p style={{ color: c.text }} className="text-base font-semibold truncate">{b.home_team}</p>
+              <p style={{ color: c.textMuted }} className="text-xs mt-0.5 truncate">{b.away_team} · each-way</p>
+            </>
+          ) : (
+            <>
+              <p style={{ color: c.text }} className="text-base font-semibold truncate">{b.home_team} <span style={{ color: c.textMuted }} className="font-normal">vs</span> {b.away_team}</p>
+              <p style={{ color: c.textMuted }} className="text-xs mt-0.5 truncate">2-up team <span style={{ color: c.green }}>{b.team}</span></p>
+            </>
+          )}
         </div>
         <div className="text-right flex-shrink-0">
           <p style={{ color: isOpen ? c.textSecondary : value >= 0 ? c.green : c.red }} className="num text-lg font-bold">{value == null ? "—" : money(value)}</p>
@@ -1807,18 +1816,28 @@ function BetEditSheet({ bet, onClose, onChanged }) {
     bookmaker: form.bookmaker || undefined,
   }));
   const isOpen = bet.status === "open";
+  const racing = bet.product === "stables";
   return (
     <Sheet open onClose={onClose}>
       <p style={{ color: c.textMuted, letterSpacing: "0.12em" }} className="text-[10px] font-semibold uppercase mb-2">Edit tracked bet</p>
-      <p style={{ color: c.text }} className="text-xl font-bold tracking-tight leading-tight">{bet.home_team} <span style={{ color: c.textMuted }} className="font-medium">vs</span> {bet.away_team}</p>
-      <p style={{ color: c.textSecondary }} className="text-sm mt-1 mb-5">2-up team <span style={{ color: c.green }}>{bet.team}</span> · {isOpen ? "open" : resultLabel(bet.result)}</p>
+      {racing ? (
+        <>
+          <p style={{ color: c.text }} className="text-xl font-bold tracking-tight leading-tight">{bet.home_team}</p>
+          <p style={{ color: c.textSecondary }} className="text-sm mt-1 mb-5">{bet.away_team} · {bet.league?.replace("Racing · ", "")} · {isOpen ? "open" : resultLabel(bet.result)}</p>
+        </>
+      ) : (
+        <>
+          <p style={{ color: c.text }} className="text-xl font-bold tracking-tight leading-tight">{bet.home_team} <span style={{ color: c.textMuted }} className="font-medium">vs</span> {bet.away_team}</p>
+          <p style={{ color: c.textSecondary }} className="text-sm mt-1 mb-5">2-up team <span style={{ color: c.green }}>{bet.team}</span> · {isOpen ? "open" : resultLabel(bet.result)}</p>
+        </>
+      )}
 
       <SectionLabel>Your bet</SectionLabel>
       <div className="grid grid-cols-2 gap-2 mb-2">
-        <NumField label="Stake" prefix="£" value={form.stake} onChange={set("stake")} step="1" />
-        <NumField label="Commission %" value={form.commission} onChange={set("commission")} step="0.1" />
-        <NumField label="Back odds" value={form.back_odds} onChange={set("back_odds")} tone={c.green} />
-        <NumField label="Lay odds" value={form.lay_odds} onChange={set("lay_odds")} tone={c.cyan} />
+        <NumField label={racing ? "Total stake (EW)" : "Stake"} prefix="£" value={form.stake} onChange={set("stake")} step="1" />
+        {!racing && <NumField label="Commission %" value={form.commission} onChange={set("commission")} step="0.1" />}
+        <NumField label={racing ? "Win odds (decimal)" : "Back odds"} value={form.back_odds} onChange={set("back_odds")} tone={c.green} />
+        {!racing && <NumField label="Lay odds" value={form.lay_odds} onChange={set("lay_odds")} tone={c.cyan} />}
       </div>
       <label style={card} className="rounded-xl px-3 py-2.5 block mb-2">
         <span style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="block text-[10px] font-semibold uppercase mb-1">Bookmaker</span>
@@ -1838,7 +1857,21 @@ function BetEditSheet({ bet, onClose, onChanged }) {
         </>
       )}
 
-      {isOpen && (
+      {isOpen && racing && (
+        <>
+          <SectionLabel>Settle manually</SectionLabel>
+          <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-3">Settles itself from Betfair results when it can. Places beyond Betfair's place markets need you.</p>
+          <div className="grid grid-cols-2 gap-2 mb-6">
+            {[["won", "Won", c.green], ["placed", "Placed", c.green], ["lost", "Unplaced", c.text], ["void", "Void / NR", c.textSecondary]].map(([r, l, tone]) => (
+              <button key={r} disabled={busy} onClick={() => run(() => api.settleTracked(bet.id, r))} style={chip(false)} className="rounded-xl py-3 text-xs font-semibold">
+                <span style={{ color: tone }}>{l}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {isOpen && !racing && (
         <>
           <SectionLabel>Settle manually</SectionLabel>
           <div className="grid grid-cols-2 gap-2 mb-6">
@@ -2268,7 +2301,7 @@ export default function App() {
 // Design system handed to pages that live in their own files (The Stables).
 const STABLES_UI = {
   c, card, accentCard, primaryBtn, chip, useApi,
-  PageShell, PageTitle, SectionLabel, Paywall, Loading, ErrorBox, Empty, Bar,
+  PageShell, PageTitle, SectionLabel, Paywall, Loading, ErrorBox, Empty, Bar, Sheet, money,
 };
 
 // After web sign-in the session token is already set on the API client.

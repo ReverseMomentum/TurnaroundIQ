@@ -248,6 +248,87 @@ def to_card(markets: list[dict], book_by_id: dict, timestamp: str) -> dict:
     return {"timestamp": timestamp, "races": races}
 
 
+def _clean_name(name: str) -> str:
+    name = name or ""
+    return name.split(". ", 1)[-1] if name[:1].isdigit() else name
+
+
+RESULT_BOOK_PAGE = 25    # SP_TRADED costs 7 points per market
+
+
+def collect_results(client: Client, hours: float = 36) -> dict:
+    """
+    Results for Betfair races that have gone off: winner (WIN market), who placed
+    in each place market Betfair ran (standard "To Be Placed" and any 2-6 place
+    OTHER_PLACE markets) and Betfair SP. Saved to rac_results once the WIN market
+    is CLOSED. Betfair has no full finishing order, so positions beyond what its
+    place markets cover stay unknown.
+    """
+    pending = {p["market_id"]: p for p in store.races_awaiting_results(hours)}
+    if not pending:
+        return {"result_races": 0}
+    mids = list(pending)
+    win_cat = {}
+    for i in range(0, len(mids), 100):
+        for c in client.call("listMarketCatalogue", {
+                "filter": {"marketIds": mids[i:i + 100]},
+                "marketProjection": ["EVENT", "MARKET_START_TIME", "RUNNER_DESCRIPTION"],
+                "maxResults": 100}):
+            win_cat[c["marketId"]] = c
+    event_ids = sorted({(c.get("event") or {}).get("id") for c in win_cat.values()} - {None})
+    place_cats = []
+    for i in range(0, len(event_ids), 10):
+        place_cats += client.call("listMarketCatalogue", {
+            "filter": {"eventIds": event_ids[i:i + 10], "marketTypeCodes": ["PLACE", "OTHER_PLACE"]},
+            "marketProjection": ["EVENT", "MARKET_START_TIME", "MARKET_DESCRIPTION"],
+            "maxResults": 200})
+    win_books = {}
+    for i in range(0, len(mids), RESULT_BOOK_PAGE):
+        for b in client.call("listMarketBook", {"marketIds": mids[i:i + RESULT_BOOK_PAGE],
+                                                "priceProjection": {"priceData": ["SP_TRADED"]}}):
+            win_books[b["marketId"]] = b
+    place_ids = [c["marketId"] for c in place_cats]
+    place_books = {}
+    for i in range(0, len(place_ids), 100):
+        for b in client.call("listMarketBook", {"marketIds": place_ids[i:i + 100]}):
+            place_books[b["marketId"]] = b
+
+    done = 0
+    for mid, race in pending.items():
+        wb, wc = win_books.get(mid), win_cat.get(mid)
+        if not wb or not wc or wb.get("status") != "CLOSED":
+            continue
+        names = {r["selectionId"]: _clean_name(r.get("runnerName")) for r in wc.get("runners") or []}
+        rows = {}
+        for r in wb.get("runners") or []:
+            hid = race["horses"].get(names.get(r["selectionId"]))
+            if hid is None or r.get("status") == "REMOVED":
+                continue
+            sp = (r.get("sp") or {}).get("actualSP")
+            rows[r["selectionId"]] = {"horse_id": hid, "won": r.get("status") == "WINNER",
+                                      "exchange_sp": sp if isinstance(sp, (int, float)) and 1 < sp < 10000 else None}
+        key = ((wc.get("event") or {}).get("id"), wc.get("marketStartTime"))
+        for pc in place_cats:
+            if ((pc.get("event") or {}).get("id"), pc.get("marketStartTime")) != key:
+                continue
+            k = (pc.get("description") or {}).get("numberOfWinners")
+            pb = place_books.get(pc["marketId"])
+            if not k or not pb or pb.get("status") != "CLOSED":
+                continue
+            for r in pb.get("runners") or []:
+                row = rows.get(r["selectionId"])
+                if row is None:
+                    continue
+                if r.get("status") == "WINNER":
+                    row["placed_within"] = min(k, row.get("placed_within") or 99)
+                elif r.get("status") == "LOSER":
+                    row["outside_within"] = max(k, row.get("outside_within") or 0)
+        if any(x["won"] for x in rows.values()):
+            store.save_results(race["race_id"], list(rows.values()))
+            done += 1
+    return {"result_races": done}
+
+
 def collect(hours: float = 12, client: Client | None = None) -> dict:
     """Fetch and store. Returns a summary; raises BetfairError on login / API problems."""
     client = client or Client()
@@ -259,7 +340,15 @@ def collect(hours: float = 12, client: Client | None = None) -> dict:
     store.prune_snapshots()
     priced = sum(1 for r in card["races"] if r["runners"] and all(x["exchange"] for x in r["runners"]
                                                                    if not x["non_runner"]))
-    return {**summary, "fully_priced": priced, "at": ts}
+    results = {}
+    try:  # results must never stop the cards from loading
+        results = collect_results(client)
+        from racing import bets as racing_bets
+
+        results["bets_settled"] = racing_bets.auto_settle()
+    except Exception as e:
+        results = {"results_error": str(e)[:200]}
+    return {**summary, "fully_priced": priced, **results, "at": ts}
 
 
 def collect_locked(hours: float = 12, wait: bool = False) -> dict | None:

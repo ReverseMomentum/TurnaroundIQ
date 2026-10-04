@@ -88,6 +88,8 @@ export const api = {
     return request("/stables/races" + (qs ? "?" + qs : ""));
   },
   stablesPrice: (race) => request("/stables/price", { method: "POST", body: race }),
+  stablesTrack: (bet) => request("/stables/track", { method: "POST", body: bet }),
+  stablesTracker: (paper) => request("/stables/tracker" + (paper == null ? "" : `?paper=${paper}`)),
   stablesAddOffers: (offer) => request("/stables/offers", { method: "POST", body: offer }),
   stablesDeleteOffer: (raceId, bookmaker) =>
     request(`/stables/offers?race_id=${raceId}&bookmaker=${encodeURIComponent(bookmaker)}`, { method: "DELETE" }),

@@ -585,3 +585,103 @@ def test_offers_admin_only_and_priced(monkeypatch):
         d = client.delete(f"/stables/offers?race_id={race_id}&bookmaker=Book%20Z", headers={"Authorization": "Bearer u_admin"})
         assert d.json()["deleted"] == 1
     assert all(t["bookmaker"] != "Book Z" for t in store.races_on("2026-10-02")[0]["terms"])
+
+
+# ---- tracking bets, results, auto-settle, tracker -------------------------
+
+def test_each_way_profit_maths():
+    from api.tracked import ew_returns, ew_expected
+
+    # £10 EW total at 11.0, 1/5: place odds 3.0
+    assert ew_returns("won", 10, 11, 0.2) == pytest.approx(5 * 10 + 5 * 2)
+    assert ew_returns("placed", 10, 11, 0.2) == pytest.approx(-5 + 5 * 2)
+    assert ew_returns("lost", 10, 11, 0.2) == -10
+    assert ew_returns("void", 10, 11, 0.2) == 0
+    assert ew_expected(10, 11, 0.2, 0.1, 0.45) == pytest.approx(5 * (1.1 - 1) + 5 * (0.45 * 3 - 1))
+    assert store.ew_result(True, None, None, 5) == "won"
+    assert store.ew_result(False, 3, None, 5) == "placed"
+    assert store.ew_result(False, None, 5, 5) == "lost"
+    assert store.ew_result(False, None, 3, 5) is None        # outside top 3 but top 5 unknown
+    assert store.ew_result(False, 4, 3, 5) == "placed"
+
+
+def test_track_settle_and_report(monkeypatch):
+    from racing import bets as racing_bets
+
+    store.import_card({**CARD, "races": [{**CARD["races"][0], "id": "bf:9.9", "date": "2026-10-04"}]})
+    race = next(r for r in store.races_on("2026-10-04") if r["course"] == "Testcourse")
+    with pytest.raises(racing_bets.TrackError):
+        racing_bets.track("u_t", race["race_id"], "Nope", "Book Z", 10, 10, 5, "1/5")
+    bet = racing_bets.track("u_t", race["race_id"], "Horse 6", "Book Z", 16.0, 10, 5, "1/5")
+    assert bet["product"] == "stables" and bet["status"] == "open" and bet["ew_places"] == 5
+    snap = bet["snapshot"]
+    assert snap["offer"]["places_paid"] == 5 and snap["offer"]["win_odds"] == 16.0
+    assert snap["runner"]["jockey"] == "J One" and snap["race"]["course"] == "Testcourse"
+    assert bet["expected_profit"] is not None
+    # results: Horse 6 placed in a 4-place market -> placed for a 5-place bet
+    hid = {r["name"]: r["horse_id"] for r in race["runners"]}
+    store.save_results(race["race_id"], [
+        {"horse_id": hid["Horse 0"], "won": True, "exchange_sp": 4.0, "placed_within": 3},
+        {"horse_id": hid["Horse 6"], "won": False, "exchange_sp": 14.0, "placed_within": 4, "outside_within": 3}])
+    assert racing_bets.auto_settle() >= 1
+    settled = next(b for b in tracked_store_list("u_t") if b["id"] == bet["id"])
+    assert settled["result"] == "placed" and settled["actual_profit"] == pytest.approx(-5 + 5 * 3.0)
+    rep = racing_bets.report("u_t")
+    assert rep["all"]["settled"] >= 1 and rep["all"]["avg_clv"] == pytest.approx(16 / 14 - 1, abs=1e-3)
+    assert "Book Z" in rep["by_bookmaker"]
+
+
+def tracked_store_list(uid):
+    from api import tracked
+
+    return tracked.list_tracked(uid, limit=100)
+
+
+def test_betfair_results_collection(monkeypatch, tmp_path):
+    from collectors import betfair
+
+    for k, v in {"BETFAIR_APP_KEY": "k", "BETFAIR_USERNAME": "u", "BETFAIR_PASSWORD": "p"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(betfair, "SESSION_FILE", tmp_path / "s.json")
+    store.import_card({"timestamp": "2026-10-04T09:00:00Z", "races": [{
+        "id": "bf:1.777", "date": "2026-10-04", "time": "00:01", "course": "Resultford", "handicap": True,
+        "runners": [{"horse": f"R{i}", "exchange": {"back": o, "lay": o + 0.1}} for i, o in enumerate([3, 5, 8, 12, 20, 30])]}]})
+
+    class Fake(_FakeBetfair):
+        def post(self, url, data=None, json=None, headers=None, timeout=None):
+            if "login" in url:
+                return _Resp({"token": "t", "status": "SUCCESS"})
+            m, prm = json["method"].split("/")[-1], json["params"]
+            if m == "listMarketCatalogue" and "marketIds" in prm["filter"]:
+                return _Resp({"result": [{"marketId": "1.777", "marketStartTime": "2026-10-04T00:01:00Z",
+                                          "event": {"id": "E1"},
+                                          "runners": [{"selectionId": 10 + i, "runnerName": f"R{i}"} for i in range(6)]}]})
+            if m == "listMarketCatalogue":
+                return _Resp({"result": [
+                    {"marketId": "1.778", "marketStartTime": "2026-10-04T00:01:00Z", "event": {"id": "E1"},
+                     "description": {"numberOfWinners": 3}},
+                    {"marketId": "1.779", "marketStartTime": "2026-10-04T00:01:00Z", "event": {"id": "E1"},
+                     "description": {"numberOfWinners": 4}}]})
+            if m == "listMarketBook" and "1.777" in prm["marketIds"]:
+                return _Resp({"result": [{"marketId": "1.777", "status": "CLOSED", "runners": [
+                    {"selectionId": 10 + i, "status": "WINNER" if i == 1 else "LOSER", "sp": {"actualSP": 3.0 + i}}
+                    for i in range(6)]}]})
+            if m == "listMarketBook":
+                return _Resp({"result": [
+                    {"marketId": "1.778", "status": "CLOSED", "runners": [
+                        {"selectionId": 10 + i, "status": "WINNER" if i in (0, 1, 2) else "LOSER"} for i in range(6)]},
+                    {"marketId": "1.779", "status": "CLOSED", "runners": [
+                        {"selectionId": 10 + i, "status": "WINNER" if i in (0, 1, 2, 4) else "LOSER"} for i in range(6)]}]})
+            return _Resp({"error": {"code": "?"}})
+
+    out = betfair.collect_results(betfair.Client(http=Fake()), hours=48)
+    assert out["result_races"] == 1
+    conn = __import__("database").get_db()
+    rows = dict(conn.execute(
+        "SELECT h.name, COALESCE(x.finish_position, '') || '|' || COALESCE(x.placed_within,'') || '|' || COALESCE(x.outside_within,'') "
+        "|| '|' || x.exchange_sp FROM rac_results x JOIN rac_horses h ON h.id = x.horse_id "
+        "JOIN rac_races r ON r.id = x.race_id WHERE r.external_id = 'bf:1.777'").fetchall())
+    conn.close()
+    assert rows["R1"].startswith("1|3|")
+    assert "R4" in rows and rows["R4"].split("|")[1:3] == ["4", "3"]
+    assert betfair.collect_results(betfair.Client(http=Fake()), hours=48)["result_races"] == 0  # done once

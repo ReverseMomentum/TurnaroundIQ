@@ -169,6 +169,39 @@ def stables_delete_offer(race_id: int, bookmaker: str, authorization: str | None
     return {"deleted": n}
 
 
+class TrackIn(BaseModel):
+    race_id: int
+    horse: str = Field(min_length=1, max_length=60)
+    bookmaker: str = Field(min_length=1, max_length=40)
+    odds: float = Field(gt=1, le=1001)
+    stake: float = Field(gt=0, le=100000)          # total each-way stake (half win, half place)
+    places: int = Field(ge=1, le=10)
+    fraction: str = Field(default="1/5", max_length=8)
+    paper: bool = True
+
+
+@router.post("/track")
+def stables_track(body: TrackIn, authorization: str | None = Header(default=None)):
+    """Add an each-way bet to My bets with a snapshot of the model at this moment."""
+    user_id = _require_pro(authorization)
+    from racing import bets as racing_bets
+
+    try:
+        return racing_bets.track(user_id, body.race_id, body.horse, body.bookmaker, body.odds, body.stake,
+                                 body.places, body.fraction, body.paper)
+    except racing_bets.TrackError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/tracker")
+def stables_tracker(authorization: str | None = Header(default=None), paper: Optional[bool] = None):
+    """Tracked racing bets: return vs the model's expectation, CLV vs Betfair SP, splits."""
+    user_id = _require_pro(authorization)
+    from racing import bets as racing_bets
+
+    return racing_bets.report(user_id, paper)
+
+
 class ManualRunner(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     odds: float = Field(gt=1, le=1001)

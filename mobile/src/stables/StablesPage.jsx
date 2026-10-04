@@ -144,7 +144,7 @@ function OpportunityCard({ ui, o, highlight }) {
   );
 }
 
-function RunnerTable({ ui, race, extra }) {
+function RunnerTable({ ui, race, extra, onOpen }) {
   const { c } = ui;
   const th = { color: c.textMuted, letterSpacing: "0.1em" };
   const offers = realOffers(race).slice(0, 3);
@@ -172,7 +172,7 @@ function RunnerTable({ ui, race, extra }) {
             const value = race.opportunities.some((o) => o.horse === r.name && (o.grade === "A" || o.grade === "B"));
             const price = r.best_win_odds || r.exchange_back;
             return (
-              <tr key={r.name} style={{ borderBottom: "1px solid " + c.border }}>
+              <tr key={r.name} onClick={onOpen ? () => onOpen(race, r) : undefined} style={{ borderBottom: "1px solid " + c.border, cursor: onOpen ? "pointer" : "default" }}>
                 <td className="py-2 px-1 max-w-[104px] lg:max-w-[220px] truncate" style={{ color: value ? c.green : c.text }}>{r.number ? <span style={{ color: c.textMuted }} className="num mr-1">{r.number}</span> : null}{r.name}</td>
                 <td style={{ color: c.textSecondary }} className="num py-2 px-1 text-right">{price ? Number(price).toFixed(2) : "—"}</td>
                 <td style={{ color: c.text }} className="num py-2 px-1 text-right">{pct(r.win_probability)}</td>
@@ -198,7 +198,7 @@ function RunnerTable({ ui, race, extra }) {
   );
 }
 
-function RaceCard({ ui, race, extra, canEdit, onChanged }) {
+function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen }) {
   const { c, card } = ui;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -247,7 +247,7 @@ function RaceCard({ ui, race, extra, canEdit, onChanged }) {
       )}
       {open && (
         <div className="mt-3">
-          <RunnerTable ui={ui} race={race} extra={extra} />
+          <RunnerTable ui={ui} race={race} extra={extra} onOpen={onOpen} />
           {race.standard_terms?.fraction > 0 && (
             <p style={{ color: c.textMuted }} className="text-[11px] mt-2">
               {offers.length
@@ -310,7 +310,7 @@ function OpportunityList({ ui, list }) {
 // Runners whose exchange price already beats the "value from" line: the ones worth
 // checking with the bookmaker. Races with entered offers use each bookmaker's real
 // terms; other races use the generic "extra places" setting.
-function Shortlist({ ui, races, extra }) {
+function Shortlist({ ui, races, extra, onOpen }) {
   const { c, card, SectionLabel, Empty } = ui;
   const rows = [];
   for (const race of races) {
@@ -340,7 +340,7 @@ function Shortlist({ ui, races, extra }) {
       {top.length === 0 && <Empty>No runner clears the value line at exchange prices.</Empty>}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-6">
         {top.map(({ race, r, vf, price, t, more }) => (
-          <div key={race.race_id + r.name + (t.book || "")} style={card} className="rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+          <button key={race.race_id + r.name + (t.book || "")} onClick={() => onOpen?.(race, r)} style={{ ...card, textAlign: "left" }} className="rounded-xl px-4 py-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p style={{ color: c.text }} className="text-sm font-semibold truncate">{r.name}</p>
               <p style={{ color: c.textMuted }} className="text-xs truncate">
@@ -351,7 +351,7 @@ function Shortlist({ ui, races, extra }) {
               <p style={{ color: c.green }} className="num text-sm font-bold">{ukPriceAtLeast(vf)}+</p>
               <p style={{ color: c.textMuted }} className="text-[10px]">exchange <span className="num">{Number(price).toFixed(2)}</span></p>
             </div>
-          </div>
+          </button>
         ))}
       </div>
     </>
@@ -474,12 +474,209 @@ function OffersPanel({ ui, races, onSaved }) {
   );
 }
 
+const BET_PLACES = [2, 3, 4, 5, 6, 7, 8];
+
+// Tap a runner: what the model sees, and a form to track the bet in My bets.
+function RunnerSheet({ ui, race, runner, extra, onClose }) {
+  const { c, card, chip, primaryBtn, Sheet, Bar, SectionLabel } = ui;
+  const offers = realOffers(race);
+  const std = race.standard_terms || {};
+  const first = offers[0];
+  const [book, setBook] = useState(first?.bookmaker || "");
+  const [places, setPlaces] = useState(first?.places || (std.places || 3) + (extra || 0));
+  const [fraction, setFraction] = useState(first ? fractionLabel(first.fraction) : fractionLabel(std.fraction || 0.2));
+  const [oddsText, setOddsText] = useState("");
+  const [stake, setStake] = useState("10");
+  const [paper, setPaper] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const odds = parseOdds(oddsText);
+  const offer = offers.find((t) => t.bookmaker === book.trim() && t.places === places && fractionLabel(t.fraction) === fraction);
+  const generic = fraction === fractionLabel(std.fraction) ? runner.value_from?.[String(places - (std.places || 0))] : null;
+  const valueLine = offer ? runner.offer_value_from?.[offer.bookmaker] : generic;
+  const pickOffer = (t) => { setBook(t.bookmaker); setPlaces(t.places); setFraction(fractionLabel(t.fraction)); };
+  const submit = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api.stablesTrack({ race_id: race.race_id, horse: runner.name, bookmaker: book.trim(), odds,
+        stake: Number(stake), places, fraction, paper });
+      setMsg({ ok: true, text: `Added to My bets (${paper ? "paper" : "real"}). It settles itself from Betfair results where it can.` });
+    } catch (e) {
+      setMsg({ ok: false, text: e.message });
+    }
+    setBusy(false);
+  };
+  const label = (t) => <p style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mb-1.5">{t}</p>;
+  const facts = [
+    runner.jockey && `J: ${runner.jockey}`, runner.trainer && `T: ${runner.trainer}`,
+    runner.age && `${runner.age}yo`, runner.weight && `${runner.weight}`,
+    runner.official_rating && `OR ${runner.official_rating}`, runner.draw && `draw ${runner.draw}`,
+    runner.form && `form ${runner.form}`,
+  ].filter(Boolean);
+  const ex = runner.exchange || {};
+  const ready = book.trim() && odds && Number(stake) > 0 && !race.started;
+  return (
+    <Sheet open onClose={onClose}>
+      <p style={{ color: c.textMuted, letterSpacing: "0.12em" }} className="text-[10px] font-semibold uppercase mb-1">{race.time} {race.course}</p>
+      <p style={{ color: c.text }} className="text-xl font-bold tracking-tight">{runner.number ? <span style={{ color: c.textMuted }} className="num mr-2">{runner.number}</span> : null}{runner.name}</p>
+      {facts.length > 0 && <p style={{ color: c.textSecondary }} className="text-xs mt-1">{facts.join(" · ")}</p>}
+      <div className="grid grid-cols-3 gap-3 my-4">
+        <Metric ui={ui} label="Exchange" value={ex.back ? Number(ex.back).toFixed(2) : "—"} sub={ex.lay ? `lay ${Number(ex.lay).toFixed(2)}` : "back"} />
+        <Metric ui={ui} label="Win" value={pct(runner.win_probability)} tone={c.green} sub="model" />
+        <Metric ui={ui} label={`Top ${std.places || 3}`} value={pct(runner[`top${std.places || 3}_probability`])} sub="standard places" />
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-4">
+        <Bar label="Top 4" value={100 * (runner.top4_probability || 0)} tone={c.cyan} right={pct(runner.top4_probability)} />
+        <Bar label="Top 5" value={100 * (runner.top5_probability || 0)} tone={c.cyan} right={pct(runner.top5_probability)} />
+        <Bar label="Exactly 4th" value={100 * (runner.positions?.[3] || 0)} max={30} tone={c.orange} right={pct(runner.positions?.[3])} />
+        <Bar label="Exactly 5th" value={100 * (runner.positions?.[4] || 0)} max={30} tone={c.orange} right={pct(runner.positions?.[4])} />
+      </div>
+      <SectionLabel>Value from</SectionLabel>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {offers.map((t) => (
+          <button key={t.bookmaker} onClick={() => pickOffer(t)} style={chip(book === t.bookmaker)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">
+            {t.bookmaker} {t.places}pl {fractionLabel(t.fraction)}: <span className="num">{runner.offer_value_from?.[t.bookmaker] ? ukPriceAtLeast(runner.offer_value_from[t.bookmaker]) + "+" : "—"}</span>
+          </button>
+        ))}
+        {[0, 1, 2, 3].filter((x) => runner.value_from?.[String(x)] !== undefined).map((x) => (
+          <span key={x} style={{ border: "1px solid " + c.border, color: c.textSecondary }} className="text-xs px-3 py-1.5 rounded-lg">
+            {(std.places || 0) + x}pl {fractionLabel(std.fraction)}: <span className="num">{runner.value_from[String(x)] ? ukPriceAtLeast(runner.value_from[String(x)]) + "+" : "—"}</span>
+          </span>
+        ))}
+        {runner.beyond_value_range && <span style={{ color: c.textMuted }} className="text-xs">No value call over 50/1.</span>}
+      </div>
+
+      <SectionLabel>Track this bet</SectionLabel>
+      <div style={card} className="rounded-xl p-3 flex flex-col gap-3 mb-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            {label("Bookmaker")}
+            <input value={book} onChange={(e) => setBook(e.target.value)} maxLength={40} placeholder="e.g. Bet365"
+              style={{ background: c.cardAlt, border: "1px solid " + c.border, color: c.text }} className="w-full rounded-lg px-3 py-2 text-sm outline-none" />
+          </div>
+          <div>
+            {label("Your odds")}
+            <input value={oddsText} onChange={(e) => setOddsText(e.target.value)} inputMode="decimal" placeholder="9/1 or 10.0"
+              style={{ background: c.cardAlt, border: "1px solid " + (oddsText && !odds ? c.red : c.border), color: c.text }} className="w-full rounded-lg px-3 py-2 text-sm num outline-none" />
+          </div>
+        </div>
+        <div>
+          {label("Places paid")}
+          <div className="flex flex-wrap gap-2">{BET_PLACES.map((p) => <button key={p} onClick={() => setPlaces(p)} style={chip(p === places)} className="num text-xs font-semibold px-3 py-1.5 rounded-lg">{p}</button>)}</div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            {label("Fraction")}
+            <div className="flex gap-2">{["1/4", "1/5", "1/6"].map((f) => <button key={f} onClick={() => setFraction(f)} style={chip(f === fraction)} className="num text-xs font-semibold px-2.5 py-1.5 rounded-lg">{f}</button>)}</div>
+          </div>
+          <div>
+            {label("Total stake (EW)")}
+            <input value={stake} onChange={(e) => setStake(e.target.value)} inputMode="decimal"
+              style={{ background: c.cardAlt, border: "1px solid " + c.border, color: c.text }} className="w-full rounded-lg px-3 py-2 text-sm num outline-none" />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setPaper(true)} style={chip(paper)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">Paper</button>
+          <button onClick={() => setPaper(false)} style={chip(!paper)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">Real bet</button>
+        </div>
+        {valueLine && odds && (
+          <p style={{ color: odds >= valueLine ? c.green : c.orange }} className="text-xs font-semibold">
+            {odds >= valueLine ? "At or above" : "Below"} the value line ({ukPriceAtLeast(valueLine)}) for these terms.
+          </p>
+        )}
+        <button disabled={!ready || busy} onClick={submit} style={{ ...primaryBtn, opacity: !ready || busy ? 0.5 : 1 }} className="rounded-xl py-3 text-sm font-bold">
+          {race.started ? "Race has started" : busy ? "Adding…" : "Add to My bets"}
+        </button>
+        {msg && <p style={{ color: msg.ok ? c.green : c.red }} className="text-xs">{msg.text}</p>}
+      </div>
+      <p style={{ color: c.textMuted }} className="text-[11px] leading-snug">
+        Each tracked bet keeps a snapshot of the model at this moment, so results can show where it is right and wrong.
+        Estimates only, not tips. 18+ · BeGambleAware.org
+      </p>
+    </Sheet>
+  );
+}
+
+const pctOrDash = (v) => (v == null ? "—" : signedPct(v));
+
+function TrackerTab({ ui, entitled }) {
+  const { c, card, chip, useApi, Loading, ErrorBox, Empty, SectionLabel, money } = ui;
+  const [paper, setPaper] = useState(null);
+  const q = useApi(() => api.stablesTracker(paper), [entitled, paper]);
+  const d = q.data;
+  const table = (title, rows) => {
+    const entries = Object.entries(rows || {}).filter(([, r]) => r.bets);
+    if (!entries.length) return null;
+    return (
+      <div className="mb-5">
+        <SectionLabel>{title}</SectionLabel>
+        <div style={card} className="rounded-xl p-3 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ color: c.textMuted }}>
+                {["", "bets", "return", "model", "CLV", "placed", "model"].map((h, i) => <th key={i} className={"py-1 px-1 font-semibold " + (i ? "text-right" : "text-left")}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map(([k, r]) => (
+                <tr key={k} style={{ borderTop: "1px solid " + c.border }}>
+                  <td style={{ color: c.text }} className="py-1.5 px-1">{k}</td>
+                  <td style={{ color: c.textSecondary }} className="num py-1.5 px-1 text-right">{r.settled}/{r.bets}</td>
+                  <td style={{ color: (r.roi || 0) >= 0 ? c.green : c.red }} className="num py-1.5 px-1 text-right">{pctOrDash(r.roi)}</td>
+                  <td style={{ color: c.textSecondary }} className="num py-1.5 px-1 text-right">{pctOrDash(r.expected_roi)}</td>
+                  <td style={{ color: (r.avg_clv || 0) >= 0 ? c.green : c.orange }} className="num py-1.5 px-1 text-right">{pctOrDash(r.avg_clv)}</td>
+                  <td style={{ color: c.text }} className="num py-1.5 px-1 text-right">{r.placed_rate == null ? "—" : pct(r.placed_rate, 0)}</td>
+                  <td style={{ color: c.textSecondary }} className="num py-1.5 px-1 text-right">{r.model_place == null ? "—" : pct(r.model_place, 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+  const a = d?.all;
+  return (
+    <>
+      <div className="flex gap-2 mb-4">
+        {[[null, "All"], [true, "Paper"], [false, "Real"]].map(([v, l]) => (
+          <button key={l} onClick={() => setPaper(v)} style={chip(paper === v)} className="text-xs font-semibold px-3.5 py-2 rounded-lg">{l}</button>
+        ))}
+      </div>
+      {q.loading && !d && <Loading />}
+      {q.error && <ErrorBox error={q.error} onRetry={q.reload} />}
+      {a && a.bets === 0 && <Empty>No tracked racing bets yet. Tap a runner in Race cards and use "Add to My bets".</Empty>}
+      {a && a.bets > 0 && (
+        <>
+          <div className="grid grid-cols-3 gap-3 mb-5">
+            <div style={card} className="rounded-xl p-3"><Metric ui={ui} label="Profit" value={money(a.profit)} tone={a.profit >= 0 ? c.green : c.red} sub={`${a.settled} settled / ${a.bets}`} /></div>
+            <div style={card} className="rounded-xl p-3"><Metric ui={ui} label="Return" value={pctOrDash(a.roi)} tone={(a.roi || 0) >= 0 ? c.green : c.red} sub={`model said ${pctOrDash(a.expected_roi)}`} /></div>
+            <div style={card} className="rounded-xl p-3"><Metric ui={ui} label="CLV" value={pctOrDash(a.avg_clv)} tone={(a.avg_clv || 0) >= 0 ? c.green : c.orange} sub={a.beat_sp == null ? "vs Betfair SP" : `beat SP ${pct(a.beat_sp, 0)}`} /></div>
+          </div>
+          <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-5 leading-snug">
+            Return vs model: did the edge the model showed turn up? CLV: your odds against Betfair SP. Steadily positive CLV is the
+            earliest sign of a real edge; returns take hundreds of bets to settle down. Placed vs model checks the place chances.
+          </p>
+          {table("By grade", d.by_grade)}
+          {table("By win odds", d.by_odds)}
+          {table("By race type", d.by_race_type)}
+          {table("By places paid", d.by_places)}
+          {table("By bookmaker", d.by_bookmaker)}
+        </>
+      )}
+    </>
+  );
+}
+
 function CardsTab({ ui, entitled }) {
   const { c, chip, useApi, Loading, ErrorBox, Empty, SectionLabel } = ui;
   const [date, setDate] = useState(null);
   const [refreshes, setRefreshes] = useState(0);
   const [extra, setExtra] = useState(1);
   const [showStarted, setShowStarted] = useState(false);
+  const [picked, setPicked] = useState(null);
+  const open = (race, runner) => setPicked({ race, runner });
   const q = useApi(() => api.stablesRaces(date, refreshes > 0), [entitled, date, refreshes]);
   const data = q.data;
   const refreshing = q.loading && Boolean(data);
@@ -526,14 +723,14 @@ function CardsTab({ ui, entitled }) {
             ))}
           </div>
           {data.can_edit_offers && <OffersPanel ui={ui} races={data.races} onSaved={q.reload} />}
-          <Shortlist ui={ui} races={data.races.filter((r) => !r.started)} extra={extra} />
+          <Shortlist ui={ui} races={data.races.filter((r) => !r.started)} extra={extra} onOpen={open} />
           {data.opportunities.length > 0 && <OpportunityList ui={ui} list={data.opportunities} />}
           <SectionLabel>Races · {data.races.filter((r) => !r.started).length} to come</SectionLabel>
           {data.races.every((r) => r.started) && <Empty>All of this day's races have started.</Empty>}
           <div className="flex flex-col gap-3">
             {data.races.filter((r) => showStarted || !r.started).map((r) => (
               <div key={r.race_id} style={{ opacity: r.started ? 0.5 : 1 }}>
-                <RaceCard ui={ui} race={r} extra={extra} canEdit={data.can_edit_offers} onChanged={q.reload} />
+                <RaceCard ui={ui} race={r} extra={extra} canEdit={data.can_edit_offers} onChanged={q.reload} onOpen={open} />
               </div>
             ))}
           </div>
@@ -544,7 +741,8 @@ function CardsTab({ ui, entitled }) {
           )}
         </>
       )}
-      {data && <p style={{ color: c.textMuted }} className="text-[11px] mt-3">Prices are as loaded; check the live price and terms with the bookmaker.</p>}
+      {data && <p style={{ color: c.textMuted }} className="text-[11px] mt-3">Prices are as loaded; check the live price and terms with the bookmaker. Tap a runner for details and to track a bet.</p>}
+      {picked && <RunnerSheet ui={ui} race={picked.race} runner={picked.runner} extra={extra} onClose={() => setPicked(null)} />}
     </>
   );
 }
@@ -668,8 +866,9 @@ export default function StablesPage({ nav, entitled, onPurchased, ui }) {
           <div className="flex gap-2 mb-5">
             <button onClick={() => setTab("cards")} style={chip(tab === "cards")} className="text-xs font-semibold px-3.5 py-2 rounded-lg">Race cards</button>
             <button onClick={() => setTab("manual")} style={chip(tab === "manual")} className="text-xs font-semibold px-3.5 py-2 rounded-lg">Price a race</button>
+            <button onClick={() => setTab("tracker")} style={chip(tab === "tracker")} className="text-xs font-semibold px-3.5 py-2 rounded-lg">Tracker</button>
           </div>
-          {tab === "cards" ? <CardsTab ui={ui} entitled={entitled} /> : <ManualTab ui={ui} />}
+          {tab === "cards" ? <CardsTab ui={ui} entitled={entitled} /> : tab === "manual" ? <ManualTab ui={ui} /> : <TrackerTab ui={ui} entitled={entitled} />}
         </>
       )}
       <StablesDisclaimer ui={ui} />

@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS rac_offers (
   id INTEGER PRIMARY KEY, race_id INTEGER NOT NULL, bookmaker TEXT NOT NULL,
   places INTEGER NOT NULL, fraction REAL, timestamp TEXT NOT NULL,
   UNIQUE(race_id, bookmaker));
+CREATE TABLE IF NOT EXISTS rac_bets (
+  id INTEGER PRIMARY KEY, tracked_bet_id INTEGER UNIQUE, app_user_id TEXT NOT NULL,
+  race_id INTEGER NOT NULL, horse_id INTEGER, horse TEXT, bookmaker TEXT, odds REAL,
+  places INTEGER, fraction REAL, snapshot TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS rac_calibration (
   id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS rac_races_date ON rac_races(date);
@@ -82,10 +86,25 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# Columns added after the first release (ALTER TABLE once).
+MIGRATIONS = {
+    "rac_results": [
+        ("placed_within", "INTEGER"),   # smallest k of a Betfair place market it placed in
+        ("outside_within", "INTEGER"),  # largest k of a place market it did NOT place in
+        ("result_at", "TEXT"),
+    ],
+}
+
+
 def ensure_tables(conn=None):
     own = conn is None
     conn = conn or get_db()
     conn.executescript(SCHEMA)
+    for table, cols in MIGRATIONS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, typ in cols:
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {typ}")
     conn.commit()
     if own:
         conn.close()
@@ -319,6 +338,109 @@ def delete_offer(race_id: int, bookmaker: str, conn=None) -> int:
     if own:
         conn.close()
     return n
+
+
+def save_results(race_id: int, rows: list[dict], conn=None) -> int:
+    """
+    rows: {horse_id, won (bool), placed_within, outside_within, exchange_sp}.
+    Betfair gives the winner, who placed in each place market, and BSP, not the
+    full finishing order: finish_position is 1 for the winner, else NULL.
+    """
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    ts = _now()
+    for r in rows:
+        conn.execute(
+            "INSERT INTO rac_results (race_id, horse_id, finish_position, exchange_sp, placed_within, "
+            "outside_within, result_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(race_id, horse_id) DO UPDATE SET "
+            "finish_position=COALESCE(excluded.finish_position, finish_position), "
+            "exchange_sp=COALESCE(excluded.exchange_sp, exchange_sp), "
+            "placed_within=COALESCE(excluded.placed_within, placed_within), "
+            "outside_within=COALESCE(excluded.outside_within, outside_within), result_at=excluded.result_at",
+            (race_id, r["horse_id"], 1 if r.get("won") else None, r.get("exchange_sp"),
+             r.get("placed_within"), r.get("outside_within"), ts))
+    conn.commit()
+    if own:
+        conn.close()
+    return len(rows)
+
+
+def ew_result(won: bool, placed_within, outside_within, places: int) -> Optional[str]:
+    """Each-way result for `places` paid from Betfair's results, or None if they can't tell."""
+    if won:
+        return "won"
+    if placed_within is not None and placed_within <= places:
+        return "placed"
+    if outside_within is not None and outside_within >= places:
+        return "lost"
+    return None
+
+
+def races_awaiting_results(hours: float = 36, conn=None) -> list[dict]:
+    """Betfair races that have gone off in the last `hours` and have no result yet."""
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    uk = datetime.now(ZoneInfo("Europe/London"))
+    since = (uk - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M")
+    now = uk.strftime("%Y-%m-%d %H:%M")
+    rows = conn.execute(
+        "SELECT r.id, r.external_id, r.date, r.time FROM rac_races r WHERE r.external_id LIKE 'bf:%' "
+        "AND (r.date || ' ' || COALESCE(r.time, '00:00')) BETWEEN ? AND ? "
+        "AND NOT EXISTS (SELECT 1 FROM rac_results x WHERE x.race_id = r.id AND x.finish_position = 1)",
+        (since, now)).fetchall()
+    out = []
+    for rid, ext, d, t in rows:
+        horses = {name: hid for hid, name in conn.execute(
+            "SELECT h.id, h.name FROM rac_runners x JOIN rac_horses h ON h.id = x.horse_id WHERE x.race_id = ?",
+            (rid,))}
+        out.append({"race_id": rid, "market_id": ext[3:], "date": d, "time": t, "horses": horses})
+    if own:
+        conn.close()
+    return out
+
+
+def record_bet(tracked_bet_id: int, app_user_id: str, race_id: int, horse_id, horse: str, bookmaker: str,
+               odds: float, places: int, fraction: float, snapshot: dict, conn=None):
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    conn.execute(
+        "INSERT INTO rac_bets (tracked_bet_id, app_user_id, race_id, horse_id, horse, bookmaker, odds, places, "
+        "fraction, snapshot, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (tracked_bet_id, app_user_id, race_id, horse_id, horse, bookmaker, odds, places, fraction,
+         json.dumps(snapshot, default=float), _now()))
+    conn.commit()
+    if own:
+        conn.close()
+
+
+def bets_with_results(app_user_id: Optional[str] = None, conn=None) -> list[dict]:
+    """Tracked racing bets joined to their result and Betfair SP (for settling and the tracker)."""
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    q = ("SELECT b.tracked_bet_id, b.app_user_id, b.race_id, b.horse_id, b.horse, b.bookmaker, b.odds, b.places, "
+         "b.fraction, b.snapshot, b.created_at, x.finish_position, x.placed_within, x.outside_within, x.exchange_sp "
+         "FROM rac_bets b LEFT JOIN rac_results x ON x.race_id = b.race_id AND x.horse_id = b.horse_id")
+    rows = conn.execute(q + (" WHERE b.app_user_id = ?" if app_user_id else ""),
+                        (app_user_id,) if app_user_id else ()).fetchall()
+    keys = ("tracked_bet_id", "app_user_id", "race_id", "horse_id", "horse", "bookmaker", "odds", "places",
+            "fraction", "snapshot", "created_at", "finish_position", "placed_within", "outside_within", "bsp")
+    out = []
+    for row in rows:
+        d = dict(zip(keys, row))
+        d["snapshot"] = json.loads(d["snapshot"] or "{}")
+        d["ew_result"] = ew_result(d["finish_position"] == 1, d["placed_within"], d["outside_within"], d["places"] or 0) \
+            if (d["finish_position"] or d["placed_within"] or d["outside_within"]) else None
+        out.append(d)
+    if own:
+        conn.close()
+    return out
 
 
 def last_snapshot(conn=None) -> Optional[str]:

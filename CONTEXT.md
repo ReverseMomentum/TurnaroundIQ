@@ -74,6 +74,13 @@ Read this first. It is what a fresh session needs to work on this repo.
   them on the Race cards tab ("Add extra-place offer": bookmaker, race times by
   track, places, fraction). Stored in rac_offers, shared with all users; each
   runner then gets offer_value_from per bookmaker, and "Worth checking" uses them.
+- Tracking: tap a runner (Worth checking or a race table) for its detail card and
+  "Add to My bets". Racing bets are tracked_bets with product "stables" (each-way:
+  ew_places, ew_fraction, p_win, p_place) plus a model snapshot in rac_bets. The
+  Betfair collector also fetches results (winner, place-market placings incl.
+  4-5 place markets, BSP) into rac_results and auto-settles bets it can decide
+  (racing/bets.py). The Tracker tab shows return vs model, CLV vs Betfair SP and
+  splits by grade / price / race type / places / bookmaker.
 - Manual data: load JSON cards with `scripts/stables_import.py <file>` (format in
   its docstring). Results in the same file feed `scripts/stables_calibrate.py`.
   `scripts/stables_run.py [date]` stores predictions/opportunities. Tables are `rac_*`

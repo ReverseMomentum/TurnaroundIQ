@@ -173,6 +173,11 @@ def _keep_warm():
             fta_path_model.current_state(force=fta_path_model.state_age() >= fta_path_model.STATE_TTL)
         except Exception:
             log.exception("warm: model state refresh failed")
+        try:  # scorecard: remember what we said before kick-off
+            from models import scorecard
+            scorecard.log_predictions(rank_opportunities(latest_fixtures(limit=20, hours=24)))
+        except Exception:
+            log.exception("warm: prediction log failed")
         log.info("warm cycle %.1fs", time.time() - started)
         time.sleep(WARM_INTERVAL_SECONDS)
 
@@ -811,6 +816,30 @@ def tracked_edit(
     if not bet:
         raise HTTPException(404, "Tracked bet not found")
     return bet
+
+
+@app.get("/live/turnaround")
+def live_turnaround(
+    team: str,
+    opponent: str,
+    minute: int,
+    team_goals: int,
+    opp_goals: int,
+    league: str = "",
+    is_home: bool = True,
+    authorization: str | None = Header(default=None),
+):
+    """In-play chance the 2-up team still fails to win from this minute and score
+    (models/live_turnaround.py). Used by the cash-out calculator."""
+    require_pro(authorization)
+    if not (0 <= minute <= 130 and 0 <= team_goals <= 20 and 0 <= opp_goals <= 20):
+        raise HTTPException(422, "minute 0-130 and goals 0-20")
+    from models import live_turnaround
+    out = live_turnaround.predict_live(team, opponent, league, is_home, minute, team_goals, opp_goals)
+    if out is None:
+        raise HTTPException(503, {"code": "LIVE_MODEL_MISSING",
+                                  "message": "Live model not trained yet (models/live_turnaround.py train)"})
+    return out
 
 
 @app.delete("/tracked/{bet_id}")

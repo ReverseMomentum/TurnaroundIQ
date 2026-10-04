@@ -77,6 +77,10 @@ export const api = {
   track: (body) => request("/tracked", { method: "POST", body }),
   editTracked: (id, body) => request(`/tracked/${id}`, { method: "PUT", body }),
   deleteTracked: (id) => request(`/tracked/${id}`, { method: "DELETE" }),
+  liveTurnaround: ({ team, opponent, league, isHome, minute, teamGoals, oppGoals }) =>
+    request(`/live/turnaround?team=${encodeURIComponent(team)}&opponent=${encodeURIComponent(opponent)}` +
+      `&league=${encodeURIComponent(league || "")}&is_home=${isHome ? "true" : "false"}` +
+      `&minute=${minute}&team_goals=${teamGoals}&opp_goals=${oppGoals}`),
   settleTracked: (id, result, actualProfit) =>
     request(`/tracked/${id}`, { method: "PATCH", body: actualProfit == null ? { result } : { result, actual_profit: actualProfit } }),
   paper: () => request("/paper"),

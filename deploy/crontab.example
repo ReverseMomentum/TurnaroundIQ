@@ -40,3 +40,7 @@ J=/root/TurnaroundIQ/scripts/cron_job.sh
 # Retraining stays a deliberate ops step (run walk-forward, review, then train).
 # To automate later: backs up first and refuses on empty training_data.
 # 10 4 * * 1  $J train python -u run.py train
+
+# Monthly scorecard: what the app said before kick-off vs what happened
+# (the API logs predictions itself; this only prints the report to logs/scorecard.log).
+5 9 1 * *    $J scorecard python -u scripts/scorecard.py --days 31

@@ -58,6 +58,28 @@ python -u run.py train           # picks the input set, calibrates, saves fta_pa
 python -u run.py walk-forward    # honest check of the trained input set
 ```
 
+### Live turnaround model (cash-out calculator)
+
+`models/live_turnaround.py`: once a team has been 2 up, the chance it still fails
+to win from a given minute and score. Every team-side that went 2 up gives
+in-play states (the 2-up moment, every 5 minutes, after each later goal) with the
+team's point-in-time pre-match profile; label = did not win. Logistic regression.
+`check` fits on the earlier 85% and scores the latest 15% against a plain
+score-difference x minute table; the app only uses the model if it beats that
+table (otherwise the table itself). Served by `GET /live/turnaround`.
+
+```bash
+python -u models/live_turnaround.py check    # time-split check only
+python -u models/live_turnaround.py train    # check, then fit on everything + save
+```
+
+### Scorecard
+
+The API's background loop logs every pick's FTA% before kick-off
+(`prediction_log`, last value before kick-off wins). `scripts/scorecard.py
+[--days N]` lines them up with `match_results` (predicted vs actual by band,
+top 10%, games shown on Picks). Monthly cron writes `logs/scorecard.log`.
+
 ### Odds experiment (free historical odds)
 
 ```bash

@@ -185,6 +185,7 @@ def load_matches(conn=None):
                 "day": day, "league": league or "", "home": home, "away": away,
                 "fh": int(fh), "fa": int(fa), "sides": _side_outcomes(goals, fh, fa),
                 "odds": odds.get(mid), "ou": ou.get(mid), "source": "historical",
+                "goals": list(goals),
             }
     except Exception as exc:
         print(f"[path-model] historical tables unavailable: {exc}")
@@ -210,8 +211,10 @@ def load_matches(conn=None):
                 continue
             timeline = live_goals.get(str(mid), [])
             # 0-0 has an empty timeline that is still complete
+            goals = None
             if (timeline or int(fh) + int(fa) == 0) and len(timeline) == int(fh) + int(fa):
                 sides = _side_outcomes(timeline, fh, fa)
+                goals = list(timeline)
             else:  # summary only: behaviour features that need goal minutes skip it
                 sides = {
                     1: {"up2": int(h2 or 0), "minute": hm if h2 else None,
@@ -225,6 +228,7 @@ def load_matches(conn=None):
                 "day": day, "league": league or "", "home": home, "away": away,
                 "fh": int(fh), "fa": int(fa), "sides": sides,
                 "source": "live" + ("" if sides[1].get("timeline") else " (no timeline)"),
+                "goals": goals,
             }
     except Exception as exc:
         print(f"[path-model] match_results unavailable: {exc}")
@@ -945,14 +949,8 @@ def data_confidence(t, o):
     return round(20 + 65 * min(1.0, depth / 60.0), 1)
 
 
-def predict_fixture(team, opponent, league, is_home, as_of=None, market=None):
-    """None if no trained model; else the full-event breakdown in percent.
-
-    market: optional {"over25": price, "under25": price}; used only when the
-    trained bundle kept the over/under variant."""
-    bundle = load_bundle()
-    if bundle is None:
-        return None
+def prematch_features(team, opponent, league, is_home, as_of=None):
+    """Point-in-time pre-match features from the live team state -> (features, t, o)."""
     teams, leagues = current_state()
     day = _day(as_of) if as_of else date.today().toordinal()
     t = teams.get(normalize_team(team)) or Decayed()
@@ -962,7 +960,18 @@ def predict_fixture(team, opponent, league, is_home, as_of=None, market=None):
     for s in (t2, o2, lg2):
         if s.day is not None:
             s.decay_to(day)
-    f = features_for(t2, o2, lg2, is_home)
+    return features_for(t2, o2, lg2, is_home), t, o
+
+
+def predict_fixture(team, opponent, league, is_home, as_of=None, market=None):
+    """None if no trained model; else the full-event breakdown in percent.
+
+    market: optional {"over25": price, "under25": price}; used only when the
+    trained bundle kept the over/under variant."""
+    bundle = load_bundle()
+    if bundle is None:
+        return None
+    f, t, o = prematch_features(team, opponent, league, is_home, as_of)
     variant = bundle
     ou_variant = bundle.get("ou")
     if ou_variant and market:

@@ -1771,6 +1771,77 @@ function BetRow({ b, onClick }) {
   );
 }
 
+// In-play chance the 2-up team still fails to win (models/live_turnaround.py),
+// set against the market price and the user's own trade-out numbers.
+function LiveTurnaroundCheck({ bet, price, now, trade }) {
+  const [minute, setMinute] = useState("");
+  const [tg, setTg] = useState("2");
+  const [og, setOg] = useState("0");
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const isHome = bet.team === bet.home_team;
+  const opponent = isHome ? bet.away_team : bet.home_team;
+  const check = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      setRes(await api.liveTurnaround({
+        team: bet.team, opponent, league: bet.league, isHome,
+        minute: parseInt(minute, 10) || 0, teamGoals: parseInt(tg, 10) || 0, oppGoals: parseInt(og, 10) || 0,
+      }));
+    } catch (e) {
+      setErr(e.message || "Couldn't get the live chance");
+      setRes(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pm = res ? res.no_win_pct / 100 : null;
+  const marketNoWin = price > 1 ? 1 - 1 / price : null;
+  const evRide = pm != null && now ? pm * now.noWin + (1 - pm) * now.win : null;
+  const lean = evRide == null || !trade ? null
+    : evRide > trade.result + 1 ? "ride" : evRide < trade.result - 1 ? "trade" : "even";
+  return (
+    <div style={{ background: c.cardAlt, border: "1px solid " + c.border }} className="rounded-xl p-3 mt-3">
+      <p style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mb-2">Live turnaround chance</p>
+      <div className="grid grid-cols-3 gap-2">
+        <NumField label="Minute" value={minute} onChange={setMinute} step="1" />
+        <NumField label={(bet.team || "Team").split(" ")[0] + " goals"} value={tg} onChange={setTg} step="1" tone={c.green} />
+        <NumField label={(opponent || "Opp").split(" ")[0] + " goals"} value={og} onChange={setOg} step="1" />
+      </div>
+      <button disabled={busy || minute === ""} onClick={check} style={{ ...chip(true), opacity: busy || minute === "" ? 0.5 : 1 }} className="w-full rounded-xl py-2.5 text-xs font-semibold mt-2">
+        {busy ? "Checking…" : "Check turnaround chance"}
+      </button>
+      {err && <p style={{ color: c.red }} className="text-xs mt-2">{err}</p>}
+      {res && (
+        <div className="mt-3">
+          <p className="text-sm" style={{ color: c.text }}>
+            Model: <span className="num font-bold" style={{ color: c.orange }}>{res.no_win_pct}%</span> chance {bet.team} don&apos;t win from here
+          </p>
+          {marketNoWin != null && (
+            <p className="text-xs mt-0.5" style={{ color: c.textSecondary }}>
+              Market at {price.toFixed(2)}: about <span className="num">{(100 * marketNoWin).toFixed(1)}%</span>
+            </p>
+          )}
+          {lean && (
+            <p className="text-xs mt-2" style={{ color: c.textSecondary }}>
+              On the model&apos;s chance, letting it ride is worth about <span className="num font-semibold" style={{ color: c.text }}>{money(evRide)}</span> on average,
+              against <span className="num font-semibold" style={{ color: c.text }}>{money(trade.result)}</span> locked in by trading out:{" "}
+              <span className="font-semibold" style={{ color: lean === "ride" ? c.green : lean === "trade" ? c.cyan : c.text }}>
+                {lean === "ride" ? "leans let it ride" : lean === "trade" ? "leans trade out" : "about the same either way"}
+              </span>.
+            </p>
+          )}
+          <p className="text-[10px] mt-2" style={{ color: c.textMuted }}>
+            A probability from past games with this score, minute and these teams, not a prediction.{res.method !== "model" ? " (Simple score × minute table: the full model isn't trained yet.)" : ""}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Cash-out / trade-out calculator for an open 2UP bet (inside the bet sheet).
 function TradeOutCalc({ bet, form, busy, onSettle }) {
   const [paid, setPaid] = useState(false);
@@ -1827,6 +1898,7 @@ function TradeOutCalc({ bet, form, busy, onSettle }) {
           {t.action === "lay" && <span style={{ color: c.textSecondary }}> (liability £{t.liability.toFixed(2)})</span>}
         </p>
       )}
+      {paid && <LiveTurnaroundCheck bet={bet} price={p > 1 ? p : null} now={now} trade={t && !balanced ? t : null} />}
       <p style={{ color: c.textMuted }} className="text-[11px] mt-2 mb-4">Prices move fast in play. Use the price you can actually get when you tap, and do it in one go. Includes {comm}% exchange commission.</p>
 
       <NumField label="Actual result if you traded out" prefix="£" value={actual !== "" ? actual : settleAt != null && !balanced ? String(settleAt) : ""} onChange={setActual} step="0.01" />

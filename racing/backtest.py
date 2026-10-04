@@ -30,17 +30,18 @@ from racing.engine import price_race
 from racing.extra_place import standard_terms
 
 
-def to_calibration_races(races: list[dict], dnf_table: Optional[dict] = None) -> list[dict]:
+def to_calibration_races(races: list[dict], dnf_table: Optional[dict] = None,
+                         blend: Optional[dict] = None) -> list[dict]:
     """
     datasets.load_races output -> calibrate.py input (SP de-vigged). With a
     non-finisher table, each race also carries per-runner non-finish rates.
     """
-    from racing import market, nonfinish
+    from racing import learn, market, nonfinish
 
     out = []
     for race in races:
         odds = [r["odds"] for r in race["runners"]]
-        row = {"p_win": market.devig_power(odds), "order": race["order"]}
+        row = {"p_win": learn.apply(market.devig_power(odds), race["runners"], blend), "order": race["order"]}
         if dnf_table is not None:
             row["dnf"] = nonfinish.rates_for(odds, race.get("race_type") or "flat", dnf_table)
         out.append(row)
@@ -66,7 +67,8 @@ def ew_bets(races: list[dict], calibration: Optional[dict] = None, extra: int = 
         priced = price_race({
             "handicap": race["handicap"],
             "race_type": race.get("race_type"),
-            "runners": [{"name": f"{i}", "win_odds": r["odds"]} for i, r in enumerate(race["runners"])],
+            "runners": [{"name": f"{i}", "win_odds": r["odds"], "features": r.get("features")}
+                        for i, r in enumerate(race["runners"])],
             "terms": [{"bookmaker": "SP", "places": std_places + extra, "fraction": frac}],
         }, calibration, n_sims=n_sims, seed=zlib.crc32(race["key"].encode()))
         for o in priced["opportunities"]:

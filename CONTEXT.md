@@ -81,6 +81,17 @@ Read this first. It is what a fresh session needs to work on this repo.
   4-5 place markets, BSP) into rac_results and auto-settles bets it can decide
   (racing/bets.py). The Tracker tab shows return vs model, CLV vs Betfair SP and
   splits by grade / price / race type / places / bookmaker.
+- Learning (like the FTA model's input selection): `racing/features.py` builds
+  point-in-time runner features (rating, weight/draw, freshness, form, course /
+  distance / going place rates, jockey / trainer / 30-day / horse+jockey rates,
+  market rank; speed ratings + race-wide values logged only). `racing/learn.py`
+  fits a Plackett-Luce ranking model on the first six finishers, adding feature
+  groups only if held-back loss falls. `scripts/stables_learn.py KAGGLE [--save]`
+  (train 2008-15, validate 16-17, test 18+; logs model_runs; saves only if it
+  beats the market). Live: `racing/live_features.py` builds the same features
+  from Betfair runner data + rac_history (load Kaggle once with
+  `scripts/stables_history.py KAGGLE`; Betfair results are added after each race).
+  Retraining is a deliberate ops step, as for FTA.
 - Manual data: load JSON cards with `scripts/stables_import.py <file>` (format in
   its docstring). Results in the same file feed `scripts/stables_calibrate.py`.
   `scripts/stables_run.py [date]` stores predictions/opportunities. Tables are `rac_*`

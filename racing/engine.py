@@ -12,11 +12,12 @@ Optional: calibration {"discounts": [...], "n_races": int, "blend": {...}}
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 import numpy as np
 
-from racing import calibrate, confidence, kelly, market, nonfinish, positions, recalibrate
+from racing import calibrate, confidence, kelly, learn, market, nonfinish, positions, recalibrate
 from racing.extra_place import Terms, evaluate, min_value_odds, parse_fraction, shrink, standard_terms
 
 MAX_POSITIONS = 9
@@ -32,6 +33,23 @@ def _runner_features(runners, names):
         return None
     X = np.array([[(r.get("features") or {}).get(f, np.nan) for f in names] for r in runners], float)
     return X if np.isfinite(X).any() else None
+
+
+SHOWN_FEATURES = ("last_pos", "avg3_pos", "avg5_pos", "log_days", "course_rate", "distance_rate",
+                  "jockey_rate", "trainer_rate", "jockey_30d", "trainer_30d", "horse_jockey_rate",
+                  "or_rel", "or_gap_top", "history_runs")
+
+
+def opportunity_score(edge: float, confidence: int, volume, field_size: int) -> float:
+    """
+    Edge x Confidence x Liquidity x Field size, 0-100ish. Edge in points; liquidity
+    from exchange matched volume (GBP 10k+ = full marks, unknown = half); field
+    size saturates at 16 runners (bigger fields pay more extra places).
+    """
+    if edge <= 0:
+        return 0.0
+    liquidity = min(1.0, math.log10(1 + float(volume)) / 4) if volume else 0.5
+    return round(100 * edge * (confidence / 100) * liquidity * min(1.0, field_size / 16) * 10, 1)
 
 
 def _within_range(price):
@@ -68,7 +86,9 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
 
     p_win, source, diag = market.fair_win_probs(runners)
     blend = calibration.get("blend")
-    if blend and blend.get("fitted"):
+    if blend and blend.get("fitted") and blend.get("kind") == "exploded":
+        p_win = learn.apply(p_win, runners, blend)          # learned ranking model (racing/learn.py)
+    elif blend and blend.get("fitted"):
         p_win = calibrate.apply_blend(p_win, _runner_features(runners, blend["features"][1:]), blend)
 
     disc = calibration.get("discounts") or positions.DEFAULT_DISCOUNTS
@@ -121,6 +141,8 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
                 for t in race.get("terms") or [] if int(t.get("places") or 0) >= 1
             },
             "exchange": r.get("exchange"),
+            "days_since_run": r.get("days_since_run"),
+            "features": {k: v for k, v in (r.get("features") or {}).items() if k in SHOWN_FEATURES},
             "offers": [],
         }
         for t in offers:
@@ -150,6 +172,7 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
                 "confidence_parts": parts,
                 "stakes": stakes,
                 "recommended_stake_pct": stakes["quarter"]["each_way_pct"],
+                "opportunity_score": opportunity_score(ev["edge"], conf, (r.get("exchange") or {}).get("volume"), n),
                 "grade": _cap_grade(confidence.grade(ev["each_way_ev"], robust_edge, conf,
                                                      stakes["quarter"]["each_way_pct"], bool(n_cal)),
                                     float(odds)),

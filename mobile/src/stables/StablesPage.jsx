@@ -273,6 +273,7 @@ function ModelNote({ ui, cal, source }) {
         {fitted
           ? `Position model fitted on ${cal.n_races.toLocaleString()} past races.`
           : "Position model is running on published research values and has not been fitted on results yet, so grade A is held back."}
+        {cal?.learned?.length ? ` A learned model adjusts each runner using ${cal.learned.length} form, connections and rating inputs.` : ""}
       </p>
     </div>
   );
@@ -481,6 +482,47 @@ function OffersPanel({ ui, races, onSaved }) {
 
 const BET_PLACES = [2, 3, 4, 5, 6, 7, 8];
 
+// The learned model's inputs for one runner (place rates are shrunk towards ~30%).
+function RunnerFacts({ ui, runner }) {
+  const { c, SectionLabel } = ui;
+  const f = runner.features || {};
+  if (!Object.keys(f).length) return null;
+  const num = (v, dp = 1) => (v == null ? "—" : Number(v).toFixed(dp));
+  const days = runner.days_since_run ?? (f.log_days != null && f.log_days > 0 ? Math.round(Math.exp(f.log_days) - 1) : null);
+  const items = [
+    ["Last run", f.last_pos == null ? "—" : f.last_pos >= 12 ? "DNF" : ordinal(f.last_pos)],
+    ["Avg of last 3", num(f.avg3_pos)],
+    ["Avg of last 5", num(f.avg5_pos)],
+    ["Days since run", days == null ? "—" : String(days)],
+    ["Course place", pct(f.course_rate, 0)],
+    ["Distance place", pct(f.distance_rate, 0)],
+    ["Jockey place", pct(f.jockey_rate, 0)],
+    ["Jockey 30 days", pct(f.jockey_30d, 0)],
+    ["Trainer place", pct(f.trainer_rate, 0)],
+    ["Trainer 30 days", pct(f.trainer_30d, 0)],
+    ["Horse + jockey", pct(f.horse_jockey_rate, 0)],
+    ["OR vs field", f.or_rel == null ? "—" : (f.or_rel >= 0 ? "+" : "") + num(f.or_rel, 0)],
+  ];
+  return (
+    <>
+      <SectionLabel>Form & connections</SectionLabel>
+      <div className="grid grid-cols-3 gap-x-3 gap-y-2 mb-1">
+        {items.map(([k, v]) => <Metric key={k} ui={ui} label={k} value={v} />)}
+      </div>
+      <p style={{ color: c.textMuted }} className="text-[11px] mb-4">
+        Place = finished in the first three. Rates lean towards the 30% average until there are enough runs
+        {f.history_runs != null ? ` (${f.history_runs} past runs on file)` : ""}.
+      </p>
+    </>
+  );
+}
+
+const ordinal = (n) => {
+  const v = Math.round(n);
+  const s = v % 100 >= 11 && v % 100 <= 13 ? "th" : { 1: "st", 2: "nd", 3: "rd" }[v % 10] || "th";
+  return v + s;
+};
+
 // Tap a runner: what the model sees, and a form to track the bet in My bets.
 function RunnerSheet({ ui, race, runner, extra, onClose }) {
   const { c, card, chip, primaryBtn, Sheet, Bar, SectionLabel } = ui;
@@ -537,6 +579,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
         <Bar label="Exactly 4th" value={100 * (runner.positions?.[3] || 0)} max={30} tone={c.orange} right={pct(runner.positions?.[3])} />
         <Bar label="Exactly 5th" value={100 * (runner.positions?.[4] || 0)} max={30} tone={c.orange} right={pct(runner.positions?.[4])} />
       </div>
+      <RunnerFacts ui={ui} runner={runner} />
       <SectionLabel>Value from</SectionLabel>
       <div className="flex flex-wrap gap-2 mb-4">
         {offers.map((t) => (

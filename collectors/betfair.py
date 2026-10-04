@@ -230,6 +230,7 @@ def to_card(markets: list[dict], book_by_id: dict, timestamp: str) -> dict:
                 "weight": md.get("WEIGHT_VALUE"),
                 "official_rating": _int(md.get("OFFICIAL_RATING")),
                 "form": md.get("FORM"),
+                "days_since_run": _int(md.get("DAYS_SINCE_LAST_RUN")),
                 "non_runner": p.get("status") == "REMOVED",
                 "exchange": {"back": back, "lay": lay, "volume": _num(p.get("totalMatched"))}
                 if (back or lay) else None,
@@ -294,6 +295,7 @@ def collect_results(client: Client, hours: float = 36) -> dict:
             place_books[b["marketId"]] = b
 
     done = 0
+    saved_ids = []
     for mid, race in pending.items():
         wb, wc = win_books.get(mid), win_cat.get(mid)
         if not wb or not wc or wb.get("status") != "CLOSED":
@@ -326,7 +328,8 @@ def collect_results(client: Client, hours: float = 36) -> dict:
         if any(x["won"] for x in rows.values()):
             store.save_results(race["race_id"], list(rows.values()))
             done += 1
-    return {"result_races": done}
+            saved_ids.append(race["race_id"])
+    return {"result_races": done, "race_ids": saved_ids}
 
 
 def collect(hours: float = 12, client: Client | None = None) -> dict:
@@ -341,13 +344,18 @@ def collect(hours: float = 12, client: Client | None = None) -> dict:
     priced = sum(1 for r in card["races"] if r["runners"] and all(x["exchange"] for x in r["runners"]
                                                                    if not x["non_runner"]))
     results = {}
-    try:  # results must never stop the cards from loading
-        results = collect_results(client)
+    try:  # results and features must never stop the cards from loading
+        from racing import live_features
+
+        results["features"] = live_features.refresh(store.race_ids_for([r["id"] for r in card["races"]]))
+        res = collect_results(client)
+        results["result_races"] = res["result_races"]
+        results["history_rows"] = live_features.history_from_results(res.get("race_ids", []))
         from racing import bets as racing_bets
 
         results["bets_settled"] = racing_bets.auto_settle()
     except Exception as e:
-        results = {"results_error": str(e)[:200]}
+        results["results_error"] = str(e)[:200]
     return {**summary, "fully_priced": priced, **results, "at": ts}
 
 

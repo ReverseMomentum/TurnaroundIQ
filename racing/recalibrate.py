@@ -25,7 +25,7 @@ from typing import Optional
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
-from racing import market, nonfinish, positions
+from racing import learn, market, nonfinish, positions
 from racing.extra_place import standard_terms
 
 MIN_ROWS = 2000
@@ -58,7 +58,7 @@ def build_rows(races: list[dict], calibration: Optional[dict] = None, extras=(0,
         n = len(odds)
         if n < 2:
             continue
-        p = market.devig_power(odds)
+        p = learn.apply(market.devig_power(odds), race["runners"], cal.get("blend"))
         dnf = nonfinish.rates_for(odds, race.get("race_type") or "flat", cal.get("dnf"))
         sim = positions.simulate(p, n_sims=n_sims, discounts=cal.get("discounts"), seed=3,
                                  batches=2, dnf=dnf)

@@ -702,3 +702,51 @@ def test_comma_separated_bookmakers(monkeypatch):
         assert client.post("/stables/offers", json={"bookmaker": " , ", "places": 5, "race_ids": [race_id]}).status_code == 400
     books = {t["bookmaker"] for t in store.races_on("2026-10-02")[0]["terms"]}
     assert {"Book P", "Book Q"} <= books
+
+
+# ---- learned model: features, live features, engine --------------------------
+
+def test_name_keys_and_parsers():
+    from racing import features as F
+    from racing import live_features as L
+
+    assert L.horse_key("Galopin Des Champs (FR)") == L.horse_key("Galopin des Champs")
+    assert L.person_key("Willie Mullins") == L.person_key("W P Mullins") == "w mullins"
+    assert L.person_key("J Smith (3)") == "j smith"
+    assert L.distance_from_name("2m4f Hcap Chs") == 20 and L.distance_from_name("7f Mdn Stks") == 7
+    assert L.distance_from_name("1m Hcap") == 8 and L.distance_from_name("Hcap") is None
+    assert L.weight_lbs("9-7") == 133 and L.weight_lbs("140") == 140
+    assert F.parse_form("1-3P20/4") == [1, 3, 12, 2, 10, 4]
+    assert F.form_features([3, 1, 5])["avg3_pos"] == 3.0
+    assert F.furlongs("2m4f") == 20 and F.furlongs(1609) == 8
+
+
+def test_live_features_from_history_and_learned_engine():
+    from racing import learn, live_features
+
+    store.import_card({"timestamp": "2026-10-04T09:00:00Z", "races": [{
+        "id": "bf:5.555", "date": "2026-10-05", "time": "14:00", "course": "Featureford",
+        "name": "2m Hcap Hrd", "handicap": True, "race_type": "hurdle",
+        "runners": [{"horse": f"F{i}", "jockey": "Paul Townend" if i == 0 else f"J{i}", "trainer": "W P Mullins",
+                     "form": "1-21" if i == 0 else "0-9P", "official_rating": 120 - i, "weight": "11-0",
+                     "days_since_run": 21, "exchange": {"back": o, "lay": o + 0.2}}
+                    for i, o in enumerate([3, 5, 8, 12, 20, 30])]}]})
+    store.add_history([{"race_ref": f"k:{i}", "date": "2025-01-0%d" % (i + 1), "course": "Featureford",
+                        "dist_f": 16, "horse_key": "f0", "jockey_key": "p townend", "trainer_key": "w mullins",
+                        "placed": 1, "source": "test"} for i in range(4)])
+    rid = store.race_ids_for(["bf:5.555"])[0]
+    assert live_features.refresh([rid]) == 6
+    race = store.load_race(__import__("database").get_db(), rid)
+    f0 = next(r for r in race["runners"] if r["name"] == "F0")["features"]
+    f5 = next(r for r in race["runners"] if r["name"] == "F5")["features"]
+    assert f0["course_rate"] > f5["course_rate"] and f0["horse_jockey_rate"] > 0.3
+    assert f0["last_pos"] == 1 and f5["last_pos"] == 12 and f0["avg3_pos"] < f5["avg3_pos"]
+    assert f0["or_rel"] > 0 > f5["or_rel"] and f0["log_days"] > 0
+    blend = {"kind": "exploded", "fitted": True, "features": ["log_market_p", "course_rate"],
+             "weights": [1.0, 0.8], "stats": {"mean": [0.3], "std": [0.1]}}
+    plain = price_race(race)
+    learned = price_race(race, {"blend": blend})
+    w0 = lambda out: next(r for r in out["runners"] if r["name"] == "F0")["win_probability"]  # noqa: E731
+    assert w0(learned) > w0(plain)
+    assert "course_rate" in next(r for r in learned["runners"] if r["name"] == "F0")["features"]
+    assert learn.apply([0.5, 0.5], [{}, {}], None).tolist() == [0.5, 0.5]

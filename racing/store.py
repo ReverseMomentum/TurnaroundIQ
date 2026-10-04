@@ -71,6 +71,16 @@ CREATE TABLE IF NOT EXISTS rac_bets (
   id INTEGER PRIMARY KEY, tracked_bet_id INTEGER UNIQUE, app_user_id TEXT NOT NULL,
   race_id INTEGER NOT NULL, horse_id INTEGER, horse TEXT, bookmaker TEXT, odds REAL,
   places INTEGER, fraction REAL, snapshot TEXT, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS rac_history (
+  id INTEGER PRIMARY KEY, race_ref TEXT NOT NULL, date TEXT NOT NULL, course TEXT, dist_f INTEGER,
+  going TEXT, race_type TEXT, horse_key TEXT NOT NULL, jockey_key TEXT, trainer_key TEXT,
+  pos INTEGER, placed INTEGER, source TEXT, UNIQUE(race_ref, horse_key));
+CREATE INDEX IF NOT EXISTS rac_history_horse ON rac_history(horse_key, date);
+CREATE INDEX IF NOT EXISTS rac_history_jockey ON rac_history(jockey_key, date);
+CREATE INDEX IF NOT EXISTS rac_history_trainer ON rac_history(trainer_key, date);
+CREATE TABLE IF NOT EXISTS rac_runner_features (
+  race_id INTEGER NOT NULL, horse_id INTEGER NOT NULL, features TEXT NOT NULL, built_at TEXT NOT NULL,
+  PRIMARY KEY (race_id, horse_id));
 CREATE TABLE IF NOT EXISTS rac_calibration (
   id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS rac_races_date ON rac_races(date);
@@ -88,6 +98,7 @@ def _now() -> str:
 
 # Columns added after the first release (ALTER TABLE once).
 MIGRATIONS = {
+    "rac_runners": [("days_since_run", "INTEGER")],
     "rac_results": [
         ("placed_within", "INTEGER"),   # smallest k of a Betfair place market it placed in
         ("outside_within", "INTEGER"),  # largest k of a place market it did NOT place in
@@ -172,13 +183,15 @@ def import_card(card: dict, conn=None) -> dict:
             trainer_id = _named(conn, "rac_trainers", x.get("trainer"))
             conn.execute(
                 "INSERT INTO rac_runners (race_id, horse_id, jockey_id, trainer_id, number, draw, weight, "
-                "official_rating, form, non_runner) VALUES (?,?,?,?,?,?,?,?,?,?) "
+                "official_rating, form, non_runner, days_since_run) VALUES (?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(race_id, horse_id) DO UPDATE SET jockey_id=excluded.jockey_id, "
                 "trainer_id=excluded.trainer_id, number=excluded.number, draw=excluded.draw, "
                 "weight=excluded.weight, official_rating=excluded.official_rating, form=excluded.form, "
-                "non_runner=excluded.non_runner",
+                "non_runner=excluded.non_runner, "
+                "days_since_run=COALESCE(excluded.days_since_run, days_since_run)",
                 (race_id, horse_id, jockey_id, trainer_id, x.get("number"), x.get("draw"),
-                 x.get("weight"), x.get("official_rating"), x.get("form"), int(bool(x.get("non_runner")))))
+                 x.get("weight"), x.get("official_rating"), x.get("form"), int(bool(x.get("non_runner"))),
+                 x.get("days_since_run")))
             n_runners += 1
             for book, odds in (x.get("odds") or {}).items():
                 conn.execute("INSERT INTO rac_markets (race_id, horse_id, bookmaker, win_odds, timestamp) "
@@ -239,17 +252,19 @@ def load_race(conn, race_id: int) -> Optional[dict]:
                        "WHERE race_id = ? ORDER BY timestamp", (race_id,))
     feats = {row[0]: dict(zip(FEATURE_COLS, row[1:])) for row in conn.execute(
         f"SELECT horse_id, {', '.join(FEATURE_COLS)} FROM rac_features WHERE race_id = ?", (race_id,))}
+    for hid, blob in conn.execute("SELECT horse_id, features FROM rac_runner_features WHERE race_id = ?", (race_id,)):
+        feats[hid] = {**(feats.get(hid) or {}), **json.loads(blob)}
     race["runners"] = []
-    for (hid, name, num, draw, weight, rating, form, nr, jockey, trainer, age) in conn.execute(
+    for (hid, name, num, draw, weight, rating, form, nr, jockey, trainer, age, days) in conn.execute(
             "SELECT h.id, h.name, x.number, x.draw, x.weight, x.official_rating, x.form, x.non_runner, "
-            "j.name, t.name, h.age FROM rac_runners x JOIN rac_horses h ON h.id = x.horse_id "
+            "j.name, t.name, h.age, x.days_since_run FROM rac_runners x JOIN rac_horses h ON h.id = x.horse_id "
             "LEFT JOIN rac_jockeys j ON j.id = x.jockey_id LEFT JOIN rac_trainers t ON t.id = x.trainer_id "
             "WHERE x.race_id = ? ORDER BY x.number, h.name", (race_id,)):
         e = ex.get(hid)
         race["runners"].append({
             "horse_id": hid, "name": name, "number": num, "draw": draw, "weight": weight,
             "official_rating": rating, "form": form, "non_runner": bool(nr), "jockey": jockey,
-            "trainer": trainer, "age": age, "odds": odds.get(hid, {}),
+            "trainer": trainer, "age": age, "days_since_run": days, "odds": odds.get(hid, {}),
             "exchange": {"back": e[1], "lay": e[2], "volume": e[3]} if e else None,
             "features": feats.get(hid),
         })
@@ -441,6 +456,49 @@ def bets_with_results(app_user_id: Optional[str] = None, conn=None) -> list[dict
     if own:
         conn.close()
     return out
+
+
+def race_ids_for(external_ids: list[str], conn=None) -> list[int]:
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    ids = []
+    for i in range(0, len(external_ids), 500):
+        chunk = external_ids[i:i + 500]
+        ids += [r[0] for r in conn.execute(
+            f"SELECT id FROM rac_races WHERE external_id IN ({','.join('?' * len(chunk))})", chunk)]
+    if own:
+        conn.close()
+    return ids
+
+
+def save_runner_features(race_id: int, by_horse: dict, conn=None):
+    """by_horse: {horse_id: features dict}. Replaces the race's stored live features."""
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    ts = _now()
+    for hid, f in by_horse.items():
+        conn.execute("INSERT OR REPLACE INTO rac_runner_features (race_id, horse_id, features, built_at) "
+                     "VALUES (?,?,?,?)", (race_id, hid, json.dumps(f), ts))
+    conn.commit()
+    if own:
+        conn.close()
+
+
+def add_history(rows: list[dict], conn=None) -> int:
+    """rows: race_ref, date, course, dist_f, going, race_type, horse_key, jockey_key, trainer_key, pos, placed, source."""
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    cols = ("race_ref", "date", "course", "dist_f", "going", "race_type", "horse_key", "jockey_key",
+            "trainer_key", "pos", "placed", "source")
+    conn.executemany(f"INSERT OR REPLACE INTO rac_history ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                     [tuple(r.get(c) for c in cols) for r in rows])
+    conn.commit()
+    if own:
+        conn.close()
+    return len(rows)
 
 
 def last_snapshot(conn=None) -> Optional[str]:

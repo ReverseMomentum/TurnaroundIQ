@@ -66,6 +66,42 @@ def _race_nll(logp: np.ndarray, order: Sequence[int], lam: np.ndarray) -> float:
     return nll
 
 
+def _pad(prepared: list) -> tuple:
+    """[(logp, order)] -> padded arrays for _nll_all: logp (R, N) with -inf, order (R, N-1) with -1."""
+    R = len(prepared)
+    N = max(len(lp) for lp, _ in prepared)
+    logp = np.full((R, N), -np.inf)
+    order = -np.ones((R, max(1, N - 1)), int)
+    for r, (lp, o) in enumerate(prepared):
+        logp[r, :len(lp)] = lp
+        o = list(o)[:len(lp) - 1]
+        order[r, :len(o)] = o
+    return logp, order
+
+
+def _nll_all(padded: tuple, lam: np.ndarray) -> float:
+    """Mean of _race_nll over every race at once (same result, vectorised)."""
+    logp, order = padded
+    R = len(logp)
+    left = np.isfinite(logp)
+    rows = np.arange(R)
+    tot = 0.0
+    for s in range(order.shape[1]):
+        pick = order[:, s]
+        live = pick >= 0
+        if not live.any():
+            break
+        l = lam[min(s, len(lam) - 1)]
+        z = np.where(left, l * np.where(left, logp, 0.0), -np.inf)
+        m = z.max(1)
+        m = np.where(np.isfinite(m), m, 0.0)
+        lse = m + np.log(np.exp(z - m[:, None]).sum(1) + 1e-300)
+        idx = np.where(live, pick, 0)
+        tot -= (l * np.where(live, logp[rows, idx], 0.0) - lse)[live].sum()
+        left[rows[live], pick[live]] = False
+    return tot / max(1, R)
+
+
 def _finishers_only(r: dict):
     """Log-strengths and order over the runners that finished (non-finishers are modelled separately)."""
     logp = np.log(np.clip(np.asarray(r["p_win"], float), 1e-9, None))
@@ -90,9 +126,10 @@ def fit_discounts(races: list[dict], n_stages: int = N_STAGES, fix_first: bool =
     def full(x):
         return np.concatenate([[1.0], x]) if fix_first else x
 
+    padded = _pad(prepared)
+
     def f(x):
-        lam = full(x)
-        return sum(_race_nll(lp, o, lam) for lp, o in prepared) / len(prepared)
+        return _nll_all(padded, full(x))
 
     x0 = np.array(positions.stage_discounts(n_stages))
     if fix_first:
@@ -109,7 +146,7 @@ def fit_discounts(races: list[dict], n_stages: int = N_STAGES, fix_first: bool =
 
 
 def fit_segment_discounts(races: list[dict], base, min_races: int = MIN_RACES_SEGMENT,
-                          prior: float = SEGMENT_PRIOR) -> dict:
+                          prior: float = SEGMENT_PRIOR, log=None) -> dict:
     """
     races: {"p_win", "order", "race_type"} (backtest.to_calibration_races).
     Returns {"segments": {label: discounts}, "n_races": {label: races}} for segments
@@ -126,14 +163,15 @@ def fit_segment_discounts(races: list[dict], base, min_races: int = MIN_RACES_SE
         if len(prepared) < min_races:
             continue
         w = prior / len(prepared)
+        padded = _pad(prepared)
 
-        def f(x, prepared=prepared, w=w):
-            lam = np.concatenate([[1.0], x])
-            return (sum(_race_nll(lp, o, lam) for lp, o in prepared) / len(prepared)
-                    + w * float(((x - base[1:]) ** 2).sum()))
+        def f(x, padded=padded, w=w):
+            return _nll_all(padded, np.concatenate([[1.0], x])) + w * float(((x - base[1:]) ** 2).sum())
 
         res = minimize(f, base[1:], method="L-BFGS-B", bounds=[(0.2, 1.6)] * (N_STAGES - 1))
         out[label] = [1.0, *[round(float(v), 4) for v in res.x]]
+        if log:
+            log(f"  {label:<14}{len(prepared):>6} races  {out[label]}")
     return {"segments": out, "n_races": counts}
 
 

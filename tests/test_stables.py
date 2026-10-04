@@ -884,3 +884,16 @@ def test_segment_discounts_fit_and_fallback():
     assert "discounts" not in ds[0] and learn.loss(ds, None, base) == pytest.approx(plain)
     rows = backtest.to_calibration_races(ds[:3], segments=seg["segments"])
     assert rows[0]["discounts"] == d and rows[0]["race_type"] == "hurdle"
+
+
+def test_vectorised_order_likelihood_matches_per_race():
+    rng = np.random.default_rng(4)
+    prepared = []
+    for i in range(40):
+        n = int(rng.integers(3, 14))
+        p = rng.dirichlet(np.ones(n))
+        order = list(positions.simulate_orders(p, 1, None, seed=i)[0])
+        prepared.append(calibrate._finishers_only({"p_win": p, "order": order[:n - 2] if i % 4 == 0 else order}))
+    lam = np.array([1.0, 0.8, 0.7, 0.6, 0.55, 0.5])
+    slow = sum(calibrate._race_nll(lp, o, lam) for lp, o in prepared) / len(prepared)
+    assert calibrate._nll_all(calibrate._pad(prepared), lam) == pytest.approx(slow)

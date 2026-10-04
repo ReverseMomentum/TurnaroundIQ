@@ -207,11 +207,13 @@ def history_from_results(race_ids: list[int]) -> int:
         conn.close()
 
 
-def history_from_kaggle(paths, since_year: int = 2015) -> int:
-    """Load Kaggle results from since_year into rac_history (run once)."""
+def history_from_kaggle(paths, since_year: int = 2015, log=None) -> int:
+    """Load Kaggle results from since_year into rac_history (run once; re-running updates rows)."""
+    log = log or (lambda m: None)
     df = F._hwaitt_frame(paths, (since_year, 2100))
     if df.empty:
         return 0
+    log(f"read {len(df)} runner rows; working out the chances each price gave...")
     df = df.assign(**dict(zip(("exp_win", "exp_place"), F._expected(df))))
     df = df[df["date"].dt.year >= since_year]
     rows = [{"race_ref": f"kaggle:{r.rid}", "date": r.date.strftime("%Y-%m-%d"), "course": r.course,
@@ -223,7 +225,8 @@ def history_from_kaggle(paths, since_year: int = 2015) -> int:
              "exp_win": _num(r.exp_win), "exp_place": _num(r.exp_place)} for r in df.itertuples()]
     n = 0
     for i in range(0, len(rows), 20000):
-        n += store.add_history(rows[i:i + 20000])
+        n += store.add_history(rows[i:i + 20000]) or 0
+        log(f"  saved {min(i + 20000, len(rows))}/{len(rows)}")
     return n
 
 

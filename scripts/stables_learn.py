@@ -65,6 +65,7 @@ def main():
 
     every = datasets.load_races(a.paths, years=(a.train_from, 2100))
     print(f"loaded {len(every)} races in {time.time() - t0:.0f}s", flush=True)
+    print("building runner features (the slow part, ~5-15 minutes)...", flush=True)
     feats = features.training_features(a.paths, (a.train_from, 2100))
     n = features.attach(every, feats)
     total = sum(len(r["runners"]) for r in every)
@@ -91,10 +92,11 @@ def main():
     print("position discounts:", disc)
 
     print("\nposition curves by race type and field size (pulled towards the one above):")
-    seg = calibrate.fit_segment_discounts(backtest.to_calibration_races(train_s), disc)
+    seg = calibrate.fit_segment_discounts(backtest.to_calibration_races(train_s), disc,
+                                          log=lambda m: print(m, flush=True))
     for label, k in seg["n_races"].items():
-        d = seg["segments"].get(label)
-        print(f"  {label:<14}{k:>6} races  {d if d else 'too few, uses the overall curve'}")
+        if label not in seg["segments"]:
+            print(f"  {label:<14}{k:>6} races  too few, uses the overall curve")
     lv0 = learn.loss(valid_s, None, disc)
     learn.tag_segments(every, seg["segments"])
     lv1 = learn.loss(valid_s, None, disc)

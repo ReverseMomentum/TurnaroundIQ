@@ -20,8 +20,9 @@ def main():
     ap.add_argument("paths", nargs="+", type=Path)
     ap.add_argument("--since", type=int, default=2015)
     a = ap.parse_args()
-    n = live_features.history_from_kaggle(a.paths, a.since)
-    print(f"rac_history: {n} runner rows from Kaggle ({a.since}+)")
+    print("reading Kaggle files...", flush=True)
+    live_features.history_from_kaggle(a.paths, a.since, log=lambda m: print(m, flush=True))
+    print(f"rac_history: done ({a.since}+)", flush=True)
 
 
 if __name__ == "__main__":

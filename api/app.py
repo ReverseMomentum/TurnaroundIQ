@@ -66,6 +66,8 @@ except ImportError:
 
 DEFAULT_BACK_ODDS = float(os.environ.get("DEFAULT_BACK_ODDS", "2.10"))
 UPCOMING_DAYS = int(os.environ.get("UPCOMING_DAYS", "7"))
+# data_confidence 20 + 65*min(1, depth/60): 30 ~ the thinner team has ~9 past matches
+MIN_PICK_CONFIDENCE = float(os.environ.get("MIN_PICK_CONFIDENCE", "30"))
 FIXTURE_CACHE_SECONDS = int(os.environ.get("FIXTURE_CACHE_SECONDS", "1800"))
 # Mismatch Meter is weak in backtests — off unless explicitly enabled.
 FEATURE_MISMATCH = os.environ.get("FEATURE_MISMATCH", "0") == "1"
@@ -636,6 +638,7 @@ def opportunities(
     edge_gate_only: bool = False,
     require_real_odds: bool = False,
     hours: Optional[int] = None,
+    min_confidence: float = MIN_PICK_CONFIDENCE,
 ):
     """
     FTA opportunities ranked by model fta_pct.
@@ -668,6 +671,9 @@ def opportunities(
                 r["fta_band"] = fta_band(r.get("fta_pct"))
 
         games_in_window = len({r.get("match_id") or r.get("match") for r in ranked})
+        # a team with almost no history (new to the league / renamed) makes the % guesswork
+        thin = [r for r in ranked if (r.get("confidence") or 0) < min_confidence]
+        ranked = [r for r in ranked if (r.get("confidence") or 0) >= min_confidence]
         best_below_floor = max((r.get("fta_pct") or 0 for r in ranked), default=None)
         ranked = filter_opportunities(
             ranked,
@@ -724,6 +730,8 @@ def opportunities(
             "rank_errors": get_last_rank_errors(),
             "window_hours": hours,
             "games_in_window": games_in_window,
+            "hidden_thin": len({r.get("match_id") or r.get("match") for r in thin
+                                if (r.get("fta_pct") or 0) >= (min_fta or 0)}),
             "best_fta_in_window": best_below_floor,
             "next_kickoff": _next_kickoff_after(hours) if hours else None,
             "bookmakers": my_books or [],

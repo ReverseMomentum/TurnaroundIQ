@@ -1405,6 +1405,12 @@ function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
             {filtered.map((o, i) => <OpportunityCard key={oppKey(o)} o={o} onClick={onOpen} highlight={i === 0 && league === "All leagues"} />)}
           </div>
           {filtered.length === 0 && <Empty>{list.length === 0 ? emptyPicksMessage(opps.data) : "No opportunities match this filter right now."}</Empty>}
+          {opps.data?.hidden_thin > 0 && (
+            <p style={{ color: c.textMuted }} className="text-[11px] mt-3">
+              {opps.data.hidden_thin} game{opps.data.hidden_thin === 1 ? "" : "s"} hidden: a team has fewer than about 10 past games with us
+              (new to the league or renamed), so the chance would be guesswork.
+            </p>
+          )}
         </>
       )}
       <Disclaimer />

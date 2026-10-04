@@ -321,3 +321,20 @@ def test_next_kickoff_after_window(monkeypatch):
     assert app_module._next_kickoff_after(24) == later.isoformat()
     monkeypatch.setattr(app_module, "upcoming_match_pairs", lambda limit=60: [])
     assert app_module._next_kickoff_after(24) is None
+
+
+def test_thin_history_picks_are_hidden_and_counted(monkeypatch):
+    from api import app as app_module
+    monkeypatch.setattr(app_module, "require_pro", lambda a: "u_thin")
+    monkeypatch.setattr(app_module, "get_prefs", lambda u: {"bookmakers": []})
+    monkeypatch.setattr(app_module, "latest_fixtures", lambda **k: [{}])
+    monkeypatch.setattr(app_module, "_next_kickoff_after", lambda h: None)
+    monkeypatch.setattr(app_module, "rank_opportunities", lambda f: [
+        {"match_id": "1", "team": "Bolton Wanderers Res", "fta_pct": 3.23, "confidence": 20.0},
+        {"match_id": "2", "team": "Arsenal U21", "fta_pct": 2.4, "confidence": 70.0},
+    ])
+    out = app_module.opportunities(authorization="x", include_tracked=False, min_fta=1.8, hours=24)
+    assert [o["match_id"] for o in out["opportunities"]] == ["2"]
+    assert out["hidden_thin"] == 1
+    everything = app_module.opportunities(authorization="x", include_tracked=False, min_confidence=0)
+    assert len(everything["opportunities"]) == 2

@@ -265,6 +265,42 @@ function useApi(loader, deps = []) {
   return { ...state, reload: load };
 }
 
+// Like useApi, but shows the last result straight away (from this device) while
+// the fresh one loads. Only ever a display convenience: the server is the truth.
+function useCachedApi(cacheKey, loader, deps = [], maxAgeMs = 30 * 60 * 1000) {
+  const read = () => {
+    try {
+      const raw = localStorage.getItem(cacheKey);
+      if (!raw) return null;
+      const { at, data } = JSON.parse(raw);
+      return Date.now() - at < maxAgeMs ? data : null;
+    } catch {
+      return null;
+    }
+  };
+  const [state, setState] = useState(() => ({ data: read(), loading: true, error: null, needsPro: false }));
+  const load = useCallback(async () => {
+    setState((s) => ({ ...s, loading: true, error: null, needsPro: false }));
+    try {
+      const data = await loader();
+      setState({ data, loading: false, error: null, needsPro: false });
+      try {
+        if (data) localStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), data }));
+      } catch {
+        /* storage full or blocked: fine */
+      }
+    } catch (e) {
+      const needsPro = e instanceof ApiError && e.needsPro;
+      setState((s) => ({ data: needsPro ? null : s.data, loading: false, error: needsPro ? null : e.message, needsPro }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  useEffect(() => {
+    load();
+  }, [load]);
+  return { ...state, reload: load };
+}
+
 // ============================================================
 // HELPERS
 // ============================================================
@@ -1140,7 +1176,7 @@ function DashboardPage({ nav, entitled, me, opps, onOpen, onPurchased }) {
         ))}
       </div>
 
-      {opps.loading && <Loading />}
+      {opps.loading && !opps.data && <Loading />}
       {opps.error && <ErrorBox error={opps.error} onRetry={opps.reload} />}
       {!opps.loading && !opps.error && list.length === 0 && <Empty>{emptyPicksMessage(opps.data)}</Empty>}
 
@@ -1351,7 +1387,7 @@ function OpportunitiesPage({ nav, entitled, opps, onOpen, onPurchased }) {
         </div>
       )}
       {(opps.needsPro || !entitled) && <Paywall title="Opportunities is a Pro feature" onPurchased={onPurchased} />}
-      {entitled && opps.loading && <Loading />}
+      {entitled && opps.loading && !opps.data && <Loading />}
       {entitled && opps.error && <ErrorBox error={opps.error} onRetry={opps.reload} />}
       {entitled && opps.data && (
         <>
@@ -2187,7 +2223,7 @@ export default function App() {
   }, [loadMe]);
 
   const entitled = Boolean(me?.entitled);
-  const opps = useApi(() => (entitled ? api.opportunities() : Promise.resolve(null)), [entitled]);
+  const opps = useCachedApi("tiq-opps-v1", () => (entitled ? api.opportunities() : Promise.resolve(null)), [entitled]);
 
   const afterSignIn = async () => {
     setUserIdState(await initPurchasesToken());
@@ -2217,7 +2253,7 @@ export default function App() {
     live: <LiveMonitorPage {...common} />,
     bets: <MyBetsPage {...common} reloadMe={loadMe} />,
     calculator: <CalculatorPage {...common} prefs={me?.prefs} />,
-    settings: <SettingsPage {...common} me={me} userId={userId} reloadMe={loadMe} onSignedOut={() => { setMe(null); setUserIdState(null); }} />,
+    settings: <SettingsPage {...common} me={me} userId={userId} reloadMe={loadMe} onSignedOut={() => { try { localStorage.removeItem("tiq-opps-v1"); } catch { /* ignore */ } setMe(null); setUserIdState(null); }} />,
     ...(SHOW_DEV_TOOLS ? { "model-testing": <ModelTestingPage {...common} /> } : {}),
   };
 

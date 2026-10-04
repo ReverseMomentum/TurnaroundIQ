@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import threading
 import time
 from collections import defaultdict
 from datetime import date, datetime, timezone
@@ -914,11 +915,27 @@ def load_bundle():
     return _bundle_cache
 
 
-def current_state(force=False):
-    now = time.time()
-    if force or _state_cache["teams"] is None or now - _state_cache["ts"] > STATE_TTL:
+_state_lock = threading.Lock()
+
+
+def state_age():
+    return time.time() - _state_cache["ts"] if _state_cache["teams"] is not None else float("inf")
+
+
+def _rebuild_state():
+    with _state_lock:
         _, teams, leagues = replay(load_matches(), collect=False)
-        _state_cache.update(ts=now, teams=teams, leagues=leagues)
+        _state_cache.update(ts=time.time(), teams=teams, leagues=leagues)
+
+
+def current_state(force=False):
+    """Team/league state for serving. Rebuilt synchronously on first use or when
+    forced; once built, an expired state is served while a background thread
+    rebuilds it (replaying the full history takes a while on 90k matches)."""
+    if force or _state_cache["teams"] is None:
+        _rebuild_state()
+    elif state_age() > STATE_TTL and not _state_lock.locked():
+        threading.Thread(target=_rebuild_state, daemon=True).start()
     return _state_cache["teams"], _state_cache["leagues"]
 
 

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -89,6 +90,10 @@ app.include_router(stables.router)
 
 _upcoming_cache = {"ts": 0.0, "pairs": []}
 _fixture_status = {"source": "none", "error": None, "failed_at": 0.0}
+# One fixture download at a time (the dashboard, picks and feature pages used to
+# start several at once); requests never wait for it once a list is cached.
+_fixture_lock = threading.Lock()
+WARM_INTERVAL_SECONDS = int(os.environ.get("WARM_INTERVAL_SECONDS", "900"))
 
 
 class PrefsPatch(BaseModel):
@@ -150,11 +155,26 @@ def startup():
     tracked_store.ensure_tracked_tables()
     auth.ensure_auth_tables()
     racing_store.ensure_tables()
-    # Warm the FTA path model's team state (~2s) off the request path.
-    import threading
-    from models import fta_path_model
+    # Keep the fixture list and the model's team state warm off the request path,
+    # so opening the app never waits for api-sports or a full history replay.
+    threading.Thread(target=_keep_warm, daemon=True).start()
 
-    threading.Thread(target=fta_path_model.current_state, daemon=True).start()
+
+def _keep_warm():
+    from models import fta_path_model
+    while True:
+        started = time.time()
+        try:
+            if (time.time() - _upcoming_cache["ts"]) >= FIXTURE_CACHE_SECONDS or not _upcoming_cache["pairs"]:
+                refresh_upcoming()
+        except Exception:
+            log.exception("warm: fixture refresh failed")
+        try:
+            fta_path_model.current_state(force=fta_path_model.state_age() >= fta_path_model.STATE_TTL)
+        except Exception:
+            log.exception("warm: model state refresh failed")
+        log.info("warm cycle %.1fs", time.time() - started)
+        time.sleep(WARM_INTERVAL_SECONDS)
 
 
 def user_from_auth(authorization: str | None) -> str:
@@ -328,31 +348,51 @@ def _not_kicked_off(pair, now=None):
     return ko > now
 
 
+def refresh_upcoming(wait=True):
+    """Download the fixture list (one download at a time). Returns True if it ran."""
+    global _upcoming_cache
+    if not _fixture_lock.acquire(blocking=wait, timeout=90 if wait else -1):
+        return False
+    try:
+        now = time.time()
+        if _upcoming_cache["pairs"] and (now - _upcoming_cache["ts"]) < FIXTURE_CACHE_SECONDS:
+            return False  # another request refreshed it while we waited
+        if (now - _fixture_status["failed_at"]) < FIXTURE_RETRY_SECONDS:
+            return False
+        pairs = fetch_upcoming_from_api_football()
+        if pairs:
+            _upcoming_cache = {"ts": time.time(), "pairs": pairs}
+            _fixture_status["source"] = "api-football-upcoming"
+            _fixture_status["failed_at"] = 0.0
+        else:
+            _fixture_status["failed_at"] = now
+        return True
+    finally:
+        _fixture_lock.release()
+
+
 def upcoming_match_pairs(limit=60):
     """
     Cached upcoming (not started) fixtures. Does NOT use odds_history.
 
+    Stale-while-revalidate: a cached list is served straight away, and if it is
+    older than FIXTURE_CACHE_SECONDS a background download replaces it. Only a
+    cold start (nothing cached yet) waits, and then for the one download in flight.
+
     Never falls back to finished matches: if API-Football is down or out of
     quota we serve the last good list (minus kicked-off games) or nothing.
     """
-    global _upcoming_cache
-    now = time.time()
-    if _upcoming_cache["pairs"] and (now - _upcoming_cache["ts"]) < FIXTURE_CACHE_SECONDS:
-        return [p for p in _upcoming_cache["pairs"] if _not_kicked_off(p)][:limit]
+    if not _upcoming_cache["pairs"]:
+        refresh_upcoming(wait=True)
+    elif (time.time() - _upcoming_cache["ts"]) >= FIXTURE_CACHE_SECONDS and not _fixture_lock.locked():
+        threading.Thread(target=refresh_upcoming, kwargs={"wait": False}, daemon=True).start()
 
-    pairs = []
-    if (now - _fixture_status["failed_at"]) >= FIXTURE_RETRY_SECONDS:
-        pairs = fetch_upcoming_from_api_football()
-        if pairs:
-            _upcoming_cache = {"ts": now, "pairs": pairs}
-            _fixture_status["source"] = "api-football-upcoming"
-            _fixture_status["failed_at"] = 0.0
-            return pairs[:limit]
-        _fixture_status["failed_at"] = now
-
-    stale = [p for p in _upcoming_cache["pairs"] if _not_kicked_off(p)]
-    _fixture_status["source"] = "cached-upcoming" if stale else "unavailable"
-    return stale[:limit]
+    live = [p for p in _upcoming_cache["pairs"] if _not_kicked_off(p)]
+    if (time.time() - _upcoming_cache["ts"]) >= FIXTURE_CACHE_SECONDS or _fixture_status["failed_at"]:
+        _fixture_status["source"] = "cached-upcoming" if live else "unavailable"
+    elif live:
+        _fixture_status["source"] = "api-football-upcoming"
+    return live[:limit]
 
 
 def fixture_meta():
@@ -607,11 +647,14 @@ def opportunities(
     """
     user_id = require_pro(authorization)
     limit = max(1, min(limit, 100))
+    t0 = time.time()
     try:
         hours = max(1, min(hours, 168)) if hours else None
         my_books = get_prefs(user_id).get("bookmakers") or None
         fixtures = latest_fixtures(limit=max(limit, 20), hours=hours, bookmakers=my_books)
+        t_fix = time.time()
         ranked = rank_opportunities(fixtures)
+        t_rank = time.time()
         for r in ranked:
             r["source"] = "auto"
             if r.get("bookmaker") == "Estimated":
@@ -683,6 +726,8 @@ def opportunities(
                 (r["odds_updated_at"] for r in ranked if r.get("odds_updated_at")), default=None
             ),
             "odds_refresh": odds_refresh.status(),
+            "timing_ms": {"fixtures": round(1000 * (t_fix - t0)), "model": round(1000 * (t_rank - t_fix)),
+                          "total": round(1000 * (time.time() - t0))},
             "opportunities": combined[:limit],
         }
     except Exception as exc:

@@ -750,3 +750,25 @@ def test_live_features_from_history_and_learned_engine():
     assert w0(learned) > w0(plain)
     assert "course_rate" in next(r for r in learned["runners"] if r["name"] == "F0")["features"]
     assert learn.apply([0.5, 0.5], [{}, {}], None).tolist() == [0.5, 0.5]
+
+
+def test_training_features_ignore_unreadable_dates(tmp_path):
+    import warnings
+    import pandas as pd
+    from racing import features as F
+
+    races = [{"rid": i, "course": "A", "date": f"2016-01-{i + 1:02d} 14:00", "title": "Hcap", "metric": 1600,
+              "condition": "Good", "countryCode": "GB"} for i in range(6)]
+    races[3]["date"] = "not a date"
+    horses = [{"rid": i, "horseName": f"H{k}", "decimalPrice": 0.2, "position": k + 1, "jockeyName": "J1",
+               "trainerName": "T1", "weightSt": 9, "weightLb": 0, "OR": 70, "TR": 60, "saddle": k + 1}
+              for i in range(6) for k in range(5)]
+    pd.DataFrame(races).to_csv(tmp_path / "races_2016.csv", index=False)
+    pd.DataFrame(horses).to_csv(tmp_path / "horses_2016.csv", index=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        out = F.training_features([tmp_path], (2016, 2016))
+    assert len(out) == 25 and not any(k[0] == "3" for k in out)
+    j30 = [f["jockey_30d"] for f in out.values()]
+    assert all(v is not None and 0 < v < 1 for v in j30)
+    assert F.shrink(0, -5, 10) == pytest.approx(0.3)

@@ -50,6 +50,8 @@ FORM_CAP = 10              # "0" in form strings = 10th or worse
 
 
 def shrink(placed, runs, m, base=BASE_PLACE):
+    runs = np.maximum(runs, 0)
+    placed = np.clip(placed, 0, runs)
     return (placed + m * base) / (runs + m)
 
 
@@ -163,6 +165,7 @@ def _hwaitt_frame(paths: list[Path], years: Optional[tuple[int, int]]) -> pd.Dat
     df = pd.concat(frames, ignore_index=True)
     df = df[df["countryCode"].astype(str).str.upper().isin({"GB", "IE", "IRE", "UK"})] if "countryCode" in df else df
     df["date"] = parse_dates(df["date"])
+    df = df[df["date"].notna()].copy()   # an unreadable date would break the date-ordered history
     df["odds"] = odds_from_price_column(df["decimalPrice"])
     df["pos"] = df["position"].map(parse_pos)
     df["lbs"] = pd.to_numeric(df.get("weightSt"), errors="coerce") * 14 + pd.to_numeric(df.get("weightLb"), errors="coerce")

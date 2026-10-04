@@ -1,6 +1,7 @@
 streamlit>=1.38.0
 pandas>=2.2.2
 requests>=2.32.3
+PySocks>=1.7.1  # Betfair via the SSH link to the UK server (BETFAIR_PROXY)
 numpy>=2.1.0
 scikit-learn>=1.5.1
 xgboost>=2.1.1

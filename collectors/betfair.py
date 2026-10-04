@@ -8,6 +8,8 @@ Exchange API (a free "delayed" app key is enough: prices lag by seconds).
 
 Needs in /etc/turnaroundiq.env (bash deploy/set_env.sh KEY VALUE):
     BETFAIR_APP_KEY, BETFAIR_USERNAME, BETFAIR_PASSWORD
+    BETFAIR_PROXY (optional): Betfair refuses non-UK servers, so the VPS reaches
+    it through a UK server over SSH; set up by deploy/betfair_tunnel.sh
 
 For every WIN market: course, off time, race name, race type, handicap flag,
 runners (cloth number, draw, jockey, trainer, age, weight, rating, form),
@@ -76,6 +78,9 @@ class Client:
         if http is None:
             http = requests.Session()
             http.headers["User-Agent"] = USER_AGENT
+            proxy = os.environ.get("BETFAIR_PROXY", "").strip()
+            if proxy:  # e.g. socks5h://127.0.0.1:1080, the SSH link to the UK server
+                http.proxies = {"https": proxy, "http": proxy}
         self.http = http
         self.app_key = os.environ.get("BETFAIR_APP_KEY", "").strip()
         self.token = None

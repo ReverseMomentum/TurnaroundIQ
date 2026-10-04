@@ -477,3 +477,14 @@ def test_prune_keeps_last_snapshot():
     race = store.races_on("2026-10-02")[0]
     assert race["runners"][0]["exchange"]["back"] == 6.0
     assert store.last_snapshot() is not None
+
+
+def test_betfair_proxy_setting(monkeypatch):
+    from collectors import betfair
+
+    monkeypatch.setenv("BETFAIR_PROXY", "socks5h://127.0.0.1:1080")
+    c = betfair.Client()
+    assert c.http.proxies["https"] == "socks5h://127.0.0.1:1080"
+    assert c.http.headers["User-Agent"].startswith("TurnaroundIQ")
+    monkeypatch.delenv("BETFAIR_PROXY")
+    assert not betfair.Client().http.proxies

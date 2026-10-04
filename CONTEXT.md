@@ -67,6 +67,9 @@ Read this first. It is what a fresh session needs to work on this repo.
   "Refresh races" button (max every 2 min). No bookmaker odds: each runner gets
   "value from", the smallest bookmaker price worth taking each-way at standard
   places +0..+3 (EV >= 4% after the edge shrink). `--check` tests the login.
+  The main VPS is in France and Betfair refuses it (HTTP 403), so Betfair calls go
+  over an SSH SOCKS link to a small IONOS UK server: systemd `betfair-tunnel`,
+  `BETFAIR_PROXY=socks5h://127.0.0.1:1080`, set up by `deploy/betfair_tunnel.sh UK_IP`.
 - Manual data: load JSON cards with `scripts/stables_import.py <file>` (format in
   its docstring). Results in the same file feed `scripts/stables_calibrate.py`.
   `scripts/stables_run.py [date]` stores predictions/opportunities. Tables are `rac_*`

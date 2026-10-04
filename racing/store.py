@@ -288,6 +288,39 @@ def races_with_results(conn=None) -> list[dict]:
     return out
 
 
+def set_offers(race_ids: list[int], bookmaker: str, places: int, fraction: float, conn=None) -> int:
+    """Add / replace one bookmaker's extra-place terms on several races. Returns races updated."""
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    ts = _now()
+    n = 0
+    for rid in race_ids:
+        if not conn.execute("SELECT 1 FROM rac_races WHERE id = ?", (rid,)).fetchone():
+            continue
+        conn.execute(
+            "INSERT INTO rac_offers (race_id, bookmaker, places, fraction, timestamp) VALUES (?,?,?,?,?) "
+            "ON CONFLICT(race_id, bookmaker) DO UPDATE SET places=excluded.places, "
+            "fraction=excluded.fraction, timestamp=excluded.timestamp",
+            (rid, bookmaker, int(places), float(fraction), ts))
+        n += 1
+    conn.commit()
+    if own:
+        conn.close()
+    return n
+
+
+def delete_offer(race_id: int, bookmaker: str, conn=None) -> int:
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    n = conn.execute("DELETE FROM rac_offers WHERE race_id = ? AND bookmaker = ?", (race_id, bookmaker)).rowcount
+    conn.commit()
+    if own:
+        conn.close()
+    return n
+
+
 def last_snapshot(conn=None) -> Optional[str]:
     """Time of the newest exchange price snapshot (any source), ISO."""
     own = conn is None

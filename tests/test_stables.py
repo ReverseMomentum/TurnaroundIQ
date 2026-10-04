@@ -554,3 +554,34 @@ def test_started_races_are_marked_and_dropped_from_opportunities():
     out = stables_api._with_live_status(body)
     assert [r["started"] for r in out["races"]] == [True, False]
     assert out["opportunities"] == [{"race_id": 2}] and out["started_count"] == 1
+
+
+def test_offers_admin_only_and_priced(monkeypatch):
+    from api import stables as stables_api
+
+    store.import_card(CARD)
+    race_id = store.races_on("2026-10-02")[0]["race_id"]
+    monkeypatch.setattr(app_module, "require_pro", lambda a: a.replace("Bearer ", ""))
+    monkeypatch.setattr(app_module, "ADMIN_USER_IDS", {"u_admin"})
+    body = {"bookmaker": "Book Z", "places": 6, "fraction": "1/5", "race_ids": [race_id, 999999]}
+    with TestClient(app_module.app) as client:
+        assert client.post("/stables/offers", json=body, headers={"Authorization": "Bearer u_user"}).status_code == 403
+        r = client.post("/stables/offers", json=body, headers={"Authorization": "Bearer u_admin"})
+        assert r.status_code == 200 and r.json()["updated"] == 1          # unknown race id skipped
+        bad = {**body, "fraction": "five"}
+        assert client.post("/stables/offers", json=bad, headers={"Authorization": "Bearer u_admin"}).status_code == 400
+        races = client.get("/stables/races?date=2026-10-02", headers={"Authorization": "Bearer u_user"}).json()
+        assert races["can_edit_offers"] is False
+        race = next(x for x in races["races"] if x["race_id"] == race_id)
+        assert {"bookmaker": "Book Z", "places": 6} .items() <= next(
+            t for t in race["offers"] if t["bookmaker"] == "Book Z").items()
+        vf = [r["offer_value_from"].get("Book Z") for r in race["runners"]]
+        assert "Book Z" in race["runners"][0]["offer_value_from"]
+        # 6 places at 1/5 needs a shorter price than 3 places at 1/5 (the generic "+0")
+        pairs = [(r["offer_value_from"]["Book Z"], r["value_from"].get("0")) for r in race["runners"]
+                 if r["offer_value_from"].get("Book Z") and r["value_from"].get("0")]
+        assert pairs and all(a <= b for a, b in pairs)
+        assert client.get("/stables/races?date=2026-10-02", headers={"Authorization": "Bearer u_admin"}).json()["can_edit_offers"]
+        d = client.delete(f"/stables/offers?race_id={race_id}&bookmaker=Book%20Z", headers={"Authorization": "Bearer u_admin"})
+        assert d.json()["deleted"] == 1
+    assert all(t["bookmaker"] != "Book Z" for t in store.races_on("2026-10-02")[0]["terms"])

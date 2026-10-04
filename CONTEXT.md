@@ -70,6 +70,10 @@ Read this first. It is what a fresh session needs to work on this repo.
   The main VPS is in France and Betfair refuses it (HTTP 403), so Betfair calls go
   over an SSH SOCKS link to a small IONOS UK server: systemd `betfair-tunnel`,
   `BETFAIR_PROXY=socks5h://127.0.0.1:1080`, set up by `deploy/betfair_tunnel.sh UK_IP`.
+- Extra-place offers: admins (ADMIN_USER_IDS; `bash scripts/make_admin.sh EMAIL`) add
+  them on the Race cards tab ("Add extra-place offer": bookmaker, race times by
+  track, places, fraction). Stored in rac_offers, shared with all users; each
+  runner then gets offer_value_from per bookmaker, and "Worth checking" uses them.
 - Manual data: load JSON cards with `scripts/stables_import.py <file>` (format in
   its docstring). Results in the same file feed `scripts/stables_calibrate.py`.
   `scripts/stables_run.py [date]` stores predictions/opportunities. Tables are `rac_*`

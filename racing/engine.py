@@ -113,6 +113,13 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
                 for extra in (0, 1, 2, 3) if std_frac and std_places + extra <= n
             },
             "beyond_value_range": ref_price[i] > MAX_VALUE_ODDS,
+            # "Value from" on each bookmaker's own extra-place terms (race["terms"])
+            "offer_value_from": {} if ref_price[i] > MAX_VALUE_ODDS else {
+                str(t.get("bookmaker")): _within_range(min_value_odds(
+                    float(p_win[i]), topk(top, i, int(t.get("places") or 0)),
+                    parse_fraction(t.get("fraction")) or std_frac, edge_shrink))
+                for t in race.get("terms") or [] if int(t.get("places") or 0) >= 1
+            },
             "exchange": r.get("exchange"),
             "offers": [],
         }

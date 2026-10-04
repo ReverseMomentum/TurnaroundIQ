@@ -84,11 +84,21 @@ def _with_live_status(body: dict) -> dict:
             "started_count": len(races) - len(live)}
 
 
+def _is_admin(user_id: str) -> bool:
+    from api.app import ADMIN_USER_IDS
+
+    return user_id in ADMIN_USER_IDS
+
+
 @router.get("/races")
 def stables_races(authorization: str | None = Header(default=None), date: Optional[str] = None,
                   refresh: bool = False):
     """refresh=true re-prices the stored races now instead of serving the 5-minute cache."""
-    _require_pro(authorization)
+    user_id = _require_pro(authorization)
+    return {**_races_body(date, refresh), "can_edit_offers": _is_admin(user_id)}
+
+
+def _races_body(date: Optional[str], refresh: bool) -> dict:
     date = date or datetime.now(UK).date().isoformat()
     try:
         datetime.strptime(date, "%Y-%m-%d")
@@ -119,6 +129,44 @@ def stables_races(authorization: str | None = Header(default=None), date: Option
     with _lock:
         _cache[date] = (time.time(), body)
     return _with_live_status(body)
+
+
+class OffersIn(BaseModel):
+    bookmaker: str = Field(min_length=1, max_length=40)
+    places: int = Field(ge=1, le=10)
+    fraction: str = Field(default="1/5", max_length=8)
+    race_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+def _require_admin(authorization) -> str:
+    user_id = _require_pro(authorization)
+    if not _is_admin(user_id):
+        raise HTTPException(403, "Only admins can edit extra-place offers")
+    return user_id
+
+
+@router.post("/offers")
+def stables_add_offers(body: OffersIn, authorization: str | None = Header(default=None)):
+    """Add one bookmaker's extra-place terms to the chosen races (shared with every user)."""
+    _require_admin(authorization)
+    from racing.extra_place import parse_fraction
+
+    frac = parse_fraction(body.fraction)
+    if not frac or frac > 1:
+        raise HTTPException(400, "fraction must look like 1/5")
+    n = store.set_offers(body.race_ids, body.bookmaker.strip(), body.places, frac)
+    with _lock:
+        _cache.clear()
+    return {"updated": n}
+
+
+@router.delete("/offers")
+def stables_delete_offer(race_id: int, bookmaker: str, authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    n = store.delete_offer(race_id, bookmaker)
+    with _lock:
+        _cache.clear()
+    return {"deleted": n}
 
 
 class ManualRunner(BaseModel):

@@ -80,8 +80,10 @@ Read this first. It is what a fresh session needs to work on this repo.
   FROM TO` scores P(top k) on recent races from Betfair's free BSP files (Betfair
   returns 403 to the VPS, so this one is parked).
 - Calibration (saved by `--save`) holds: position discounts, non-finish rates by
-  race type and price (`racing/nonfinish.py`; fallers can't place), and an edge
-  shrink fitted on training races so the EV shown matches past results.
+  race type and price (`racing/nonfinish.py`; fallers can't place), and a
+  win/place calibration (`racing/recalibrate.py`, logistic on logit p + win chance
+  + field size) fitted on training races. It replaced the single edge shrink,
+  which over-corrected short prices and under-corrected 50/1+ outsiders.
 
 ## Working alongside other chats
 More than one chat may push to `main`. Pull before starting. Keep new work in new

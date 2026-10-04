@@ -16,7 +16,7 @@ from typing import Optional
 
 import numpy as np
 
-from racing import calibrate, confidence, kelly, market, nonfinish, positions
+from racing import calibrate, confidence, kelly, market, nonfinish, positions, recalibrate
 from racing.extra_place import Terms, evaluate, min_value_odds, parse_fraction, shrink, standard_terms
 
 MAX_POSITIONS = 9
@@ -67,7 +67,12 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
     dnf = nonfinish.rates_for(odds_for_dnf, rtype, calibration.get("dnf"))
     sim = positions.simulate(p_win, n_sims=n_sims, discounts=disc, seed=seed, dnf=dnf)
     harv = positions.simulate(p_win, n_sims=n_sims, discounts=[1.0], seed=seed + 1, dnf=dnf)
-    P, top, top_se, top_h = sim["P"], sim["top"], sim["top_se"], harv["top"]
+    P, top_raw, top_se, top_h = sim["P"], sim["top"], sim["top_se"], harv["top"]
+    recal = calibration.get("recal")
+    p_raw = p_win
+    p_win, top = recalibrate.apply(p_raw, top_raw, recal)
+    # The fitted calibration replaces the older single edge shrink.
+    edge_shrink = None if (recal and recal.get("fitted")) else calibration.get("edge_shrink")
     offers = _offers(race, n)
     std_places, std_frac = standard_terms(n, bool(race.get("handicap")))
 
@@ -89,7 +94,7 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
             "exchange_back": (r.get("exchange") or {}).get("back"),
             "value_from": {
                 str(extra): min_value_odds(float(p_win[i]), topk(top, i, std_places + extra), std_frac,
-                                           calibration.get("edge_shrink"))
+                                           edge_shrink)
                 for extra in (0, 1, 2, 3) if std_frac and std_places + extra <= n
             },
             "exchange": r.get("exchange"),
@@ -100,15 +105,17 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
             if not market.implied(odds):
                 continue
             ev = evaluate(float(p_win[i]), list(top[i]), float(odds), t)
-            if calibration.get("edge_shrink") is not None:
-                ev = shrink(ev, float(calibration["edge_shrink"]))
-            raw_place = ev.get("raw_model_probability", ev["model_probability"])
             k = t.places
+            if edge_shrink is not None:
+                ev = shrink(ev, float(edge_shrink))
+            elif top is not top_raw:
+                ev["raw_model_probability"] = topk(top_raw, i, k)
+            raw_place = ev.get("raw_model_probability", ev["model_probability"])
             p_h = topk(top_h, i, k)
             se = confidence.place_uncertainty(raw_place, p_h, topk(top_se, i, k), n_cal)
             parts = confidence.components(raw_place, p_h, topk(top_se, i, k), p_book, p_ex, n_cal)
             conf = confidence.score(parts)
-            se_win = confidence.place_uncertainty(float(p_win[i]), float(p_win[i]), float(top_se[i, 0]), n_cal)
+            se_win = confidence.place_uncertainty(float(p_raw[i]), float(p_raw[i]), float(top_se[i, 0]), n_cal)
             robust_edge = ev["edge"] - se
             stakes = kelly.robust_stakes(float(p_win[i]), ev["model_probability"], se_win, se,
                                          float(odds), ev["place_odds"])
@@ -147,6 +154,7 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
         "offers": [t.__dict__ for t in offers],
         "discounts": list(disc),
         "calibrated": bool(n_cal),
+        "recalibrated": bool(recal and recal.get("fitted")),
         "n_sims": sim["n_sims"],
         "runners": rows,
         "opportunities": opps,

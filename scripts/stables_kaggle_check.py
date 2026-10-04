@@ -16,7 +16,7 @@ Run:
     venv/bin/python scripts/stables_kaggle_check.py data/kaggle/hwaitt --train-to 2017 --test-from 2018 --save
 
 --save stores, for the app: discounts and non-finish rates refitted on train +
-test, and the edge shrink fitted on training races (grade A unlocks).
+test, and the win/place calibration fitted on training races (grade A unlocks).
 Output is also written to logs/stables_kaggle_check.json.
 """
 import argparse
@@ -28,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from racing import backtest, calibrate, datasets, nonfinish, positions, store  # noqa: E402
+from racing import backtest, calibrate, datasets, nonfinish, positions, recalibrate, store  # noqa: E402
 
 
 def _table(title, rows):
@@ -49,7 +49,7 @@ def main():
     ap.add_argument("--test-to", type=int, default=2100)
     ap.add_argument("--max-train", type=int, default=20000, help="random sample of training races")
     ap.add_argument("--max-test", type=int, default=5000, help="random sample of test races")
-    ap.add_argument("--shrink-races", type=int, default=3000, help="training races used to fit the edge shrink")
+    ap.add_argument("--recal-races", type=int, default=5000, help="training races used to fit the calibration")
     ap.add_argument("--save", action="store_true")
     a = ap.parse_args()
     if a.peek:
@@ -78,13 +78,17 @@ def main():
     print("fitted discounts:", fit["discounts"], flush=True)
     cal = {**fit, "dnf": dnf}
 
-    shrink_races = rng.sample(train, min(len(train), a.shrink_races))
-    bets = []
-    for extra in (1, 2):
-        bets += backtest.ew_bets(shrink_races, cal, extra=extra)[1]
-    shrink = backtest.fit_shrink(bets)
-    print(f"\nedge shrink (fitted on {len(shrink_races)} training races): {shrink}", flush=True)
-    cal["edge_shrink"] = shrink["edge_shrink"]
+    recal_races = rng.sample(train, min(len(train), a.recal_races))
+    recal = recalibrate.fit(recalibrate.build_rows(recal_races, cal))
+    print(f"\ncalibration (fitted on {len(recal_races)} training races): {recal}", flush=True)
+    cal["recal"] = recal
+
+    rep = recalibrate.report(recalibrate.build_rows(test_s, cal), recal)
+    print(f"\nplace chance on test races, raw vs calibrated (ECE lower is better)")
+    print(f"  {'odds':<8}{'runners':>8}{'actual':>8}{'raw':>7}{'cal':>7}{'rawECE':>8}{'calECE':>8}")
+    for band, r in rep.items():
+        print(f"  {band:<8}{r['n']:>8}{r['actual']:>8.3f}{r['raw']:>7.3f}{r['calibrated']:>7.3f}"
+              f"{r['raw_ece']:>8.4f}{r['cal_ece']:>8.4f}")
 
     test_plain = backtest.to_calibration_races(test_s)
     test_dnf = backtest.to_calibration_races(test_s, dnf)
@@ -114,16 +118,16 @@ def main():
     print("Dead heats and Rule 4 ignored. Illustrative only.")
 
     out = {"train_races": len(train_s), "test_races": len(test_s), "fit": fit, "dnf": dnf,
-           "shrink": shrink, "test_scores": scores, "ew_backtest": bt}
+           "recal": recal, "recal_report": rep, "test_scores": scores, "ew_backtest": bt}
     (ROOT / "logs").mkdir(exist_ok=True)
     (ROOT / "logs" / "stables_kaggle_check.json").write_text(json.dumps(out, indent=1, default=str))
     if a.save:
         full = calibrate.fit_discounts(backtest.to_calibration_races(
             rng.sample(every, min(len(every), a.max_train))))
-        payload = {**full, "dnf": nonfinish.fit_rates(every), "edge_shrink": shrink["edge_shrink"],
+        payload = {**full, "dnf": nonfinish.fit_rates(every), "recal": recal,
                    "source": "kaggle", "held_back": scores}
         store.save_calibration(payload)
-        print("saved for the app:", full["discounts"], "shrink", shrink["edge_shrink"])
+        print("saved for the app:", full["discounts"], "calibration", recal.get("fitted"))
 
 
 if __name__ == "__main__":

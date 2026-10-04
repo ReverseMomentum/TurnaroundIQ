@@ -488,3 +488,34 @@ def test_betfair_proxy_setting(monkeypatch):
     assert c.http.headers["User-Agent"].startswith("TurnaroundIQ")
     monkeypatch.delenv("BETFAIR_PROXY")
     assert not betfair.Client().http.proxies
+
+
+def test_recalibration_corrects_a_longshot_bias():
+    from racing import recalibrate
+
+    rng = np.random.default_rng(4)
+
+    def races(n_races, seed0):
+        out = []
+        for j in range(n_races):
+            odds = np.round(np.sort(rng.uniform(2, 80, size=10)), 2)
+            p = market.devig_power(odds)
+            truth = p ** 1.4 / (p ** 1.4).sum()   # outsiders really do worse than SP says
+            order = positions.simulate_orders(truth, n_sims=1, seed=seed0 + j)[0]
+            finish = [0] * 10
+            for pos, i in enumerate(order):
+                finish[i] = pos + 1
+            out.append({"key": str(seed0 + j), "handicap": True, "race_type": "flat", "finish": finish,
+                        "runners": [{"name": str(i), "odds": float(o)} for i, o in enumerate(odds)]})
+        return out
+
+    train, test = races(600, 0), races(300, 10_000)
+    recal = recalibrate.fit(recalibrate.build_rows(train, n_sims=500))
+    assert recal["fitted"] and recal["win"][1] > 1.1          # sharpens toward favourites
+    rep = recalibrate.report(recalibrate.build_rows(test, n_sims=500), recal)
+    big = rep["50+"] if "50+" in rep else rep["20-50"]
+    assert abs(big["calibrated"] - big["actual"]) < abs(big["raw"] - big["actual"])
+    p_c, top_c = recalibrate.apply(np.array([0.5, 0.3, 0.2]), np.array([[.5, .8, 1], [.3, .7, 1], [.2, .5, 1]]), recal)
+    assert p_c.sum() == pytest.approx(1) and np.all(np.diff(top_c, axis=1) >= 0)
+    out = price_race(_race(), {"recal": recal})
+    assert out["recalibrated"] and out["runners"][0]["value_from"]

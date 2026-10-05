@@ -336,6 +336,7 @@ const oppKey = (o) => `${o.match}|${o.team}`;
 function depthLabel(score) {
   if (score >= 80) return { label: "Deep data", tone: c.green };
   if (score >= 60) return { label: "Good data", tone: c.cyan };
+  if (score < 31) return { label: "New team: very little data", tone: c.orange };
   return { label: "Thin data", tone: c.textMuted };
 }
 
@@ -634,7 +635,7 @@ function Paywall({ title, onPurchased }) {
       </div>
       <p style={{ color: c.textSecondary }} className="text-xs mb-5">Cancel anytime.</p>
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 mb-6 text-left">
-        {["Ranked FTA picks, next 24h", "Best UK prices + est. lay", "Early Goal Hunter", "Chaos Factor", "Paper-bet tracker", "2-up & free-bet calculator"].map((f) => (
+        {["Ranked FTA picks, next 24h", "Best UK prices + Betfair lay", "Early Goal Hunter", "Chaos Factor", "Paper-bet tracker", "2-up & free-bet calculator"].map((f) => (
           <li key={f} className="flex items-center gap-2 text-sm" style={{ color: c.text }}>
             <Check size={15} style={{ color: c.green, flexShrink: 0 }} /> {f}
           </li>
@@ -803,8 +804,9 @@ function PriceLine({ o }) {
         <span style={{ color: c.textSecondary }} className="truncate">{o.bookmaker}</span>
       </span>
       <span className="flex items-baseline gap-1.5 flex-shrink-0">
-        <span style={{ color: c.textMuted }}>Lay{o.estimated_lay ? " est." : ""}</span>
+        <span style={{ color: c.textMuted }}>{o.exchange ? "Betfair lay" : "Lay" + (o.estimated_lay ? " est." : "")}</span>
         <span style={{ color: c.cyan }} className="num text-sm font-semibold">{Number(o.lay_odds).toFixed(2)}</span>
+        {o.exchange?.lay_size != null && <span style={{ color: c.textMuted }} className="num">£{Math.round(o.exchange.lay_size)}</span>}
       </span>
     </div>
   );
@@ -850,7 +852,7 @@ function OpportunityTable({ list, onOpen }) {
       <table className="w-full text-sm">
         <thead>
           <tr style={{ borderBottom: "1px solid " + c.border }}>
-            {["Kick-off", "Match", "Goes 2 up", "Then fails", "FTA chance", "Book", "Lay est.", "Data"].map((h, i) => (
+            {["Kick-off", "Match", "Goes 2 up", "Then fails", "FTA chance", "Book", "Lay", "Data"].map((h, i) => (
               <th key={h} style={th} className={"text-[10px] font-semibold uppercase py-3 px-4 " + (i < 2 ? "text-left" : i === 7 ? "text-left" : "text-right")}>{h}</th>
             ))}
           </tr>
@@ -875,7 +877,9 @@ function OpportunityTable({ list, onOpen }) {
                 <td className="py-3 px-4 text-right whitespace-nowrap">
                   {priced ? (<><p style={{ color: c.green }} className="num font-semibold">{Number(o.back_odds).toFixed(2)}</p><p style={{ color: c.textMuted }} className="text-xs">{o.bookmaker}</p></>) : <span style={{ color: c.textMuted }}>—</span>}
                 </td>
-                <td style={{ color: c.cyan }} className="num py-3 px-4 text-right font-semibold">{priced ? Number(o.lay_odds).toFixed(2) : "—"}</td>
+                <td className="num py-3 px-4 text-right whitespace-nowrap">
+                  {priced ? (<><p style={{ color: c.cyan }} className="font-semibold">{Number(o.lay_odds).toFixed(2)}</p><p style={{ color: c.textMuted }} className="text-xs">{o.exchange ? "Betfair £" + Math.round(o.exchange.lay_size || 0) : "estimate"}</p></>) : <span style={{ color: c.textMuted }}>—</span>}
+                </td>
                 <td className="py-3 px-4"><DepthBars score={o.confidence} /></td>
               </tr>
             );
@@ -998,12 +1002,21 @@ function OpportunityDetailModal({ opportunity, onClose, prefs }) {
       <SectionLabel>Market odds</SectionLabel>
       <div className="grid grid-cols-3 gap-2 mb-2">
         <NumField label="Back" sub={pickedBook || "Bookmaker"} value={backOdds} onChange={setBackOdds} tone={c.green} highlight={estimated ? "rgba(255,156,66,0.5)" : undefined} />
-        <NumField label={layEstimated ? "Lay est." : "Lay"} sub="Exchange" labelTone={layEstimated ? c.orange : undefined} value={layOdds} onChange={setLayOdds} tone={c.cyan} highlight={estimated || layEstimated ? "rgba(255,156,66,0.35)" : undefined} />
+        <NumField label={layEstimated ? "Lay est." : "Lay"} sub={o.exchange && same(o.exchange.lay, layOdds) ? "Betfair · £" + Math.round(o.exchange.lay_size || 0) + " available" : "Exchange"} labelTone={layEstimated ? c.orange : undefined} value={layOdds} onChange={setLayOdds} tone={c.cyan} highlight={estimated || layEstimated ? "rgba(255,156,66,0.35)" : undefined} />
         <NumField label="Comm. %" sub="Exchange fee" value={commission} onChange={setCommission} step="0.1" />
       </div>
       <p style={{ color: estimated ? c.orange : c.textMuted }} className="text-[11px] mb-3">
         {estimated ? "Placeholder prices — enter your bookmaker and exchange odds." : layEstimated ? "Lay is an estimate — check the live exchange price before you bet." : "Prices are editable."}
       </p>
+      {o.exchange && (
+        <p style={{ color: c.textSecondary }} className="text-xs mb-4">
+          Betfair now: back <span className="num" style={{ color: c.text }}>{o.exchange.back ? Number(o.exchange.back).toFixed(2) : "—"}</span>
+          {" "}/ lay <span className="num" style={{ color: c.cyan }}>{Number(o.exchange.lay).toFixed(2)}</span>
+          {o.exchange.lay_size != null && <> (£{Math.round(o.exchange.lay_size)} waiting)</>}
+          {o.exchange.updated_at && <> · checked {new Date(o.exchange.updated_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</>}.
+          {" "}Delayed exchange data: confirm on Betfair before you lay.
+        </p>
+      )}
       {(o.back_prices || []).length > 1 && (
         <div className="no-scrollbar flex gap-2 overflow-x-auto mb-6 -mx-1 px-1">
           {o.back_prices.map((bp) => (

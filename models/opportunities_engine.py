@@ -271,6 +271,7 @@ def build_opportunity(fixture, stake=40, commission=2):
         "odds_estimated": odds_estimated,
         "odds_updated_at": fixture.get("odds_updated_at"),
         "back_prices": fixture.get("back_prices") or [],
+        "exchange": fixture.get("exchange"),   # Betfair back/lay + money waiting, if matched
         "not_at_my_books": bool(fixture.get("not_at_my_books")),
         "stake": stake,
         "commission": commission,

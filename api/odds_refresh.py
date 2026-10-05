@@ -70,6 +70,13 @@ def _run(budget):
                 _state["error"] = "scheduled odds update in progress — try again shortly"
                 return
             summary = odds_apisports.refresh(WINDOW_HOURS, max_calls=budget, log=lambda *_: None)
+            try:  # real exchange prices too, if Betfair is set up (never blocks the bookie odds)
+                from collectors import betfair, betfair_football
+                if betfair.configured():
+                    bf = betfair_football.refresh(WINDOW_HOURS, log=lambda *_: None)
+                    summary = {**summary, "betfair_matched": bf["matched"]}
+            except Exception as exc:
+                summary = {**summary, "betfair_error": str(exc)[:200]}
             _state["last"] = summary
             _state["calls_today"] += summary.get("calls", 0)
             _state["finished_at"] = time.time()

@@ -67,7 +67,7 @@ except ImportError:
 DEFAULT_BACK_ODDS = float(os.environ.get("DEFAULT_BACK_ODDS", "2.10"))
 UPCOMING_DAYS = int(os.environ.get("UPCOMING_DAYS", "7"))
 # data_confidence 20 + 65*min(1, depth/60): 30 ~ the thinner team has ~9 past matches
-MIN_PICK_CONFIDENCE = float(os.environ.get("MIN_PICK_CONFIDENCE", "30"))
+MIN_PICK_CONFIDENCE = float(os.environ.get("MIN_PICK_CONFIDENCE", "0"))  # 0 = show all, labelled
 FIXTURE_CACHE_SECONDS = int(os.environ.get("FIXTURE_CACHE_SECONDS", "1800"))
 # Mismatch Meter is weak in backtests — off unless explicitly enabled.
 FEATURE_MISMATCH = os.environ.get("FEATURE_MISMATCH", "0") == "1"
@@ -413,9 +413,16 @@ def latest_match_pairs(limit=40):
     return upcoming_match_pairs(limit=limit)
 
 
-def _with_prices(base, row, is_home, bookmakers=None):
-    """Best back price (from the user's bookmakers if they've chosen some) + estimated
-    exchange lay from collectors/odds_apisports, if fresh."""
+def _with_prices(base, row, is_home, bookmakers=None, exch_row=None):
+    """Best back price (from the user's bookmakers if they've chosen some) + the exchange
+    lay: Betfair's real best lay when we have it (collectors/betfair_football), else the
+    estimate from collectors/odds_apisports."""
+    from collectors import betfair_football
+    ex = betfair_football.side_exchange(exch_row, is_home)
+    if ex:
+        back_x, back_size, lay_x, lay_size, ex_at = ex
+        base = {**base, "exchange": {"source": "Betfair", "back": back_x, "back_size": back_size,
+                                     "lay": lay_x, "lay_size": lay_size, "updated_at": ex_at}}
     prices = odds_store.side_prices(row, is_home, bookmakers)
     if not prices:
         if row and bookmakers:
@@ -427,8 +434,8 @@ def _with_prices(base, row, is_home, bookmakers=None):
         **base,
         "bookmaker": book or "Bookmaker",
         "back_odds": back,
-        "lay_odds": lay_est,
-        "lay_estimated": True,
+        "lay_odds": ex[2] if ex else lay_est,
+        "lay_estimated": not ex,
         "odds_estimated": False,
         "odds_updated_at": updated,
         "back_prices": [{"bookmaker": n, "back": p} for n, p in others],
@@ -462,6 +469,11 @@ def fixtures_from_upcoming(limit=40, hours=None, bookmakers=None):
     else:
         pairs = upcoming_match_pairs(limit=max(limit, 20))
     stored = odds_store.load_odds([p.get("match_id") for p in pairs])
+    try:
+        from collectors import betfair_football
+        exch = betfair_football.load([p.get("match_id") for p in pairs])
+    except Exception:
+        exch = {}
     for pair in pairs:
         home = pair["home_team"]
         away = pair["away_team"]
@@ -480,8 +492,9 @@ def fixtures_from_upcoming(limit=40, hours=None, bookmakers=None):
             "odds_estimated": True,
             **market,
         }
-        fixtures.append(_with_prices({**base, "team": home, "is_home": True}, row, True, bookmakers))
-        fixtures.append(_with_prices({**base, "team": away, "is_home": False}, row, False, bookmakers))
+        xrow = exch.get(str(pair.get("match_id")))
+        fixtures.append(_with_prices({**base, "team": home, "is_home": True}, row, True, bookmakers, xrow))
+        fixtures.append(_with_prices({**base, "team": away, "is_home": False}, row, False, bookmakers, xrow))
     return fixtures[: limit * 2]
 
 

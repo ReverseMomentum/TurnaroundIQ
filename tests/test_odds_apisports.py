@@ -323,7 +323,7 @@ def test_next_kickoff_after_window(monkeypatch):
     assert app_module._next_kickoff_after(24) is None
 
 
-def test_thin_history_picks_are_hidden_and_counted(monkeypatch):
+def test_thin_history_picks_shown_by_default_gate_optional(monkeypatch):
     from api import app as app_module
     monkeypatch.setattr(app_module, "require_pro", lambda a: "u_thin")
     monkeypatch.setattr(app_module, "get_prefs", lambda u: {"bookmakers": []})
@@ -333,8 +333,11 @@ def test_thin_history_picks_are_hidden_and_counted(monkeypatch):
         {"match_id": "1", "team": "Bolton Wanderers Res", "fta_pct": 3.23, "confidence": 20.0},
         {"match_id": "2", "team": "Arsenal U21", "fta_pct": 2.4, "confidence": 70.0},
     ])
-    out = app_module.opportunities(authorization="x", include_tracked=False, min_fta=1.8, hours=24)
+    # default: thin-data picks are shown (the app labels them), nothing hidden
+    everything = app_module.opportunities(authorization="x", include_tracked=False, min_fta=1.8, hours=24)
+    assert len(everything["opportunities"]) == 2 and everything["hidden_thin"] == 0
+    # optional gate (MIN_PICK_CONFIDENCE / min_confidence)
+    out = app_module.opportunities(authorization="x", include_tracked=False, min_fta=1.8, hours=24,
+                                   min_confidence=30)
     assert [o["match_id"] for o in out["opportunities"]] == ["2"]
     assert out["hidden_thin"] == 1
-    everything = app_module.opportunities(authorization="x", include_tracked=False, min_confidence=0)
-    assert len(everything["opportunities"]) == 2

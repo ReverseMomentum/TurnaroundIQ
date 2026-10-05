@@ -54,6 +54,11 @@ Read this first. It is what a fresh session needs to work on this repo.
   that uses the live turnaround model `models/live_turnaround.py`), the calculator, and the Live monitor
   (`api/live_monitor.py`, `GET /live`: open bets in play + live games 2 up, shared 60s api-sports cache).
 - **Scorecard:** pre-kick-off predictions logged to `prediction_log`; `scripts/scorecard.py` vs results.
+- **Adding a league mid-season:** the nightly backfill only collects completed seasons and the
+  results job looks back 3 days, so also run `collectors/backfill_apisports.py --league-id N
+  --include-current` (then `run.py historical --no-fetch` and retrain), or the season so far is missing.
+- **Thin history:** Picks hides games where a team has ~<10 past matches (`MIN_PICK_CONFIDENCE`);
+  `scripts/team_check.py "Team"` shows how much history a team has and similar names.
 
 ## The Stables (horse racing extra places)
 - Not a winner model: estimates P(finish k-th) for every runner and compares the

@@ -695,7 +695,9 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
   const [places, setPlaces] = useState(first?.places || (std.places || 3) + (extra || 0));
   const [fraction, setFraction] = useState(first ? fractionLabel(first.fraction) : fractionLabel(std.fraction || 0.2));
   const [oddsText, setOddsText] = useState("");
-  const [stake, setStake] = useState("10");
+  // Stake each way, as bookmakers quote it: "£5 each-way" = £5 win + £5 place = £10 in total.
+  const [stakeEach, setStakeEach] = useState("5");
+  const stake = String(2 * (parseFloat(stakeEach) || 0));
   const [paper, setPaper] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -806,9 +808,10 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
             <div className="flex gap-2">{["1/4", "1/5", "1/6"].map((f) => <button key={f} onClick={() => setFraction(f)} style={chip(f === fraction)} className="num text-xs font-semibold px-2.5 py-1.5 rounded-lg">{f}</button>)}</div>
           </div>
           <div>
-            {label("Total stake (EW)")}
-            <input value={stake} onChange={(e) => setStake(e.target.value)} inputMode="decimal"
+            {label("Stake each way")}
+            <input value={stakeEach} onChange={(e) => setStakeEach(e.target.value)} inputMode="decimal"
               style={{ background: c.cardAlt, border: "1px solid " + c.border, color: c.text }} className="w-full rounded-lg px-3 py-2 text-sm num outline-none" />
+            <p style={{ color: c.textMuted }} className="text-[10px] mt-1 num">£{(parseFloat(stakeEach) || 0).toFixed(2)} win + £{(parseFloat(stakeEach) || 0).toFixed(2)} place = £{(2 * (parseFloat(stakeEach) || 0)).toFixed(2)} total</p>
           </div>
         </div>
         <LayChooser ui={ui} mode={layMode} setMode={setLayMode} placeLayText={placeLayText} setPlaceLayText={setPlaceLayText}

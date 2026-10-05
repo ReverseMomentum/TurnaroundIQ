@@ -1900,7 +1900,7 @@ function BetRow({ b, onClick }) {
         </div>
       </div>
       <div style={{ borderTop: "1px solid " + c.border }} className="flex items-center justify-between pt-3 text-xs">
-        <span style={{ color: c.textSecondary }} className="num">£{Number(b.stake || 0).toFixed(2)} @ <span style={{ color: c.green }} className="font-semibold">{b.back_odds ? Number(b.back_odds).toFixed(2) : "—"}</span>{b.lay_odds ? <> · lay <span style={{ color: c.cyan }} className="font-semibold">{Number(b.lay_odds).toFixed(2)}</span></> : null}{b.place_lay_odds ? <> · place lay <span style={{ color: c.cyan }} className="font-semibold">{Number(b.place_lay_odds).toFixed(2)}</span></> : null}</span>
+        <span style={{ color: c.textSecondary }} className="num">{isRacingBet(b) ? `£${(Number(b.stake || 0) / 2).toFixed(2)} EW` : `£${Number(b.stake || 0).toFixed(2)}`} @ <span style={{ color: c.green }} className="font-semibold">{b.back_odds ? Number(b.back_odds).toFixed(2) : "—"}</span>{b.lay_odds ? <> · lay <span style={{ color: c.cyan }} className="font-semibold">{Number(b.lay_odds).toFixed(2)}</span></> : null}{b.place_lay_odds ? <> · place lay <span style={{ color: c.cyan }} className="font-semibold">{Number(b.place_lay_odds).toFixed(2)}</span></> : null}</span>
         <span style={{ color: c.textMuted }}>{isOpen ? "Opened " + dateStr(b.created_at) : "Settled " + dateStr(b.settled_at)}</span>
       </div>
     </button>
@@ -2055,7 +2055,8 @@ function BetEditSheet({ bet, onClose, onChanged, live }) {
   if (bet && bet.id !== lastId) {
     setLastId(bet.id);
     setForm({
-      stake: String(bet.stake ?? ""), back_odds: bet.back_odds ? Number(bet.back_odds).toFixed(2) : "",
+      // racing: stake shown each way (half the stored total), as bookmakers quote it
+      stake: bet.stake == null ? "" : String(bet.product === "stables" ? Number(bet.stake) / 2 : bet.stake), back_odds: bet.back_odds ? Number(bet.back_odds).toFixed(2) : "",
       lay_odds: bet.lay_odds ? Number(bet.lay_odds).toFixed(2) : "", commission: String(bet.commission ?? 2),
       bookmaker: bet.bookmaker || "",
     });
@@ -2078,7 +2079,7 @@ function BetEditSheet({ bet, onClose, onChanged, live }) {
     }
   };
   const save = () => run(() => api.editTracked(bet.id, {
-    stake: parseFloat(form.stake) || undefined, back_odds: parseFloat(form.back_odds) || undefined,
+    stake: (parseFloat(form.stake) || 0) * (bet.product === "stables" ? 2 : 1) || undefined, back_odds: parseFloat(form.back_odds) || undefined,
     lay_odds: parseFloat(form.lay_odds) || undefined, commission: form.commission === "" ? undefined : parseFloat(form.commission),
     bookmaker: form.bookmaker || undefined,
   }));
@@ -2101,7 +2102,7 @@ function BetEditSheet({ bet, onClose, onChanged, live }) {
 
       <SectionLabel>Your bet</SectionLabel>
       <div className="grid grid-cols-2 gap-2 mb-2">
-        <NumField label={racing ? "Total stake (EW)" : "Stake"} prefix="£" value={form.stake} onChange={set("stake")} step="1" />
+        <NumField label={racing ? "Stake each way" : "Stake"} prefix="£" value={form.stake} onChange={set("stake")} step="1" />
         {!racing && <NumField label="Commission %" value={form.commission} onChange={set("commission")} step="0.1" />}
         <NumField label={racing ? "Win odds (decimal)" : "Back odds"} value={form.back_odds} onChange={set("back_odds")} tone={c.green} />
         {!racing && <NumField label="Lay odds" value={form.lay_odds} onChange={set("lay_odds")} tone={c.cyan} />}

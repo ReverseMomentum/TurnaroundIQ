@@ -385,6 +385,64 @@ def _ou_features(ou):
         return {"mkt_over25": float("nan"), "has_ou": 0}
 
 
+# --- head-to-head (tested by `h2h-test`; not used by the live model unless it wins) ---
+
+H2H_HALF_LIFE = 730.0   # meetings fade more slowly than form: they are rare
+K_H2H = 4.0             # pseudo-meetings of "what form/league says" mixed into thin H2H records
+H2H_FEATURES = ["h2h_log_n", "h2h_goals", "h2h_2up", "h2h_t_2up", "h2h_fta"]
+
+
+class H2H:
+    """Decayed record of one pairing: meetings, goals, how often anyone went 2 up,
+    how often a 2-goal lead was thrown away, and each team's own 2-ups."""
+    __slots__ = ("day", "n", "goals", "up2_any", "fta_any", "t_up2")
+
+    def __init__(self):
+        self.day, self.n, self.goals, self.up2_any, self.fta_any = None, 0.0, 0.0, 0.0, 0.0
+        self.t_up2 = {}
+
+    def decay_to(self, day):
+        if self.day is not None and day > self.day:
+            f = 0.5 ** ((day - self.day) / H2H_HALF_LIFE)
+            self.n *= f
+            self.goals *= f
+            self.up2_any *= f
+            self.fta_any *= f
+            self.t_up2 = {k: v * f for k, v in self.t_up2.items()}
+        self.day = day if self.day is None else max(self.day, day)
+
+
+def _pair(a, b):
+    return (a, b) if a < b else (b, a)
+
+
+def h2h_features(h, team, f):
+    """Pre-match H2H inputs for `team`, shrunk towards what form and league already say."""
+    n = h.n if h else 0.0
+    p2 = min(1.0, 2 * f["lg_2up_rate"])                    # someone goes 2 up in a game
+    pfta = 2 * f["lg_2up_rate"] * f["lg_fail_rate"]          # someone throws a 2-goal lead
+    return {
+        "h2h_log_n": math.log1p(n),
+        "h2h_goals": ((h.goals if h else 0.0) + K_H2H * f["lg_goals"]) / (n + K_H2H),
+        "h2h_2up": ((h.up2_any if h else 0.0) + K_H2H * p2) / (n + K_H2H),
+        "h2h_t_2up": ((h.t_up2.get(team, 0.0) if h else 0.0) + K_H2H * f["t_2up_rate"]) / (n + K_H2H),
+        "h2h_fta": ((h.fta_any if h else 0.0) + K_H2H * pfta) / (n + K_H2H),
+        "h2h_raw_n": n,
+    }
+
+
+def _update_h2h(pairs, m):
+    h = pairs[_pair(m["home"], m["away"])]
+    h.decay_to(m["day"])
+    s1, s2 = m["sides"][1], m["sides"][2]
+    h.n += 1
+    h.goals += m["fh"] + m["fa"]
+    h.up2_any += int(bool(s1["up2"] or s2["up2"]))
+    h.fta_any += int(bool(s1["up2"]) and m["fh"] <= m["fa"]) + int(bool(s2["up2"]) and m["fa"] <= m["fh"])
+    for team, s in ((m["home"], s1), (m["away"], s2)):
+        h.t_up2[team] = h.t_up2.get(team, 0.0) + int(s["up2"])
+
+
 def replay(matches, collect=True):
     """
     Walk matches in date order. Features for each side use state BEFORE the
@@ -393,10 +451,14 @@ def replay(matches, collect=True):
     """
     teams = defaultdict(Decayed)
     leagues = defaultdict(Decayed)
+    pairs = defaultdict(H2H)
     rows = []
     for m in matches:
         day = m["day"]
         if collect:
+            h = pairs.get(_pair(m["home"], m["away"]))
+            if h is not None:
+                h.decay_to(day)
             lg = leagues[m["league"]]
             lg.decay_to(day)
             for side, team, opp, is_home, won in (
@@ -412,7 +474,9 @@ def replay(matches, collect=True):
                          up2=int(s["up2"]), fail=int(bool(s["up2"]) and not won))
                 f.update(_odds_features(m.get("odds"), side))
                 f.update(_ou_features(m.get("ou")))
+                f.update(h2h_features(h, team, f))
                 rows.append(f)
+            _update_h2h(pairs, m)
         _update(teams, leagues, m)
     return rows, teams, leagues
 
@@ -1006,9 +1070,59 @@ def _copy(s):
     return c
 
 
+def h2h_test(frac=0.15):
+    """Does head-to-head history help? Same held-back latest matches, with and without
+    H2H inputs, plus: does the current model over-flag low-scoring matchups?"""
+    from sklearn.metrics import log_loss, roc_auc_score
+
+    rows, _, _ = replay(load_matches())
+    rows = sorted(rows, key=lambda r: r["day"])
+    cut = int(len(rows) * (1 - frac))
+    train_rows, test_rows = rows[:cut], rows[cut:]
+    y = np.array([r["fail"] for r in test_rows])
+    preds = {}
+    for label, feats in (("current inputs", BASE_FEATURES), ("+ head-to-head", BASE_FEATURES + H2H_FEATURES)):
+        ma, mb, _, _ = _fit_pair(train_rows, feats)
+        Xt, _, _ = _xy(test_rows, "up2", feats=feats)
+        preds[label] = _predict_stage(ma, None, Xt) * _predict_stage(mb, None, Xt)
+
+    def ll(mask, p):
+        return float(log_loss(y[mask], np.clip(p[mask], 1e-6, 1 - 1e-6), labels=[0, 1]))
+
+    n_meet = np.array([r["h2h_raw_n"] for r in test_rows])
+    everyone = np.ones(len(y), dtype=bool)
+    often = n_meet >= 3
+    print(f"held-back latest {int(frac * 100)}%: {len(y)} team-sides; {int(often.sum())} with 3+ earlier meetings")
+    print(f"  {'':<16}{'log loss all':>14}{'AUC all':>9}{'log loss 3+ meetings':>22}")
+    res = {}
+    for label, p in preds.items():
+        res[label] = {"ll": ll(everyone, p), "auc": float(roc_auc_score(y, p)),
+                      "ll_often": ll(often, p) if often.sum() > 200 else None}
+        lo = res[label]["ll_often"]
+        print(f"  {label:<16}{res[label]['ll']:>14.5f}{res[label]['auc']:>9.3f}"
+              f"{(f'{lo:.5f}' if lo is not None else 'too few'):>22}")
+    a, b = res["current inputs"], res["+ head-to-head"]
+    keep = b["ll"] < a["ll"] - 1e-5 and b["auc"] >= a["auc"] - 0.002
+    print(f"  -> head-to-head {'HELPS: worth adding to the live model' if keep else 'does NOT help overall'}")
+
+    # The specific worry: are low-scoring matchups over-flagged by the current model?
+    base = preds["current inputs"]
+    g = np.array([r["h2h_goals"] for r in test_rows])
+    if often.sum() > 300:
+        q1, q2 = np.quantile(g[often], [1 / 3, 2 / 3])
+        print("\nCurrent model on matchups with 3+ earlier meetings, by how high-scoring those meetings were:")
+        print(f"  {'head-to-head goals':<24}{'sides':>7}{'predicted FTA':>15}{'actual FTA':>12}")
+        for name, mask in (("low-scoring", often & (g <= q1)), ("middle", often & (g > q1) & (g <= q2)),
+                           ("high-scoring", often & (g > q2))):
+            if mask.sum():
+                print(f"  {name:<24}{int(mask.sum()):>7}{100 * base[mask].mean():>14.2f}%{100 * y[mask].mean():>11.2f}%")
+        print("  If 'low-scoring' shows predicted well above actual, the model over-flags those matchups.")
+    return res
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["train", "walk-forward", "odds-test", "compare"])
+    parser.add_argument("command", choices=["train", "walk-forward", "odds-test", "compare", "h2h-test"])
     parser.add_argument("--folds", type=int, default=5)
     args = parser.parse_args(argv)
     if args.command == "train":
@@ -1017,6 +1131,8 @@ def main(argv=None):
         odds_test(folds=args.folds)
     elif args.command == "compare":
         compare(folds=args.folds)
+    elif args.command == "h2h-test":
+        h2h_test()
     else:
         walk_forward(folds=args.folds)
 

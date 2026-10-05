@@ -283,3 +283,13 @@ def test_train_records_recency_choice(sim_db):
     assert bundle["cal_half_life_days"] in pm.RECENCY_OPTIONS
     assert set(bundle["selection"]["recency"]) >= {"equal"}
     pm.walk_forward(folds=3)
+
+
+def test_h2h_features_point_in_time_and_shrunk(sim_db):
+    rows, _, _ = pm.replay(pm.load_matches())
+    assert all(k in rows[0] for k in pm.H2H_FEATURES)
+    assert rows[0]["h2h_raw_n"] == 0                       # first meeting: nothing known yet
+    later = [r for r in rows if r["h2h_raw_n"] > 2]
+    assert later and all(0 <= r["h2h_2up"] <= 1 and r["h2h_goals"] > 0 for r in later)
+    res = pm.h2h_test()
+    assert set(res) == {"current inputs", "+ head-to-head"}

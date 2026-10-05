@@ -23,6 +23,16 @@ export function ukPriceAtLeast(d) {
 }
 /** Bookmaker extra-place offers on a race (the engine adds a generic "Best price" one when there are none). */
 const realOffers = (race) => (race.offers || []).filter((t) => t.bookmaker !== "Best price");
+/** Offers grouped by terms: [{ key, places, fraction, books: [names] }], most places first. */
+const groupOffers = (offers) => {
+  const m = new Map();
+  for (const t of offers) {
+    const key = `${t.places}|${fractionLabel(t.fraction)}`;
+    if (!m.has(key)) m.set(key, { key, places: t.places, fraction: t.fraction, books: [] });
+    m.get(key).books.push(t.bookmaker);
+  }
+  return [...m.values()].sort((a, b) => b.places - a.places || b.fraction - a.fraction);
+};
 const shortBook = (b) => (b.length > 9 ? b.slice(0, 8) + "…" : b);
 const offerKey = (o) => `${o.race_id || ""}|${o.horse}|${o.bookmaker}`;
 
@@ -147,9 +157,11 @@ function OpportunityCard({ ui, o, highlight }) {
 function RunnerTable({ ui, race, extra, onOpen }) {
   const { c } = ui;
   const th = { color: c.textMuted, letterSpacing: "0.1em" };
-  const offers = realOffers(race).slice(0, 3);
-  const valueCols = offers.length
-    ? offers.map((t) => ({ key: t.bookmaker, label: `${shortBook(t.bookmaker)} ${t.places}pl`, get: (r) => r.offer_value_from?.[t.bookmaker] }))
+  // one column per set of terms (bookmakers with the same terms share a value line)
+  const groups = groupOffers(realOffers(race)).slice(0, 3);
+  const valueCols = groups.length
+    ? groups.map((g) => ({ key: g.key, label: g.books.length === 1 ? `${shortBook(g.books[0])} ${g.places}pl` : `${g.places}pl ${fractionLabel(g.fraction)}`,
+        get: (r) => r.offer_value_from?.[g.books[0]] }))
     : extra != null && race.standard_terms?.fraction > 0
       ? [{ key: "generic", label: "Value from", get: (r) => r.value_from?.[String(extra)] }]
       : [];
@@ -202,8 +214,10 @@ function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen }) {
   const { c, card } = ui;
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showBooks, setShowBooks] = useState(false);
   const strong = race.opportunities.filter((o) => o.grade === "A" || o.grade === "B").length;
   const offers = realOffers(race);
+  const groups = groupOffers(offers);
   const remove = async (bookmaker) => {
     setBusy(true);
     try {
@@ -230,25 +244,46 @@ function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen }) {
           <ChevronDown size={16} style={{ color: c.textMuted, transform: open ? "rotate(180deg)" : "none" }} />
         </span>
       </button>
-      {offers.length > 0 && (
+      {(groups.length > 0 || race.inactive_offers?.length > 0) && (
         <div className="flex flex-wrap gap-1.5 mt-2">
-          {offers.map((t) => (
-            <span key={t.bookmaker} style={{ color: c.green, border: "1px solid rgba(54,233,143,0.35)", background: "rgba(54,233,143,0.06)" }}
-              className="text-[11px] font-semibold px-2 py-1 rounded-md flex items-center gap-1.5">
-              {t.bookmaker} · {t.places} places {fractionLabel(t.fraction)}
-              {canEdit && (
-                <button disabled={busy} onClick={() => remove(t.bookmaker)} aria-label={`Remove ${t.bookmaker} offer`} style={{ color: c.textMuted }}>
-                  <X size={12} />
-                </button>
-              )}
-            </span>
+          {groups.map((g) => (
+            <button key={g.key} onClick={() => setShowBooks(!showBooks)} style={{ color: c.green, border: "1px solid rgba(54,233,143,0.35)", background: "rgba(54,233,143,0.06)" }}
+              className="text-[11px] font-semibold px-2 py-1 rounded-md">
+              {g.places} places {fractionLabel(g.fraction)} · {g.books.length === 1 ? g.books[0] : `${g.books.length} bookmakers`}
+            </button>
           ))}
+          {race.inactive_offers?.length > 0 && (
+            <button onClick={() => setShowBooks(!showBooks)} style={{ color: c.textMuted, border: "1px solid " + c.border }}
+              className="text-[11px] font-medium px-2 py-1 rounded-md">
+              +{race.inactive_offers.length} need more runners
+            </button>
+          )}
         </div>
       )}
-      {race.inactive_offers?.length > 0 && (
-        <p style={{ color: c.textMuted }} className="text-[11px] mt-1.5">
-          Not standing with {race.field_size} runners: {race.inactive_offers.map((t) => `${t.bookmaker} (${t.min_runners}+)`).join(", ")}
-        </p>
+      {showBooks && (
+        <div style={{ borderTop: "1px solid " + c.border }} className="mt-2 pt-2 flex flex-col gap-1.5">
+          {groups.map((g) => (
+            <div key={g.key} className="text-[11px] leading-relaxed">
+              <span style={{ color: c.green }} className="font-semibold">{g.places} places {fractionLabel(g.fraction)}: </span>
+              {g.books.map((b, i) => (
+                <span key={b} style={{ color: c.textSecondary }} className="inline-flex items-center gap-0.5">
+                  {b}
+                  {canEdit && (
+                    <button disabled={busy} onClick={() => remove(b)} aria-label={`Remove ${b} offer`} style={{ color: c.textMuted }} className="px-0.5">
+                      <X size={11} />
+                    </button>
+                  )}
+                  {i < g.books.length - 1 ? "," : ""}&nbsp;
+                </span>
+              ))}
+            </div>
+          ))}
+          {race.inactive_offers?.length > 0 && (
+            <p style={{ color: c.textMuted }} className="text-[11px]">
+              Not standing with {race.field_size} runners: {race.inactive_offers.map((t) => `${t.bookmaker} (${t.min_runners}+)`).join(", ")}
+            </p>
+          )}
+        </div>
       )}
       {open && (
         <div className="mt-3">
@@ -795,11 +830,17 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
       <RunnerFacts ui={ui} runner={runner} />
       <SectionLabel>Value from</SectionLabel>
       <div className="flex flex-wrap gap-2 mb-4">
-        {offers.map((t) => (
-          <button key={t.bookmaker} onClick={() => pickOffer(t)} style={chip(book === t.bookmaker)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">
-            {t.bookmaker} {t.places}pl {fractionLabel(t.fraction)}: <span className="num">{runner.offer_value_from?.[t.bookmaker] ? ukPriceAtLeast(runner.offer_value_from[t.bookmaker]) + "+" : "—"}</span>
-          </button>
-        ))}
+        {groupOffers(offers).map((g) => {
+          const vf = runner.offer_value_from?.[g.books[0]];
+          const on = g.books.includes(book.trim()) && places === g.places && fraction === fractionLabel(g.fraction);
+          // same terms = same value line; picking keeps your bookmaker if it is one of them
+          const pick = () => pickOffer({ bookmaker: g.books.includes(book.trim()) ? book.trim() : g.books[0], places: g.places, fraction: g.fraction });
+          return (
+            <button key={g.key} onClick={pick} style={chip(on)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">
+              {g.books.length === 1 ? g.books[0] : `${g.books.length} bookmakers`} {g.places}pl {fractionLabel(g.fraction)}: <span className="num">{vf ? ukPriceAtLeast(vf) + "+" : "—"}</span>
+            </button>
+          );
+        })}
         {[0, 1, 2, 3].filter((x) => runner.value_from?.[String(x)] !== undefined).map((x) => (
           <span key={x} style={{ border: "1px solid " + c.border, color: c.textSecondary }} className="text-xs px-3 py-1.5 rounded-lg">
             {(std.places || 0) + x}pl {fractionLabel(std.fraction)}: <span className="num">{runner.value_from[String(x)] ? ukPriceAtLeast(runner.value_from[String(x)]) + "+" : "—"}</span>

@@ -24,10 +24,9 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "data" / "bsp"
-HOSTS = ("https://promo.betfair.com", "https://www.betfairpromo.com")
+HOSTS = ("https://promo.betfair.com",)   # www.betfairpromo.com now answers with a web page, not the files
 PATH = "/betfairsp/prices/dwbfprices{region}{market}{d}.csv"
-HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                         "Chrome/124.0 Safari/537.36", "Accept": "text/csv,text/plain,*/*"}
+HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "*/*"}   # what a plain curl test got 200 with
 failures: list = []
 _session = None
 

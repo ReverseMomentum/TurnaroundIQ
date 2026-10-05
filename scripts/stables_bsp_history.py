@@ -13,8 +13,9 @@ refuses non-UK servers):
 
 Defaults: from the day after the last Kaggle race on file (else 2021-01-01) to
 the day before our own Betfair results start (else yesterday). Files are cached
-in data/bsp/, so a stopped run carries on where it left off. Roughly 4 files a
-day: about 1-3 hours for five years.
+in data/bsp/, so a stopped run carries on where it left off. It works from the
+newest day back and stops where the archive does (30 days in a row without
+files). Roughly 4 files a day: about 1-3 hours for five years.
 """
 import argparse
 import os
@@ -49,8 +50,9 @@ def main():
     start, end = a.since or start, a.until or end
     proxy = os.environ.get("BETFAIR_PROXY", "").strip()
     print(f"BSP history {start} to {end}, {'via ' + proxy if proxy else 'no proxy (BETFAIR_PROXY not set)'}", flush=True)
-    day, month, races, runners, empty_days = start, None, 0, 0, 0
-    while day <= end:
+    # Newest first: recent runs matter most, and the archive may not reach back to the start date.
+    day, month, races, runners, empty_days, tried = end, None, 0, 0, 0, 0
+    while day >= start:
         found = False
         for region in ("uk", "ire"):
             win = bsp_files.fetch(region, "win", day)
@@ -62,17 +64,22 @@ def main():
                 store.add_history(rows)
                 races += len({r["race_ref"] for r in rows})
                 runners += len(rows)
+        tried += 1
         empty_days = 0 if found else empty_days + 1
-        if empty_days == 10 and day - start < timedelta(days=10):
-            print("no files for the first 10 days. First failures:")
+        if empty_days == 10 and tried == 10:
+            print("no files for the 10 most recent days. First failures:")
             for f in bsp_files.failures[:4]:
                 print("  " + f)
             print("HTTP 403: run it through scripts/cron_job.sh so BETFAIR_PROXY (the UK link) is used.")
             sys.exit(1)
+        if empty_days >= 30:
+            print(f"no files for 30 days in a row before {day + timedelta(days=30)}: "
+                  "the archive seems to stop there.", flush=True)
+            break
         if day.strftime("%Y-%m") != month and month is not None:
             print(f"  {month}: {races} races, {runners} runners so far", flush=True)
         month = day.strftime("%Y-%m")
-        day += timedelta(days=1)
+        day -= timedelta(days=1)
     print(f"done: {races} races, {runners} runner rows added to rac_history", flush=True)
     if not races and bsp_files.failures:
         print("nothing downloaded. First failures:", *bsp_files.failures[:3], sep="\n  ")

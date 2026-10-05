@@ -1071,7 +1071,7 @@ def test_full_lay_win_and_place_extra_place_settles():
     assert bet["snapshot"]["lay"]["mode"] == "full" and "place lay (3 pl)" in bet["notes"]
     assert bet["liability"] == pytest.approx(bet["lay_stake"] * 16 + lp * 3, abs=0.05)
     part = racing_bets.track("u_f", race["race_id"], "Horse 6", "Book Z", 16.0, 10, 5, "1/5",
-                             lay_mode="win", lay_odds=17.0, commission=2)
+                             lay_mode="win", lay_odds=17.0, commission=2, lay_pct=100)
     assert part["lay_stake"] == pytest.approx(lw, abs=0.01) and part["place_lay_stake"] is None
     # Horse 6 placed 4th: inside the 5 paid places, outside the 3 standard ones -> extra place
     hid = {r["name"]: r["horse_id"] for r in race["runners"]}

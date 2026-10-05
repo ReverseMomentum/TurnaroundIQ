@@ -58,6 +58,20 @@ python -u run.py train           # picks the input set, calibrates, saves fta_pa
 python -u run.py walk-forward    # honest check of the trained input set
 ```
 
+### Match context and head-to-head tests
+
+- `python -u models/fta_path_model.py context-test`: rest days (since each team's last
+  match), time of season (league-specific, new season = first game after a 30-day
+  gap), youth football (youth league or U21/Res/Jong sides, with interactions).
+  Each group alone and together on the latest 15%. `train` adds the context group
+  only if it beats the current inputs on those games.
+- `python -u models/fta_path_model.py h2h-test`: head-to-head record per pairing.
+  Real run (Oct 2026): no gain, and low-scoring matchups were not over-flagged.
+- `odds-test` real run (Oct 2026): 1X2 odds sharpen both stages but the full event
+  only +0.003 AUC (favourites go 2 up more and throw it away less): not used.
+- The scorecard's `prediction_log` also stores the bookmaker back and Betfair
+  back/lay at kick-off, for a later test of exchange prices as an input.
+
 ### Live turnaround model (cash-out calculator)
 
 `models/live_turnaround.py`: once a team has been 2 up, the chance it still fails

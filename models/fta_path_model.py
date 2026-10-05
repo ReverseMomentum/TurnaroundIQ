@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 import sys
 import threading
 import time
@@ -247,11 +248,14 @@ TEAM_KEYS = ("n", "up2", "fail", "minute_sum", "down2", "rescue", "gf", "ga",
 
 
 class Decayed:
-    __slots__ = ("day", "raw_n") + TEAM_KEYS
+    # last_day: the team's (or league's) last match; season_start: league only
+    __slots__ = ("day", "raw_n", "last_day", "season_start") + TEAM_KEYS
 
     def __init__(self):
         self.day = None
         self.raw_n = 0
+        self.last_day = None
+        self.season_start = None
         for k in TEAM_KEYS:
             setattr(self, k, 0.0)
 
@@ -359,8 +363,12 @@ def _update(teams, leagues, m):
         )
         teams[team].decay_to(day)
         teams[team].add(**vals)
+        teams[team].last_day = day
         lg.decay_to(day)
         lg.add(**vals)
+    if lg.last_day is None or day - lg.last_day > SEASON_GAP_DAYS:
+        lg.season_start = day   # first game after a long break: a new season
+    lg.last_day = day
 
 
 def _odds_features(odds, side):
@@ -414,6 +422,37 @@ class H2H:
 
 def _pair(a, b):
     return (a, b) if a < b else (b, a)
+
+
+# --- match context (rest, time of season, youth football) ----------------------
+
+SEASON_GAP_DAYS = 30
+CONTEXT_FEATURES = ["t_rest", "o_rest", "rest_diff", "season_frac", "late_season",
+                    "youth", "youth_x_fail", "youth_x_rescue"]
+_YOUTH_NAME = re.compile(r"\b(u ?1[6-9]|u ?2[0-3]|res\.?|reserves|jong|ii)\b", re.I)
+_YOUTH_LEAGUE = re.compile(r"(premier league 2|professional development|u ?1[6-9]|u ?2[0-3]|youth|primavera)", re.I)
+
+
+def _rest(state, day):
+    """Days since the last match, capped (a summer break is just 'rested')."""
+    if state is None or state.last_day is None:
+        return 10.0
+    return float(min(max(day - state.last_day, 0), 21))
+
+
+def context_features(t, o, lg, day, league, team, opp, f):
+    """Point-in-time context: rest days, how far into its season the league is,
+    and youth football (where leads are thrown away differently)."""
+    tr, orr = _rest(t, day), _rest(o, day)
+    if lg is None or lg.last_day is None or lg.season_start is None or day - lg.last_day > SEASON_GAP_DAYS:
+        frac = 0.0
+    else:
+        frac = min((day - lg.season_start) / 280.0, 1.0)
+    youth = 1.0 if (_YOUTH_LEAGUE.search(league or "") or _YOUTH_NAME.search(team or "")
+                    or _YOUTH_NAME.search(opp or "")) else 0.0
+    return {"t_rest": tr, "o_rest": orr, "rest_diff": tr - orr, "season_frac": frac,
+            "late_season": 1.0 if frac >= 0.8 else 0.0, "youth": youth,
+            "youth_x_fail": youth * f["t_fail_rate"], "youth_x_rescue": youth * f["o_rescue_rate"]}
 
 
 def h2h_features(h, team, f):
@@ -475,6 +514,7 @@ def replay(matches, collect=True):
                 f.update(_odds_features(m.get("odds"), side))
                 f.update(_ou_features(m.get("ou")))
                 f.update(h2h_features(h, team, f))
+                f.update(context_features(t, o, lg, day, m["league"], team, opp, f))
                 rows.append(f)
             _update_h2h(pairs, m)
         _update(teams, leagues, m)
@@ -702,6 +742,13 @@ def train(save=True):
         feats += BEHAVIOUR_FEATURES
         holdout = h_beh
 
+    print("\nMatch context (rest days, time of season, youth football):")
+    h_ctx = _holdout_score(rows, feats=feats + CONTEXT_FEATURES)
+    context_used = _choose("without context", holdout, "+ context", h_ctx)
+    if context_used:
+        feats += CONTEXT_FEATURES
+        holdout = h_ctx
+
     print("\nRecency weighting (recent seasons count more when fitting):")
     half_life, recency = choose_recency(rows, feats, holdout)
     holdout = recency[_hl_label(half_life)]
@@ -754,7 +801,8 @@ def train(save=True):
         "base_full": float(np.mean([r["fail"] for r in rows])),
         "holdout": holdout,
         "selection": {"base": h_base, "behaviour": h_beh,
-                      "behaviour_used": feats != BASE_FEATURES, "ou": ou_report,
+                      "behaviour_used": any(k in feats for k in BEHAVIOUR_FEATURES), "ou": ou_report,
+                      "context": h_ctx, "context_used": context_used,
                       "recency": recency, "calibration_recency": cal_test},
         "calibration_gap": {"before": ece_raw, "after": ece_cal},
     }
@@ -1024,7 +1072,10 @@ def prematch_features(team, opponent, league, is_home, as_of=None):
     for s in (t2, o2, lg2):
         if s.day is not None:
             s.decay_to(day)
-    return features_for(t2, o2, lg2, is_home), t, o
+    f = features_for(t2, o2, lg2, is_home)
+    f.update(context_features(t2, o2, lg2, day, league or "", normalize_team(team),
+                              normalize_team(opponent), f))
+    return f, t, o
 
 
 def predict_fixture(team, opponent, league, is_home, as_of=None, market=None):
@@ -1065,6 +1116,7 @@ def predict_fixture(team, opponent, league, is_home, as_of=None, market=None):
 def _copy(s):
     c = Decayed()
     c.day, c.raw_n = s.day, s.raw_n
+    c.last_day, c.season_start = s.last_day, s.season_start
     for k in TEAM_KEYS:
         setattr(c, k, getattr(s, k))
     return c
@@ -1120,9 +1172,31 @@ def h2h_test(frac=0.15):
     return res
 
 
+def context_test(frac=0.15):
+    """Each context group on its own and all together, same held-back latest matches."""
+    rows, _, _ = replay(load_matches())
+    groups = {"rest days": ["t_rest", "o_rest", "rest_diff"],
+              "time of season": ["season_frac", "late_season"],
+              "youth football": ["youth", "youth_x_fail", "youth_x_rescue"],
+              "all context": CONTEXT_FEATURES}
+    base = _holdout_score(rows, frac, feats=BASE_FEATURES)
+    print(f"held-back latest {int(frac * 100)}%: {base['n']} team-sides")
+    print(f"  {'inputs':<26}{'log loss':>10}{'AUC':>8}")
+    print(f"  {'current inputs':<26}{base['log_loss']:>10.5f}{base['auc']:>8.3f}")
+    out = {"current inputs": base}
+    for name, extra in groups.items():
+        h = _holdout_score(rows, frac, feats=BASE_FEATURES + extra)
+        better = h["log_loss"] < base["log_loss"] - 1e-5 and h["auc"] >= base["auc"] - 0.002
+        print(f"  {'+ ' + name:<26}{h['log_loss']:>10.5f}{h['auc']:>8.3f}  {'helps' if better else '-'}")
+        out[name] = h
+    print("`train` adds the context group only if it beats the current inputs on these same games.")
+    return out
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["train", "walk-forward", "odds-test", "compare", "h2h-test"])
+    parser.add_argument("command", choices=["train", "walk-forward", "odds-test", "compare", "h2h-test",
+                                                "context-test"])
     parser.add_argument("--folds", type=int, default=5)
     args = parser.parse_args(argv)
     if args.command == "train":
@@ -1133,6 +1207,8 @@ def main(argv=None):
         compare(folds=args.folds)
     elif args.command == "h2h-test":
         h2h_test()
+    elif args.command == "context-test":
+        context_test()
     else:
         walk_forward(folds=args.folds)
 

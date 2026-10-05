@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS prediction_log (
     PRIMARY KEY (match_id, team)
 )
 """
+# prices next to each prediction (the last values before kick-off win), so a later
+# test can ask whether exchange prices near kick-off add anything to the model
+PRICE_COLUMNS = {"book_back": "REAL", "exch_back": "REAL", "exch_back_size": "REAL",
+                 "exch_lay": "REAL", "exch_lay_size": "REAL", "exch_at": "TEXT"}
 BANDS = [(0, 1), (1, 1.8), (1.8, 2.5), (2.5, 3), (3, 4), (4, 100)]
 APP_FLOOR = 1.8   # the Picks page minimum
 
@@ -42,6 +46,10 @@ def ensure_table(conn=None):
     own = conn is None
     conn = conn or get_db()
     conn.execute(DDL)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(prediction_log)")}
+    for name, typ in PRICE_COLUMNS.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE prediction_log ADD COLUMN {name} {typ}")
     conn.commit()
     if own:
         conn.close()
@@ -64,21 +72,32 @@ def log_predictions(opportunities, now=None):
             continue
         is_home = 1 if o["team"] == o.get("home_team") else 0
         opponent = o.get("away_team") if is_home else o.get("home_team")
+        ex = o.get("exchange") or {}
+        book = o.get("back_odds") if not o.get("odds_estimated") else None
         rows.append((str(o["match_id"]), o["team"], opponent, o.get("league") or "", is_home,
                      str(o.get("kickoff")), float(o["fta_pct"]), o.get("two_up_pct"),
-                     o.get("turnaround_pct"), o.get("model_version"), now.isoformat()))
+                     o.get("turnaround_pct"), o.get("model_version"), now.isoformat(),
+                     book, ex.get("back"), ex.get("back_size"), ex.get("lay"), ex.get("lay_size"),
+                     ex.get("updated_at")))
     if not rows:
         return 0
     conn = get_db()
     ensure_table(conn)
     conn.executemany(
         """INSERT INTO prediction_log (match_id, team, opponent, league, is_home, kickoff,
-               fta_pct, two_up_pct, fail_pct, model_version, logged_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)
+               fta_pct, two_up_pct, fail_pct, model_version, logged_at,
+               book_back, exch_back, exch_back_size, exch_lay, exch_lay_size, exch_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(match_id, team) DO UPDATE SET
                fta_pct=excluded.fta_pct, two_up_pct=excluded.two_up_pct,
                fail_pct=excluded.fail_pct, model_version=excluded.model_version,
-               kickoff=excluded.kickoff, logged_at=excluded.logged_at""",
+               kickoff=excluded.kickoff, logged_at=excluded.logged_at,
+               book_back=COALESCE(excluded.book_back, prediction_log.book_back),
+               exch_back=COALESCE(excluded.exch_back, prediction_log.exch_back),
+               exch_back_size=COALESCE(excluded.exch_back_size, prediction_log.exch_back_size),
+               exch_lay=COALESCE(excluded.exch_lay, prediction_log.exch_lay),
+               exch_lay_size=COALESCE(excluded.exch_lay_size, prediction_log.exch_lay_size),
+               exch_at=COALESCE(excluded.exch_at, prediction_log.exch_at)""",
         rows,
     )
     conn.commit()

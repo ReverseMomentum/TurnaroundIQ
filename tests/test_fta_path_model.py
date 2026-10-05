@@ -293,3 +293,20 @@ def test_h2h_features_point_in_time_and_shrunk(sim_db):
     assert later and all(0 <= r["h2h_2up"] <= 1 and r["h2h_goals"] > 0 for r in later)
     res = pm.h2h_test()
     assert set(res) == {"current inputs", "+ head-to-head"}
+
+
+def test_context_features_point_in_time(sim_db):
+    rows, _, _ = pm.replay(pm.load_matches())
+    first = rows[0]
+    assert first["t_rest"] == 10.0 and first["season_frac"] == 0.0     # nothing played yet
+    later = rows[-1]
+    assert 0 <= later["t_rest"] <= 21 and 0 <= later["season_frac"] <= 1
+    assert all(r["youth"] == 0 for r in rows)                          # "Sim League", senior names
+    youth = pm.context_features(None, None, None, 1000, "Premier League 2", "Arsenal U21", "Chelsea U21",
+                                {"t_fail_rate": 0.1, "o_rescue_rate": 0.2})
+    assert youth["youth"] == 1 and youth["youth_x_rescue"] == 0.2
+    pm.train()
+    f, _, _ = pm.prematch_features("Team 03", "Team 07", "Sim League", True)
+    assert all(k in f for k in pm.CONTEXT_FEATURES)
+    assert pm.predict_fixture("Team 03", "Team 07", "Sim League", True)["fta_pct"] > 0
+    assert set(pm.context_test()) >= {"current inputs", "all context"}

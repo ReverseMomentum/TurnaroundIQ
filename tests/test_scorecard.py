@@ -28,7 +28,15 @@ def test_log_upserts_until_kickoff_and_report_scores_results():
     now = datetime.now(timezone.utc)
     soon = now + timedelta(hours=2)
     assert sc.log_predictions([_opp("1", "A", "A", "B", 2.0, soon), _opp("1", "B", "A", "B", 1.5, soon)]) == 2
-    sc.log_predictions([_opp("1", "A", "A", "B", 3.2, soon)])             # later update wins
+    o = _opp("1", "A", "A", "B", 3.2, soon)
+    o.update(back_odds=2.05, exchange={"back": 2.96, "back_size": 55, "lay": 3.2, "lay_size": 187,
+                                       "updated_at": "2026-10-05T12:30:00+00:00"})
+    sc.log_predictions([o])                                                # later update wins
+    sc.log_predictions([_opp("1", "A", "A", "B", 3.2, soon)])              # no prices: keeps the last ones
+    conn = get_db()
+    assert conn.execute("SELECT book_back, exch_lay, exch_lay_size FROM prediction_log WHERE team='A'"
+                        ).fetchone() == (2.05, 3.2, 187)
+    conn.close()
     started = now - timedelta(minutes=5)
     assert sc.log_predictions([_opp("2", "C", "C", "D", 2.0, started)]) == 0  # never after kick-off
 

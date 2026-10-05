@@ -327,8 +327,22 @@ const ODDS_FILTERS = [
 ];
 const inOdds = (filter, price) => !filter || filter.key === "all" || (price >= filter.lo && price < filter.hi);
 
+// What it takes to make "Worth checking" (the rest sit behind "show all"):
+const SHORTLIST_MARGIN = 0.05;    // exchange price at least 5% over the value line (about the model's own error)
+const SHORTLIST_SPREAD = 0.15;    // back/lay gap no wider than 15%: wider means a thin market and a shaky price
+const SHORTLIST_VOLUME = 250;     // £ matched on the horse, when Betfair reports it
+
+function shortlistCheck(r, price, vf) {
+  const ex = r.exchange || {};
+  if (price < vf * (1 + SHORTLIST_MARGIN)) return "thin margin";
+  if (ex.back && ex.lay && ex.lay / ex.back - 1 > SHORTLIST_SPREAD) return "wide spread";
+  if (ex.volume > 0 && ex.volume < SHORTLIST_VOLUME) return "little traded";   // 0 / missing = not reported
+  return null;
+}
+
 function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
   const { c, card, SectionLabel, Empty } = ui;
+  const [showAll, setShowAll] = useState(false);
   const rows = [];
   for (const race of races) {
     if (!(race.standard_terms?.fraction > 0)) continue;
@@ -341,22 +355,27 @@ function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
       // One row per horse: the offer with the lowest value line (the best terms).
       const ok = terms.map((t) => ({ t, vf: t.get(r) })).filter(({ vf }) => vf && price && price >= vf)
         .sort((a, b) => a.vf - b.vf);
-      if (ok.length && inOdds(oddsFilter, price)) rows.push({ race, r, vf: ok[0].vf, price, t: ok[0].t, more: ok.length - 1, ratio: price / ok[0].vf });
+      if (ok.length && inOdds(oddsFilter, price)) {
+        rows.push({ race, r, vf: ok[0].vf, price, t: ok[0].t, more: ok.length - 1, ratio: price / ok[0].vf,
+          why: shortlistCheck(r, price, ok[0].vf) });
+      }
     }
   }
   rows.sort((a, b) => (b.t.book ? 1 : 0) - (a.t.book ? 1 : 0) || b.ratio - a.ratio);
-  const top = rows.slice(0, 15);
+  const strong = rows.filter((x) => !x.why);
+  const top = (showAll ? rows : strong).slice(0, showAll ? 40 : 15);
   return (
     <>
-      <SectionLabel>Worth checking · {rows.length}</SectionLabel>
+      <SectionLabel>Worth checking · {strong.length}</SectionLabel>
       <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-3 leading-snug">
-        The exchange price already beats the value line. If the bookmaker's price is at or above "value from" on
-        those terms, the model rates it value. Races with entered offers come first, on each bookmaker's terms;
-        the rest use {extra ? `${extra} extra place${extra > 1 ? "s" : ""}` : "standard terms"}.
+        The exchange price is at least {Math.round(SHORTLIST_MARGIN * 100)}% over the value line, in a market that is
+        trading properly (back/lay gap under {Math.round(SHORTLIST_SPREAD * 100)}%, £{SHORTLIST_VOLUME}+ matched). If the
+        bookmaker's price is at or above "value from" on those terms, the model rates it value. Races with entered
+        offers come first, on each bookmaker's terms; the rest use {extra ? `${extra} extra place${extra > 1 ? "s" : ""}` : "standard terms"}.
       </p>
-      {top.length === 0 && <Empty>No runner clears the value line at exchange prices{oddsFilter && oddsFilter.key !== "all" ? ` in the ${oddsFilter.label} range` : ""}.</Empty>}
+      {top.length === 0 && <Empty>No runner clears the value line with room to spare{oddsFilter && oddsFilter.key !== "all" ? ` in the ${oddsFilter.label} range` : ""}.</Empty>}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-6">
-        {top.map(({ race, r, vf, price, t, more }) => (
+        {top.map(({ race, r, vf, price, t, more, ratio, why }) => (
           <button key={race.race_id + r.name + (t.book || "")} onClick={() => onOpen?.(race, r)} style={{ ...card, textAlign: "left" }} className="rounded-xl px-4 py-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p style={{ color: c.text }} className="text-sm font-semibold truncate">{r.name}</p>
@@ -366,11 +385,19 @@ function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
             </div>
             <div className="text-right flex-shrink-0">
               <p style={{ color: c.green }} className="num text-sm font-bold">{ukPriceAtLeast(vf)}+</p>
-              <p style={{ color: c.textMuted }} className="text-[10px]">exchange <span className="num">{Number(price).toFixed(2)}</span></p>
+              <p style={{ color: c.textMuted }} className="text-[10px]">exchange <span className="num">{Number(price).toFixed(2)}</span>
+                {" · "}<span style={{ color: why ? c.orange : c.green }} className="num">+{Math.round((ratio - 1) * 100)}%</span></p>
+              {why && <p style={{ color: c.orange }} className="text-[10px]">{why}</p>}
             </div>
           </button>
         ))}
       </div>
+      {rows.length > strong.length && (
+        <button onClick={() => setShowAll(!showAll)} style={{ color: c.textSecondary, border: "1px solid " + c.border }}
+          className="w-full rounded-xl py-2.5 text-xs font-medium -mt-4 mb-6">
+          {showAll ? "Show only the strongest" : `Show ${rows.length - strong.length} more that only just clear the line`}
+        </button>
+      )}
     </>
   );
 }

@@ -42,7 +42,9 @@ class TrackError(ValueError):
 
 
 def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: float, stake: float,
-          places: int, fraction, paper: bool = True) -> dict:
+          places: int, fraction, paper: bool = True, lay_pct: float = 0.0, lay_odds: Optional[float] = None,
+          commission: Optional[float] = None) -> dict:
+    """lay_pct: share of the full win lay placed on the exchange (0 = no lay, 100 = full lay)."""
     frac = parse_fraction(fraction)
     if not frac or frac > 1:
         raise TrackError("fraction must look like 1/5")
@@ -70,6 +72,12 @@ def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: floa
     offer = next((o for o in row["offers"] if o["bookmaker"] == book), None)
     if offer is None:
         raise TrackError("could not price this bet")
+    lay_odds = lay_odds or (runner.get("exchange") or {}).get("lay")
+    lay_stake, liability = (None, None)
+    if lay_pct and lay_pct > 0:
+        if not lay_odds or lay_odds <= 1:
+            raise TrackError("lay odds needed for a lay (no exchange lay price for this runner)")
+        lay_stake, liability = tracked_store.ew_lay_stake(stake, odds, lay_odds, commission or 0, lay_pct)
     now = datetime.now(UK)
     off = f"{race.get('date')} {race.get('time') or '00:00'}"
     try:
@@ -88,6 +96,8 @@ def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: floa
         "minutes_to_off": mins_to_off,
         "calibration": {k: cal.get(k) for k in ("fitted", "n_races", "created_at", "source")},
         "paper": bool(paper),
+        "lay": {"pct": lay_pct or 0, "odds": lay_odds if lay_stake else None, "stake": lay_stake,
+                "liability": liability, "commission": commission},
     }
     bet = tracked_store.create_tracked(app_user_id, {
         "home_team": horse,
@@ -98,9 +108,13 @@ def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: floa
         "bookmaker": book,
         "back_odds": float(odds),
         "stake": float(stake),
-        "commission": 0.0,
+        "commission": float(commission) if commission is not None and lay_stake else 0.0,
+        "lay_odds": float(lay_odds) if lay_stake else None,
+        "lay_stake": lay_stake,
+        "liability": liability,
         "fta_pct": round(100 * offer["model_probability"], 2),
-        "notes": f"each-way {int(places)} places 1/{round(1 / frac)}",
+        "notes": f"each-way {int(places)} places 1/{round(1 / frac)}"
+                 + (f"; win lay {lay_pct:g}% £{lay_stake:.2f} @ {lay_odds:g}" if lay_stake else ""),
         "paper": bool(paper),
         "product": "stables",
         "ew_places": int(places),

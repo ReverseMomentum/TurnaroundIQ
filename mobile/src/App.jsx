@@ -2549,7 +2549,7 @@ export default function App() {
     opportunities: <OpportunitiesPage {...common} opps={opps} onOpen={setSelected} />,
     "early-goal-hunter": <EarlyGoalHunterPage {...common} />,
     "chaos-factor": <ChaosFactorPage {...common} />,
-    stables: <StablesPage {...common} ui={STABLES_UI} />,
+    stables: <StablesPage {...common} ui={{ ...STABLES_UI, defaultCommission: me?.prefs?.default_commission ?? 2 }} />,
     live: <LiveMonitorPage {...common} />,
     bets: <MyBetsPage {...common} reloadMe={loadMe} />,
     calculator: <CalculatorPage {...common} prefs={me?.prefs} />,

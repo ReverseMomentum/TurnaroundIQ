@@ -958,3 +958,35 @@ def test_previous_runs_mean_matches_rolling_and_grade_by_price():
              "race_type": "flat"} for g, o in (("A", 4.0), ("A", 40.0), ("B", 13.0))]
     cross = backtest.summarise(bets)["by_grade_odds"]
     assert cross["A"]["3-5"]["bets"] == 1 and cross["A"]["34-51"]["bets"] == 1 and cross["B"]["12-16"]["bets"] == 1
+
+
+def test_each_way_with_win_lay_track_and_settle():
+    from api.tracked import ew_expected, ew_lay_stake, ew_returns
+    from racing import bets as racing_bets
+
+    # £10 EW at 11.0, 1/5, full lay of the win half at 12.0, 2% commission
+    ls, liab = ew_lay_stake(10, 11.0, 12.0, 2, 100)
+    assert ls == pytest.approx(5 * 11 / 11.98, abs=0.01) and liab == pytest.approx(ls * 11, abs=0.02)
+    assert ew_lay_stake(10, 11.0, 12.0, 2, 50)[0] == pytest.approx(ls / 2, abs=0.01)
+    assert ew_lay_stake(10, 11.0, 12.0, 2, 0) == (None, None)
+    won = ew_returns("won", 10, 11.0, 0.2, 12.0, ls, 2)
+    placed = ew_returns("placed", 10, 11.0, 0.2, 12.0, ls, 2)
+    lost = ew_returns("lost", 10, 11.0, 0.2, 12.0, ls, 2)
+    # the win half is covered: winning vs placing differ by little; unplaced loses about the place half
+    assert abs(won - placed) < 1.0 and lost == pytest.approx(-10 + ls * 0.98, abs=0.01) and placed > 0
+    assert ew_returns("won", 10, 11.0, 0.2) == pytest.approx(5 * 10 + 5 * 2)   # no lay: unchanged
+    e = ew_expected(10, 11.0, 0.2, 0.1, 0.45, 12.0, ls, 2)
+    assert e == pytest.approx(0.1 * won + 0.35 * placed + 0.55 * lost, abs=0.02)
+
+    store.import_card({**CARD, "races": [{**CARD["races"][0], "id": "bf:9.10", "date": "2026-10-06"}]})
+    race = next(r for r in store.races_on("2026-10-06") if r["course"] == "Testcourse")
+    with pytest.raises(racing_bets.TrackError):     # a lay needs a usable lay price
+        racing_bets.track("u_l", race["race_id"], "Horse 6", "Book Z", 16.0, 10, 5, "1/5", lay_pct=100, lay_odds=1.0)
+    bet = racing_bets.track("u_l", race["race_id"], "Horse 6", "Book Z", 16.0, 10, 5, "1/5",
+                            lay_pct=50, lay_odds=17.0, commission=2)
+    assert bet["lay_stake"] == pytest.approx(0.5 * 5 * 16 / 16.98, abs=0.01) and bet["lay_odds"] == 17.0
+    assert bet["snapshot"]["lay"]["pct"] == 50 and "win lay 50%" in bet["notes"]
+    from api import tracked
+    tracked.settle_tracked("u_l", bet["id"], "placed")
+    s = next(b for b in tracked_store_list("u_l") if b["id"] == bet["id"])
+    assert s["actual_profit"] == pytest.approx(-5 + 5 * 3.0 + bet["lay_stake"] * 0.98, abs=0.01)

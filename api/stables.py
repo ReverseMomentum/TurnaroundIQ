@@ -211,6 +211,9 @@ class TrackIn(BaseModel):
     places: int = Field(ge=1, le=10)
     fraction: str = Field(default="1/5", max_length=8)
     paper: bool = True
+    lay_pct: float = Field(default=0, ge=0, le=100)  # win lay: 0 none, 100 full (covers the win half)
+    lay_odds: Optional[float] = Field(default=None, gt=1, le=1001)
+    commission: Optional[float] = Field(default=None, ge=0, le=20)
 
 
 @router.post("/track")
@@ -221,7 +224,8 @@ def stables_track(body: TrackIn, authorization: str | None = Header(default=None
 
     try:
         return racing_bets.track(user_id, body.race_id, body.horse, body.bookmaker, body.odds, body.stake,
-                                 body.places, body.fraction, body.paper)
+                                 body.places, body.fraction, body.paper, body.lay_pct, body.lay_odds,
+                                 body.commission)
     except racing_bets.TrackError as e:
         raise HTTPException(400, str(e))
 

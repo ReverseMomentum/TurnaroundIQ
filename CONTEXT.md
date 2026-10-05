@@ -30,6 +30,11 @@ Read this first. It is what a fresh session needs to work on this repo.
   - In code, `require_pro()` in `api/app.py` gates paid features.
   - The free beta (`billing/beta.py`, env `BETA_FREE_UNTIL`) counts as Pro until it ends.
 - **Tests:** run with `python -m pytest -q`. They must all pass before pushing.
+- **Speed:** requests slower than 500 ms are logged (`journalctl -u turnaroundiq-api | grep SLOW`).
+  `/me` answers from the stored subscriber row (background RevenueCat refresh after 10 min;
+  `?fresh=1` after a purchase). The app caches `/me` in localStorage to open instantly. Charts
+  (`mobile/src/charts.jsx`) and The Stables load lazily. Team lookups rely on the indexes in
+  `database.create_indexes`.
 
 ## Design system (App.jsx)
 - **Style values:** `c` (colours), `card`, `heroCard`, `accentCard`, `primaryBtn`, `chip()`.

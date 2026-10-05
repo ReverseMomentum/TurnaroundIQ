@@ -25,6 +25,7 @@ from billing import beta
 from billing.revenuecat import management_url as revenuecat_management_url
 from billing.revenuecat import (
     apply_webhook,
+    entitled_quick,
     get_prefs,
     get_subscriber_row,
     is_entitled,
@@ -89,6 +90,21 @@ app.add_middleware(
 )
 
 app.include_router(stables.router)
+
+SLOW_REQUEST_MS = int(os.environ.get("SLOW_REQUEST_MS", "500"))
+
+
+@app.middleware("http")
+async def _timing(request: Request, call_next):
+    """Server-Timing header on every reply; slow ones go to the journal
+    (journalctl -u turnaroundiq-api | grep SLOW)."""
+    start = time.perf_counter()
+    response = await call_next(request)
+    ms = (time.perf_counter() - start) * 1000
+    response.headers["Server-Timing"] = f"app;dur={ms:.0f}"
+    if ms >= SLOW_REQUEST_MS:
+        print(f"SLOW {request.method} {request.url.path} {ms:.0f}ms", flush=True)
+    return response
 
 _upcoming_cache = {"ts": 0.0, "pairs": []}
 _fixture_status = {"source": "none", "error": None, "failed_at": 0.0}
@@ -592,9 +608,10 @@ def health():
 
 
 @app.get("/me")
-def me(authorization: str | None = Header(default=None)):
+def me(authorization: str | None = Header(default=None), fresh: bool = False):
+    """fresh=1 right after a purchase: wait for RevenueCat instead of the stored row."""
     user_id = user_from_auth(authorization)
-    paid = is_entitled(user_id, refresh=True)
+    paid = entitled_quick(user_id, fresh=fresh)
     beta_info = beta.info(user_id)
     entitled = paid or beta_info["active"]
     row = get_subscriber_row(user_id) or {}

@@ -62,7 +62,7 @@ export const api = {
   authStart: (email) => request("/auth/start", { method: "POST", body: { email } }),
   authVerify: (email, code) => request("/auth/verify", { method: "POST", body: { email, code } }),
   authLogout: () => request("/auth/logout", { method: "POST" }),
-  me: () => request("/me"),
+  me: (fresh = false) => request(fresh ? "/me?fresh=1" : "/me"),
   deleteMe: () => request("/me", { method: "DELETE" }),
   patchPrefs: (prefs) => request("/me/prefs", { method: "PATCH", body: prefs }),
   // Next 24h only (odds and exchange lay liquidity exist for that window), and only

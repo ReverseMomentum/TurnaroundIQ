@@ -436,8 +436,37 @@ CREATE TABLE IF NOT EXISTS team_stats (
     )
     """)
 
+    create_indexes(conn)
     conn.commit()
     conn.close()
+
+
+# Team lookups (form, chaos, early goals, settling bets) filter by team name.
+# Without these every lookup scans the whole history table.
+INDEXES = [
+    ("idx_hist_home", "historical_matches(home_team)"),
+    ("idx_hist_away", "historical_matches(away_team)"),
+    ("idx_results_home", "match_results(home_team, away_team)"),
+    ("idx_results_away", "match_results(away_team)"),
+    ("idx_results_match", "match_results(match_id)"),
+    ("idx_tracked_user", "tracked_bets(app_user_id, status)"),
+    ("idx_tracked_status", "tracked_bets(status)"),
+    ("idx_live_goals_match", "live_goals(match_id)"),
+    ("idx_events_match", "historical_events(match_id)"),
+]
+
+
+def create_indexes(conn):
+    for name, target in INDEXES:
+        try:
+            conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
+        except sqlite3.OperationalError:
+            pass  # table or column not there yet on this database
+    try:
+        # readers don't block on the cron writers (persists in the file)
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        pass
 
 
 def save_setting(

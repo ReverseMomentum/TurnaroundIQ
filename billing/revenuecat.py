@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import hmac
 import json
 import os
+import threading
 from urllib.parse import quote
 
 import requests
@@ -296,6 +297,57 @@ def is_entitled(app_user_id, refresh=False):
         status="active" if entitled else "expired",
     )
     return entitled
+
+
+# /me runs on every app open and tab return. A live RevenueCat lookup can take
+# seconds, so answer from the stored row and refresh it in the background when it
+# is older than this. Webhooks keep the row current between lookups anyway.
+REFRESH_AFTER_S = 600
+_refreshing = set()
+_looked_up = set()   # users looked up live since start (management link attempt)
+_refresh_lock = threading.Lock()
+
+
+def _row_age_s(row):
+    try:
+        at = datetime.fromisoformat(str(row.get("updated_at")))
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - at).total_seconds()
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+def _refresh_in_background(app_user_id):
+    with _refresh_lock:
+        if app_user_id in _refreshing:
+            return
+        _refreshing.add(app_user_id)
+
+    def run():
+        try:
+            is_entitled(app_user_id, refresh=True)
+        except Exception:
+            pass
+        finally:
+            with _refresh_lock:
+                _refreshing.discard(app_user_id)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def entitled_quick(app_user_id, fresh=False):
+    """Entitlement for /me without waiting on RevenueCat unless we must:
+    fresh=True (just bought), no stored row yet, or a paid user whose
+    management link we don't have (lost on restart)."""
+    row = get_subscriber_row(app_user_id) if app_user_id else None
+    if fresh or not row or (row.get("entitled") and app_user_id not in _looked_up
+                            and row.get("environment") != "MANUAL"):
+        _looked_up.add(app_user_id)
+        return is_entitled(app_user_id, refresh=True)
+    if _row_age_s(row) > REFRESH_AFTER_S:
+        _refresh_in_background(app_user_id)
+    return bool(cached_entitled(app_user_id))
 
 
 def apply_webhook(body):

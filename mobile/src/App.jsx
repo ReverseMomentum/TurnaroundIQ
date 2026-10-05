@@ -1,17 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
+import React, { Suspense, createContext, lazy, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   ChevronRight,
   Home,
@@ -45,7 +32,9 @@ import {
 
 import { LOGO_SRC } from "./logo";
 import { layStakeFor, outcomes as tradeOutcomes, tradeOut } from "./lib/tradeout";
-import StablesPage from "./stables/StablesPage";
+// loaded on first use, so the first screen doesn't wait for them
+const StablesPage = lazy(() => import("./stables/StablesPage"));
+const SimpleLineChart = lazy(() => import("./charts"));
 import { api, API_BASE, ApiError, MIN_FTA, MIN_SCORE } from "./lib/api";
 import {
   clearSession,
@@ -1832,15 +1821,10 @@ function MyBetsPage({ nav, entitled, onPurchased, reloadMe }) {
                 <Empty>No settled bets yet.</Empty>
               ) : (
                 <div style={{ height: 220 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={chartData} margin={{ top: 5, right: 8, left: -20, bottom: 0 }}>
-                      <CartesianGrid stroke={c.border} strokeDasharray="3 3" />
-                      <XAxis dataKey="index" stroke={c.textSecondary} tick={{ fontSize: 11 }} />
-                      <YAxis stroke={c.textSecondary} tick={{ fontSize: 11 }} />
-                      <Tooltip contentStyle={{ background: c.cardAlt, border: "1px solid " + c.border, borderRadius: 8 }} labelStyle={{ color: c.text }} formatter={(v) => ["£" + v.toFixed(2), "Profit"]} />
-                      <Line type="monotone" dataKey="profit" stroke={c.green} strokeWidth={2} dot={{ r: 3 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <Suspense fallback={null}>
+                    <SimpleLineChart data={chartData} colors={c} formatter={(v) => ["£" + v.toFixed(2), "Profit"]}
+                      lines={[{ key: "profit", name: "Profit", color: c.green }]} />
+                  </Suspense>
                 </div>
               )}
             </div>
@@ -2452,17 +2436,10 @@ function ModelTestingPage({ nav, entitled }) {
         <>
           <div style={card} className="rounded-xl p-3 mb-4">
             <div style={{ height: 180 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 5, right: 8, left: -20, bottom: 0 }}>
-                  <CartesianGrid stroke={c.border} strokeDasharray="3 3" />
-                  <XAxis dataKey="index" stroke={c.textSecondary} tick={{ fontSize: 11 }} />
-                  <YAxis stroke={c.textSecondary} tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={{ background: c.cardAlt, border: "1px solid " + c.border, borderRadius: 8 }} labelStyle={{ color: c.text }} />
-                  <Legend wrapperStyle={{ fontSize: 12, color: c.textSecondary }} />
-                  <Line type="monotone" dataKey="brier" name="Brier" stroke={c.orange} strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="roc_auc" name="AUC" stroke={c.cyan} strokeWidth={2} dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
+              <Suspense fallback={null}>
+                <SimpleLineChart data={chartData} colors={c} legend
+                  lines={[{ key: "brier", name: "Brier", color: c.orange }, { key: "roc_auc", name: "AUC", color: c.cyan }]} />
+              </Suspense>
             </div>
           </div>
           <div className="flex flex-col gap-3">
@@ -2491,6 +2468,25 @@ function ModelTestingPage({ nav, entitled }) {
 // ============================================================
 // APP ROOT
 // ============================================================
+const ME_CACHE = "tiq-me-v1";
+function readCachedMe(userId) {
+  try {
+    const { id, me } = JSON.parse(localStorage.getItem(ME_CACHE) || "null") || {};
+    return id && id === userId && me ? me : null;
+  } catch {
+    return null;
+  }
+}
+// id: the signed-in token/user id from initPurchases, so another login never sees it
+function writeCachedMe(id, me) {
+  try {
+    if (id && me) localStorage.setItem(ME_CACHE, JSON.stringify({ id, me }));
+    else localStorage.removeItem(ME_CACHE);
+  } catch {
+    /* storage blocked: fine */
+  }
+}
+
 export default function App() {
   const [page, setPage] = useState("dashboard");
   const [userId, setUserIdState] = useState(null);
@@ -2498,14 +2494,23 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [me, setMe] = useState(null);
 
-  const loadMe = useCallback(async () => {
+  const meRef = React.useRef(null);
+  const idRef = React.useRef(null);
+  // fresh: wait for RevenueCat (after a purchase or while not yet Pro)
+  const loadMe = useCallback(async (fresh = false) => {
     try {
-      setMe(await api.me());
+      const data = await api.me(fresh === true);
+      meRef.current = data;
+      setMe(data);
+      writeCachedMe(idRef.current, data);
     } catch (e) {
-      setMe(null);
       if (!isNative && e instanceof ApiError && e.status === 401) {
+        setMe(null);
+        writeCachedMe(null, null);
         clearSession(); // session expired -> back to sign in
         setUserIdState(null);
+      } else if (!meRef.current) {
+        setMe(null);
       }
     }
   }, []);
@@ -2514,9 +2519,17 @@ export default function App() {
     let cleanup = () => {};
     initPurchases()
       .then(async (id) => {
+        idRef.current = id;
         setUserIdState(id);
+        // open straight away with the last known account, then check it
+        const cached = readCachedMe(id);
+        if (cached) {
+          meRef.current = cached;
+          setMe(cached);
+          setBooted(true);
+        }
         await loadMe();
-        cleanup = await onCustomerInfoChange(() => loadMe());
+        cleanup = await onCustomerInfoChange(() => loadMe(!meRef.current?.entitled));
       })
       .catch(() => {})
       .finally(() => setBooted(true));
@@ -2527,7 +2540,9 @@ export default function App() {
   const opps = useCachedApi("tiq-opps-v1", () => (entitled ? api.opportunities() : Promise.resolve(null)), [entitled]);
 
   const afterSignIn = async () => {
-    setUserIdState(await initPurchasesToken());
+    const id = await initPurchasesToken();
+    idRef.current = id;
+    setUserIdState(id);
     await loadMe();
     setPage("dashboard");
   };
@@ -2544,7 +2559,7 @@ export default function App() {
     );
   }
 
-  const common = { nav: setPage, entitled, onPurchased: loadMe };
+  const common = { nav: setPage, entitled, onPurchased: () => loadMe(true) };
   const pages = {
     dashboard: <DashboardPage {...common} me={me} opps={opps} onOpen={setSelected} />,
     opportunities: <OpportunitiesPage {...common} opps={opps} onOpen={setSelected} />,
@@ -2554,13 +2569,13 @@ export default function App() {
     live: <LiveMonitorPage {...common} />,
     bets: <MyBetsPage {...common} reloadMe={loadMe} />,
     calculator: <CalculatorPage {...common} prefs={me?.prefs} />,
-    settings: <SettingsPage {...common} me={me} userId={userId} reloadMe={loadMe} onSignedOut={() => { try { localStorage.removeItem("tiq-opps-v1"); } catch { /* ignore */ } setMe(null); setUserIdState(null); }} />,
+    settings: <SettingsPage {...common} me={me} userId={userId} reloadMe={loadMe} onSignedOut={() => { try { localStorage.removeItem("tiq-opps-v1"); } catch { /* ignore */ } writeCachedMe(null, null); meRef.current = null; setMe(null); setUserIdState(null); }} />,
     ...(SHOW_DEV_TOOLS ? { "model-testing": <ModelTestingPage {...common} /> } : {}),
   };
 
   return (
     <Account.Provider value={{ me, reloadMe: loadMe }}>
-      {pages[page] || pages.dashboard}
+      <Suspense fallback={<Loading />}>{pages[page] || pages.dashboard}</Suspense>
       <OpportunityDetailModal opportunity={selected} onClose={() => setSelected(null)} prefs={me?.prefs} />
     </Account.Provider>
   );

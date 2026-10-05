@@ -113,7 +113,11 @@ def summarise(bets: list[dict]) -> dict:
                      _summ([b for b in bets if lo <= b["ev"] < hi]) for lo, hi in EV_BANDS},
            "by_odds": {band_label(lo, hi):
                        _summ([b for b in bets if lo <= b["win_odds"] < hi]) for lo, hi in ODDS_BANDS},
-           "by_type": {t: _summ([b for b in bets if b["race_type"] == t]) for t in ("flat", "hurdle", "chase")}}
+           "by_type": {t: _summ([b for b in bets if b["race_type"] == t]) for t in ("flat", "hurdle", "chase")},
+           # where each grade's bets sit by price: shows whether a grade's gap comes from one price range
+           "by_grade_odds": {g: {band_label(lo, hi): _summ([b for b in bets if b["grade"] == g
+                                                             and lo <= b["win_odds"] < hi])
+                                 for lo, hi in ODDS_BANDS} for g in "AB"}}
     return out
 
 

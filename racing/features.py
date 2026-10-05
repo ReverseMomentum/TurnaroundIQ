@@ -231,6 +231,17 @@ def _prior_excess(df, actual, expected):
     return excess((g["r"].cumsum() - tmp["r"]).to_numpy(), 0.0, (g["n"].cumsum() - tmp["n"]).to_numpy())
 
 
+def _prev_mean(df, col: str, k: int) -> pd.Series:
+    """Mean of the horse's previous k runs' values (missing values skipped). df is sorted by date."""
+    key = df["horseName"]
+    prev = df.groupby(key, sort=False)[col].shift()
+    cs = prev.fillna(0.0).groupby(key, sort=False).cumsum()
+    cn = prev.notna().astype(float).groupby(key, sort=False).cumsum()
+    n = cn - cn.groupby(key, sort=False).shift(k).fillna(0.0)
+    tot = cs - cs.groupby(key, sort=False).shift(k).fillna(0.0)
+    return (tot / n).where(n > 0)
+
+
 def _rolling_30d(df, key):
     """Shrunk place rate over the previous 30 days (same day excluded). df is sorted by date."""
     out = np.empty(len(df))
@@ -254,10 +265,10 @@ def training_features(paths: list[Path], years: Optional[tuple[int, int]] = None
     df["first_run"] = (h.cumcount() == 0).astype(float)
     df["log_days"] = np.log1p((df["date"] - h["date"].shift()).dt.days.clip(lower=0)).fillna(0.0)
     for k, name in ((1, "last_pos"), (3, "avg3_pos"), (5, "avg5_pos")):
-        df[name] = h["form_pos"].transform(lambda s, k=k: s.shift().rolling(k, min_periods=1).mean())
+        df[name] = _prev_mean(df, "form_pos", k)
     df["form_missing"] = df["last_pos"].isna().astype(float)
     for k, name in ((1, "last_speed"), (3, "avg3_speed"), (5, "avg5_speed")):
-        df[name] = h["speed"].transform(lambda s, k=k: s.shift().rolling(k, min_periods=1).mean())
+        df[name] = _prev_mean(df, "speed", k)
     df["course_rate"] = _prior_rate(df, ["horseName", "course"], SHRINK_HORSE)
     df["dist_bucket"] = df["dist_f"].fillna(-1)
     df["distance_rate"] = _prior_rate(df, ["horseName", "dist_bucket"], SHRINK_HORSE)
@@ -273,12 +284,17 @@ def training_features(paths: list[Path], years: Optional[tuple[int, int]] = None
     df["trainer_30d"] = _rolling_30d(df, "trainerName")
     if years:
         df = df[(df["date"].dt.year >= years[0]) & (df["date"].dt.year <= years[1])]
+    names = all_names()
+    # only the columns finish_race_features and the output need (to_dict on the wide frame was the slow part)
+    cols = list(dict.fromkeys(["rid", "horseName", "odds", "or", "lbs", "draw", "race_type",
+                               *[c for c in names if c in df.columns]]))
+    records = df[cols].to_dict("records")
     out = {}
-    for rid, g in df.groupby("rid", sort=False):
-        rows = g.to_dict("records")
-        finish_race_features(rows, list(g["odds"]))
+    for idx in df.reset_index(drop=True).groupby("rid", sort=False).indices.values():
+        rows = [records[i] for i in idx]
+        finish_race_features(rows, [r["odds"] for r in rows])
         for r in rows:
-            out[(str(rid), str(r["horseName"]))] = {k: _clean(r.get(k)) for k in all_names()}
+            out[(str(r["rid"]), str(r["horseName"]))] = {k: _clean(r.get(k)) for k in names}
     return out
 
 

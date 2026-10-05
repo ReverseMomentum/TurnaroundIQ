@@ -21,10 +21,12 @@ from racing import calibrate, confidence, kelly, learn, market, nonfinish, posit
 from racing.extra_place import Terms, evaluate, min_value_odds, parse_fraction, shrink, standard_terms
 
 MAX_POSITIONS = 9
-# Backtest 2018-20: at 50/1+ the model's EV was far above what came in (+12% vs
-# -4% at one extra place), while every shorter band was close. Runners priced
-# beyond this get no value call: no grade above C, no "value from" price.
-MAX_VALUE_ODDS = 51.0
+# Backtests 2018-20: at 50/1+ the model's EV was far above what came in (+12% vs
+# -4% at one extra place), and with the learned model and field-size curves the
+# 33/1-50/1 band did the same (model +18% vs +1%, also +7% vs -3% before), while
+# shorter bands were close. Runners at 33/1 (decimal 34) or bigger get no value
+# call: no grade above C, no "value from" price.
+MAX_VALUE_ODDS = 34.0
 DEFAULT_BOOK = "Best price"
 
 
@@ -53,11 +55,11 @@ def opportunity_score(edge: float, confidence: int, volume, field_size: int) -> 
 
 
 def _within_range(price):
-    return price if price is not None and price <= MAX_VALUE_ODDS else None
+    return price if price is not None and price < MAX_VALUE_ODDS else None
 
 
 def _cap_grade(grade: str, odds: float) -> str:
-    return "C" if odds > MAX_VALUE_ODDS and grade in ("A", "B") else grade
+    return "C" if odds >= MAX_VALUE_ODDS and grade in ("A", "B") else grade
 
 
 def _offers(race: dict, field_size: int) -> list[Terms]:
@@ -132,14 +134,14 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
             "positions": [round(float(x), 5) for x in P[i, :MAX_POSITIONS]],
             "best_win_odds": r.get("win_odds") or market.best_price(r.get("odds") or {}),
             "exchange_back": (r.get("exchange") or {}).get("back"),
-            "value_from": {} if ref_price[i] > MAX_VALUE_ODDS else {
+            "value_from": {} if ref_price[i] >= MAX_VALUE_ODDS else {
                 str(extra): _within_range(min_value_odds(float(p_win[i]), topk(top, i, std_places + extra),
                                                          std_frac, edge_shrink))
                 for extra in (0, 1, 2, 3) if std_frac and std_places + extra <= n
             },
-            "beyond_value_range": ref_price[i] > MAX_VALUE_ODDS,
+            "beyond_value_range": ref_price[i] >= MAX_VALUE_ODDS,
             # "Value from" on each bookmaker's own extra-place terms (race["terms"])
-            "offer_value_from": {} if ref_price[i] > MAX_VALUE_ODDS else {
+            "offer_value_from": {} if ref_price[i] >= MAX_VALUE_ODDS else {
                 str(t.get("bookmaker")): _within_range(min_value_odds(
                     float(p_win[i]), topk(top, i, int(t.get("places") or 0)),
                     parse_fraction(t.get("fraction")) or std_frac, edge_shrink))

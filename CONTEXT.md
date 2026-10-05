@@ -112,6 +112,14 @@ Read this first. It is what a fresh session needs to work on this repo.
   curve). stables_learn keeps them only if validation loss falls; saved as
   calibration["segment_discounts"], used via `calibrate.discounts_for` by the
   engine, recalibration and the ranking model. Missing segments use the overall curve.
+- No value calls at 33/1 or bigger (engine.MAX_VALUE_ODDS = 34 decimal): the
+  learned-model backtest overrated 33/1-50/1 as well as 50/1+. Backtests print
+  grade A/B by odds bracket (summarise()["by_grade_odds"]).
+- Offers from a pasted daily list ("14:10 Killarney" / "(4 places, 1/5 odds)" /
+  "Betway (12+)"): racing/offers_text.py, app "Paste a list" (admin, POST
+  /stables/offers/paste) or `scripts/stables_offers.py data/offers/DATE.txt`.
+  "(12+)" is stored as rac_offers.min_runners; the engine drops the offer while
+  the field is smaller and lists it under inactive_offers.
 - Manual data: load JSON cards with `scripts/stables_import.py <file>` (format in
   its docstring). Results in the same file feed `scripts/stables_calibrate.py`.
   `scripts/stables_run.py [date]` stores predictions/opportunities. Tables are `rac_*`

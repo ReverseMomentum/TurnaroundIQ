@@ -16,7 +16,7 @@ The Stables: learn runner features on Kaggle history and test them on later year
     venv/bin/python -u scripts/stables_learn.py data/kaggle/hwaitt --save
 
 Defaults: train 2008-2015, validate 2016-2017, test 2018+, fields of 8+ runners
-(--min-runners). About 20-30 minutes.
+(--min-runners). About 30-40 minutes on a small server.
 Writes logs/stables_learn.json.
 """
 import argparse
@@ -45,6 +45,19 @@ def _table(title, rows):
             print(f"  {label:<14}{r['bets']:>6}{100 * r['model_ev']:>+7.1f}%{100 * r['roi']:>+7.1f}%")
 
 
+def _cross(title, by_grade_odds):
+    """Grade x price: bets, model EV and actual return per odds bracket for grades A and B."""
+    print(f"\n{title}")
+    print(f"  {'':<10}" + "".join(f"{g + ' bets':>8}{'model':>8}{'actual':>8}" for g in by_grade_odds))
+    for band in next(iter(by_grade_odds.values())):
+        cells = [by_grade_odds[g][band] for g in by_grade_odds]
+        if not any(c.get("bets") for c in cells):
+            continue
+        print(f"  {band:<10}" + "".join(
+            f"{c['bets']:>8}{100 * c['model_ev']:>+7.1f}%{100 * c['roi']:>+7.1f}%" if c.get("bets") else f"{'-':>8}{'':>16}"
+            for c in cells))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("paths", nargs="+", type=Path)
@@ -65,7 +78,7 @@ def main():
 
     every = datasets.load_races(a.paths, years=(a.train_from, 2100))
     print(f"loaded {len(every)} races in {time.time() - t0:.0f}s", flush=True)
-    print("building runner features (the slow part, ~5-15 minutes)...", flush=True)
+    print("building runner features (the slow part, ~15 minutes on a small server)...", flush=True)
     feats = features.training_features(a.paths, (a.train_from, 2100))
     n = features.attach(every, feats)
     total = sum(len(r["runners"]) for r in every)
@@ -146,6 +159,7 @@ def main():
         _table("by grade", bt[label]["by_grade"])
         _table("by model EV", bt[label]["by_ev"])
         _table("by win odds", bt[label]["by_odds"])
+        _cross("grade A and B by win odds", bt[label]["by_grade_odds"])
     print("\nSP prices; dead heats and Rule 4 ignored. Illustrative only.")
 
     out = {"selection": sel, "blend": blend, "segments": seg, "segments_kept": keep_seg,

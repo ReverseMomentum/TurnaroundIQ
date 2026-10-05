@@ -258,7 +258,7 @@ function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen }) {
               {offers.length
                 ? "Value from: the smallest price worth taking each-way with each bookmaker's offer above."
                 : `Value from: the smallest bookmaker price worth taking each-way at ${race.standard_terms.places + extra} places, ${fractionLabel(race.standard_terms.fraction)} odds.`}{" "}
-              Green where the exchange price is already that big. No value calls on runners over 50/1: in past races the model overrated them.
+              Green where the exchange price is already that big. No value calls on runners at 33/1 or bigger: in past races the model overrated them.
             </p>
           )}
         </div>
@@ -644,7 +644,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
             {(std.places || 0) + x}pl {fractionLabel(std.fraction)}: <span className="num">{runner.value_from[String(x)] ? ukPriceAtLeast(runner.value_from[String(x)]) + "+" : "—"}</span>
           </span>
         ))}
-        {runner.beyond_value_range && <span style={{ color: c.textMuted }} className="text-xs">No value call over 50/1.</span>}
+        {runner.beyond_value_range && <span style={{ color: c.textMuted }} className="text-xs">No value call at 33/1 or bigger.</span>}
       </div>
 
       <SectionLabel>Track this bet</SectionLabel>

@@ -428,7 +428,7 @@ def test_betfair_collect_into_store(monkeypatch, tmp_path):
     assert race["runners"][0]["exchange"]["back"] == 3.5
     priced = price_race(race)
     assert priced["probability_source"] == "exchange" and priced["field_size"] == 11
-    vf = priced["runners"][-1]["value_from"]
+    vf = next(r for r in reversed(priced["runners"]) if not r["beyond_value_range"])["value_from"]
     assert set(vf) == {"0", "1", "2", "3"}
     # more places paid -> a shorter price is already value
     assert vf["3"] is None or vf["0"] is None or vf["3"] <= vf["0"]
@@ -521,13 +521,14 @@ def test_recalibration_corrects_a_longshot_bias():
     assert out["recalibrated"] and out["runners"][0]["value_from"]
 
 
-def test_no_value_calls_beyond_50_1_and_win_stage_fixed():
+def test_no_value_calls_from_33_1_and_win_stage_fixed():
     race = {"handicap": True, "terms": [{"bookmaker": "B", "places": 6, "fraction": "1/4"}],
             "runners": [{"name": f"H{i}", "win_odds": o} for i, o in enumerate(ODDS + [67.0, 101.0])]}
     out = price_race(race)
-    longshots = [r for r in out["runners"] if r["best_win_odds"] > 51]
+    longshots = [r for r in out["runners"] if r["best_win_odds"] >= 34]
     assert longshots and all(r["value_from"] == {} and r["beyond_value_range"] for r in longshots)
-    assert all(v is None or v <= 51 for r in out["runners"] for v in r["value_from"].values())
+    assert all(v is None or v < 34 for r in out["runners"] for v in r["value_from"].values())
+    assert all(o["grade"] == "C" for o in out["opportunities"] if o["win_odds"] >= 34)
     assert all(o["grade"] == "C" for o in out["opportunities"] if o["win_odds"] > 51)
     rng = np.random.default_rng(1)
     races = []
@@ -941,3 +942,19 @@ bet365
     priced = price_race(race, n_sims=2000)
     assert [o["bookmaker"] for o in priced["offers"]] == ["Betfred"]
     assert priced["inactive_offers"] == [{"bookmaker": "Sky Bet", "places": 5, "fraction": 0.2, "min_runners": 12}]
+
+
+def test_previous_runs_mean_matches_rolling_and_grade_by_price():
+    import pandas as pd
+    from racing import backtest, features as F
+
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"horseName": rng.integers(0, 50, 800).astype(str),
+                       "v": np.where(rng.random(800) < 0.3, np.nan, rng.random(800) * 10)})
+    for k in (1, 3, 5):
+        slow = df.groupby("horseName", sort=False)["v"].transform(lambda s: s.shift().rolling(k, min_periods=1).mean())
+        assert np.allclose(slow.fillna(-1), F._prev_mean(df, "v", k).fillna(-1))
+    bets = [{"grade": g, "ev": 0.1, "win_odds": o, "return": 1.0, "placed": False, "extra_hit": False,
+             "race_type": "flat"} for g, o in (("A", 4.0), ("A", 40.0), ("B", 13.0))]
+    cross = backtest.summarise(bets)["by_grade_odds"]
+    assert cross["A"]["3-5"]["bets"] == 1 and cross["A"]["34-51"]["bets"] == 1 and cross["B"]["12-16"]["bets"] == 1

@@ -572,6 +572,45 @@ export function ewLayOutcomes({ stake, odds, fraction, layOdds, placeLayOdds, mo
     worst: Math.min(win, placed, extra, lost) };
 }
 
+// Betfair place markets for one runner: prices, the chance they imply, and the model's chance.
+function PlaceMarkets({ ui, runner, stdPlaces }) {
+  const { c, SectionLabel } = ui;
+  const pm = runner.place_exchange || {};
+  const ks = Object.keys(pm).map(Number).filter((k) => pm[k] && (pm[k].back || pm[k].lay)).sort((a, b) => a - b);
+  if (!ks.length) return null;
+  return (
+    <>
+      <SectionLabel>Betfair place markets</SectionLabel>
+      <div style={{ border: "1px solid " + c.border }} className="rounded-xl overflow-hidden mb-4">
+        <table className="w-full text-xs">
+          <thead>
+            <tr style={{ color: c.textMuted }}>
+              {["Places", "Back", "Lay", "Market", "Model"].map((h, i) => <th key={h} className={"py-1.5 px-2 font-semibold " + (i ? "text-right" : "text-left")}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {ks.map((k) => {
+              const { back, lay } = pm[k];
+              const mid = back && lay ? (back + lay) / 2 : back || lay;
+              const implied = mid > 1 ? 1 / mid : null;
+              const model = placeChance(runner, k);
+              return (
+                <tr key={k} style={{ borderTop: "1px solid " + c.border }}>
+                  <td style={{ color: c.text }} className="py-1.5 px-2">{k}{k === stdPlaces ? " (standard)" : ""}</td>
+                  <td style={{ color: c.green }} className="num py-1.5 px-2 text-right">{back ? Number(back).toFixed(2) : "—"}</td>
+                  <td style={{ color: c.cyan }} className="num py-1.5 px-2 text-right">{lay ? Number(lay).toFixed(2) : "—"}</td>
+                  <td style={{ color: c.textSecondary }} className="num py-1.5 px-2 text-right">{implied ? pct(implied) : "—"}</td>
+                  <td style={{ color: implied && model > implied ? c.green : c.text }} className="num py-1.5 px-2 text-right">{pct(model)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 // The learned model's inputs for one runner (place rates are shrunk towards ~30%).
 function RunnerFacts({ ui, runner }) {
   const { c, SectionLabel } = ui;
@@ -644,7 +683,9 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [layMode, setLayMode] = useState("none");
-  const [placeLayText, setPlaceLayText] = useState("");
+  // Betfair's place market at the standard places (the one a full lay uses), filled in when collected
+  const stdLay = runner.place_exchange?.[String(std.fraction > 0 ? std.places : 0)]?.lay;
+  const [placeLayText, setPlaceLayText] = useState(stdLay ? String(stdLay) : "");
   const [layText, setLayText] = useState(runner.exchange?.lay ? String(runner.exchange.lay) : "");
   const [commission, setCommission] = useState(String(ui.defaultCommission ?? 2));
   const odds = parseOdds(oddsText);
@@ -700,6 +741,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
         <Bar label="Exactly 4th" value={100 * (runner.positions?.[3] || 0)} max={30} tone={c.orange} right={pct(runner.positions?.[3])} />
         <Bar label="Exactly 5th" value={100 * (runner.positions?.[4] || 0)} max={30} tone={c.orange} right={pct(runner.positions?.[4])} />
       </div>
+      <PlaceMarkets ui={ui} runner={runner} stdPlaces={std.fraction > 0 ? std.places : 0} />
       <RunnerFacts ui={ui} runner={runner} />
       <SectionLabel>Value from</SectionLabel>
       <div className="flex flex-wrap gap-2 mb-4">

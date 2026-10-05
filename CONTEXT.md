@@ -132,6 +132,11 @@ Read this first. It is what a fresh session needs to work on this repo.
   Results: won / placed (inside the standard places) / extra_place / lost.
   auto_settle splits placed into placed vs extra_place for full lays from
   rac_results (placed_within / outside_within), else waits for a manual result.
+- Place-market prices: the collector also reads each race's Betfair PLACE /
+  OTHER_PLACE markets (collectors/betfair.place_prices) into rac_place_prices
+  (snapshots, pruned like the win prices). Runners carry place_exchange
+  {places: {back, lay, volume}}; the runner sheet shows them against the
+  model's chance, and the full-lay place odds fill in from the standard-places market.
 - Offers from a pasted daily list ("14:10 Killarney" / "(4 places, 1/5 odds)" /
   "Betway (12+)"): racing/offers_text.py, app "Paste a list" (admin, POST
   /stables/offers/paste) or `scripts/stables_offers.py data/offers/DATE.txt`.

@@ -1083,3 +1083,48 @@ def test_full_lay_win_and_place_extra_place_settles():
     assert got[bet["id"]]["result"] == "extra_place"
     assert got[bet["id"]]["actual_profit"] == pytest.approx(-5 + 5 * 3.0 + bet["lay_stake"] * 0.98 + lp * 0.98, abs=0.02)
     assert got[part["id"]]["result"] == "placed"
+
+
+def test_betfair_place_market_prices_collected(monkeypatch, tmp_path):
+    from collectors import betfair
+
+    for k, v in {"BETFAIR_APP_KEY": "k", "BETFAIR_USERNAME": "u", "BETFAIR_PASSWORD": "p"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(betfair, "SESSION_FILE", tmp_path / "s.json")
+    start = "2026-10-08T13:30:00Z"
+
+    class Fake(_FakeBetfair):
+        def post(self, url, data=None, json=None, headers=None, timeout=None):
+            if "login" in url:
+                return _Resp({"token": "tok", "status": "SUCCESS"})
+            m, prm = json["method"].split("/")[-1], json["params"]
+            if m == "listMarketCatalogue" and "PLACE" in (prm["filter"].get("marketTypeCodes") or []):
+                return _Resp({"result": [
+                    {"marketId": "1.901", "marketStartTime": start, "event": {"id": "E9"},
+                     "description": {"numberOfWinners": 3}},
+                    {"marketId": "1.902", "marketStartTime": start, "event": {"id": "E9"},
+                     "description": {"numberOfWinners": 4}}]})
+            if m == "listMarketCatalogue":
+                return _Resp({"result": [{
+                    "marketId": "1.900", "marketName": "1m Hcap", "marketStartTime": start,
+                    "event": {"id": "E9", "venue": "Placeford", "countryCode": "GB"},
+                    "runners": [{"selectionId": 200 + i, "runnerName": f"Pl {i}", "metadata": {}} for i in range(8)]}]})
+            if m == "listMarketBook":
+                out = []
+                for mid in prm["marketIds"]:
+                    mult = {"1.900": 1.0, "1.901": 0.35, "1.902": 0.28}[mid]
+                    out.append({"marketId": mid, "runners": [
+                        {"selectionId": 200 + i, "status": "ACTIVE", "totalMatched": 50.0,
+                         "ex": {"availableToBack": [{"price": round(1 + (o - 1) * mult, 2)}],
+                                "availableToLay": [{"price": round(1 + (o - 1) * mult + 0.1, 2)}]}}
+                        for i, o in enumerate([3, 4, 6, 8, 11, 15, 21, 34])]})
+                return _Resp({"result": out})
+            return _Resp({"error": {"code": "?"}})
+
+    betfair.collect(12, betfair.Client(http=Fake()))
+    race = next(r for r in store.races_on("2026-10-08") if r["course"] == "Placeford")
+    r3 = next(r for r in race["runners"] if r["name"] == "Pl 3")
+    assert r3["place_exchange"]["3"] == {"back": 3.45, "lay": 3.55, "volume": 50.0}
+    assert r3["place_exchange"]["4"]["back"] == 2.96
+    priced = price_race(race, n_sims=2000)
+    assert next(r for r in priced["runners"] if r["name"] == "Pl 3")["place_exchange"]["3"]["lay"] == 3.55

@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS rac_markets (
 CREATE TABLE IF NOT EXISTS rac_exchange_markets (
   id INTEGER PRIMARY KEY, race_id INTEGER NOT NULL, horse_id INTEGER NOT NULL,
   back_price REAL, lay_price REAL, volume REAL, liquidity REAL, timestamp TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS rac_place_prices (
+  id INTEGER PRIMARY KEY, race_id INTEGER NOT NULL, horse_id INTEGER NOT NULL, places INTEGER NOT NULL,
+  back_price REAL, lay_price REAL, volume REAL, timestamp TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS rac_place_prices_race ON rac_place_prices(race_id, horse_id, places, timestamp);
 CREATE TABLE IF NOT EXISTS rac_position_probabilities (
   id INTEGER PRIMARY KEY, race_id INTEGER NOT NULL, horse_id INTEGER NOT NULL,
   p1 REAL, p2 REAL, p3 REAL, p4 REAL, p5 REAL, p6 REAL, p7 REAL, p8 REAL, p9 REAL,
@@ -205,6 +209,12 @@ def import_card(card: dict, conn=None) -> dict:
                              "volume, liquidity, timestamp) VALUES (?,?,?,?,?,?,?)",
                              (race_id, horse_id, ex.get("back"), ex.get("lay"), ex.get("volume"),
                               ex.get("liquidity"), ts))
+            # Betfair place markets ("To Be Placed" = standard places, plus any 2-6 place markets)
+            for k, pm in (x.get("place_exchange") or {}).items():
+                if pm and (pm.get("back") or pm.get("lay")):
+                    conn.execute("INSERT INTO rac_place_prices (race_id, horse_id, places, back_price, lay_price, "
+                                 "volume, timestamp) VALUES (?,?,?,?,?,?,?)",
+                                 (race_id, horse_id, int(k), pm.get("back"), pm.get("lay"), pm.get("volume"), ts))
             feats = x.get("features") or {}
             if any(feats.get(k) is not None for k in FEATURE_COLS):
                 conn.execute(
@@ -251,6 +261,11 @@ def load_race(conn, race_id: int) -> Optional[dict]:
             "SELECT horse_id, bookmaker, win_odds FROM rac_markets WHERE race_id = ? ORDER BY timestamp",
             (race_id,)):
         odds.setdefault(hid, {})[book] = price
+    place: dict = {}
+    for hid, k, b, l_, v in conn.execute(
+            "SELECT horse_id, places, back_price, lay_price, volume FROM rac_place_prices WHERE race_id = ? "
+            "ORDER BY timestamp, id", (race_id,)):
+        place.setdefault(hid, {})[str(k)] = {"back": b, "lay": l_, "volume": v}     # newest wins
     ex = _latest(conn, "SELECT horse_id, back_price, lay_price, volume FROM rac_exchange_markets "
                        "WHERE race_id = ? ORDER BY timestamp", (race_id,))
     feats = {row[0]: dict(zip(FEATURE_COLS, row[1:])) for row in conn.execute(
@@ -264,11 +279,13 @@ def load_race(conn, race_id: int) -> Optional[dict]:
             "LEFT JOIN rac_jockeys j ON j.id = x.jockey_id LEFT JOIN rac_trainers t ON t.id = x.trainer_id "
             "WHERE x.race_id = ? ORDER BY x.number, h.name", (race_id,)):
         e = ex.get(hid)
+        pl = place.get(hid) or {}
         race["runners"].append({
             "horse_id": hid, "name": name, "number": num, "draw": draw, "weight": weight,
             "official_rating": rating, "form": form, "non_runner": bool(nr), "jockey": jockey,
             "trainer": trainer, "age": age, "days_since_run": days, "odds": odds.get(hid, {}),
             "exchange": {"back": e[1], "lay": e[2], "volume": e[3]} if e else None,
+            "place_exchange": pl or None,
             "features": feats.get(hid),
         })
     race["terms"] = [{"bookmaker": b, "places": p, "fraction": f, "min_runners": mr} for b, p, f, mr in conn.execute(
@@ -530,8 +547,9 @@ def prune_snapshots(keep_days: float = 1.0, conn=None) -> int:
 
     cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).isoformat(timespec="seconds")
     n = 0
-    for table in ("rac_exchange_markets", "rac_markets"):
-        key = "race_id, horse_id" if table == "rac_exchange_markets" else "race_id, horse_id, bookmaker"
+    keys = {"rac_exchange_markets": "race_id, horse_id", "rac_markets": "race_id, horse_id, bookmaker",
+            "rac_place_prices": "race_id, horse_id, places"}
+    for table, key in keys.items():
         n += conn.execute(
             f"DELETE FROM {table} WHERE timestamp < ? AND id NOT IN "
             f"(SELECT MAX(id) FROM {table} GROUP BY {key})", (cutoff,)).rowcount

@@ -150,6 +150,7 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
                 for t in race.get("terms") or [] if int(t.get("places") or 0) >= 1
             },
             "exchange": r.get("exchange"),
+            "place_exchange": r.get("place_exchange"),     # Betfair place markets {places: {back, lay}}
             "days_since_run": r.get("days_since_run"),
             "features": {k: v for k, v in (r.get("features") or {}).items() if k in SHOWN_FEATURES},
             "offers": [],

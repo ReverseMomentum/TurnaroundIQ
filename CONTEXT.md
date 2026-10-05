@@ -45,6 +45,10 @@ Read this first. It is what a fresh session needs to work on this repo.
   - FTA% = P(team goes 2 up) × P(fails to win once 2 up).
   - Inputs are built only from earlier matches (no look-ahead).
   - Calibrated, with recency weighting.
+  - Match context inputs (rest days, time of season, youth) are kept only if they win in training.
+    In Oct 2026 they did win, by a tiny margin; youth and time of season helped, rest days didn't.
+  - Already tested and dropped: H2H and bookmaker odds (no real gain). Next to test, after a few
+    months of data: the Betfair kick-off prices logged in `prediction_log` (scorecard).
   - 28 leagues, including the youth leagues PL2 (702) and PDL (703) and the Eerste Divisie (89).
 - **Odds** (`collectors/odds_apisports.py`):
   - Best UK back price per side.

@@ -18,7 +18,6 @@ newest day back and stops where the archive does (30 days in a row without
 files). Roughly 4 files a day: about 1-3 hours for five years.
 """
 import argparse
-import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -48,7 +47,7 @@ def main():
     a = ap.parse_args()
     start, end = _bounds()
     start, end = a.since or start, a.until or end
-    proxy = os.environ.get("BETFAIR_PROXY", "").strip()
+    proxy = bsp_files.proxy_setting()
     print(f"BSP history {start} to {end}, {'via ' + proxy if proxy else 'no proxy (BETFAIR_PROXY not set)'}", flush=True)
     # Newest first: recent runs matter most, and the archive may not reach back to the start date.
     day, month, races, runners, empty_days, tried = end, None, 0, 0, 0, 0

@@ -59,8 +59,36 @@ class BetfairError(RuntimeError):
     pass
 
 
+ENV_FILE = "/etc/turnaroundiq.env"
+
+
+def setting(name: str) -> str:
+    """
+    From the environment, else straight from /etc/turnaroundiq.env: a script
+    started by hand (or a shell that could not source that file) still finds
+    the Betfair settings and the UK link (BETFAIR_PROXY).
+    """
+    v = os.environ.get(name, "")
+    if v.strip():
+        return v
+    try:
+        with open(os.environ.get("TURNAROUNDIQ_ENV_FILE", ENV_FILE), encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith("export "):
+                    line = line[7:].strip()
+                if line.startswith(name + "="):
+                    val = line[len(name) + 1:].strip().rstrip("\r")
+                    if len(val) >= 2 and val[0] == val[-1] and val[0] in "'\"":
+                        val = val[1:-1]
+                    return val
+    except OSError:
+        pass
+    return ""
+
+
 def configured() -> bool:
-    return all(os.environ.get(k, "").strip() for k in ("BETFAIR_APP_KEY", "BETFAIR_USERNAME", "BETFAIR_PASSWORD"))
+    return all(setting(k).strip() for k in ("BETFAIR_APP_KEY", "BETFAIR_USERNAME", "BETFAIR_PASSWORD"))
 
 
 USER_AGENT = "TurnaroundIQ/1.0 (+https://turnaroundiq.co.uk)"
@@ -78,11 +106,11 @@ class Client:
         if http is None:
             http = requests.Session()
             http.headers["User-Agent"] = USER_AGENT
-            proxy = os.environ.get("BETFAIR_PROXY", "").strip()
+            proxy = setting("BETFAIR_PROXY").strip()
             if proxy:  # e.g. socks5h://127.0.0.1:1080, the SSH link to the UK server
                 http.proxies = {"https": proxy, "http": proxy}
         self.http = http
-        self.app_key = os.environ.get("BETFAIR_APP_KEY", "").strip()
+        self.app_key = setting("BETFAIR_APP_KEY").strip()
         self.token = None
 
     def login(self, force: bool = False) -> str:
@@ -98,7 +126,7 @@ class Client:
                 pass
         r = self.http.post(
             LOGIN_URL,
-            data={"username": os.environ["BETFAIR_USERNAME"].strip(), "password": os.environ["BETFAIR_PASSWORD"]},
+            data={"username": setting("BETFAIR_USERNAME").strip(), "password": setting("BETFAIR_PASSWORD")},
             headers={"X-Application": self.app_key, "Accept": "application/json",
                      "Content-Type": "application/x-www-form-urlencoded"},
             timeout=20,

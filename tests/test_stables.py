@@ -1028,3 +1028,17 @@ def test_bsp_history_rows_and_live_counts():
     f5 = next(r for r in race["runners"] if r["name"] == "Bsp Horse 5")["features"]
     assert f5["course_runs"] == 1 and f5["distance_runs"] == 1 and f5["course_rate"] > 0.3
     assert f5["priced_runs"] == 1 and f5["place_excess"] > 0 and f5["jockey_runs"] == 0
+
+
+def test_settings_fall_back_to_env_file(monkeypatch, tmp_path):
+    from collectors import betfair
+    from racing import bsp_files
+
+    f = tmp_path / "env"
+    f.write_text('# comment\nBETFAIR_APP_KEY=abc\nexport BETFAIR_PROXY="socks5h://127.0.0.1:1080"\r\n')
+    monkeypatch.setenv("TURNAROUNDIQ_ENV_FILE", str(f))
+    monkeypatch.delenv("BETFAIR_PROXY", raising=False)
+    assert bsp_files.proxy_setting() == "socks5h://127.0.0.1:1080"
+    monkeypatch.setenv("BETFAIR_PROXY", "socks5h://x:1")
+    assert bsp_files.proxy_setting() == "socks5h://x:1"           # the environment wins
+    assert betfair.setting("NOT_THERE") == ""

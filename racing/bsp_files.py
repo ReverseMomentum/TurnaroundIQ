@@ -31,6 +31,13 @@ failures: list = []
 _session = None
 
 
+def proxy_setting() -> str:
+    """The UK link (BETFAIR_PROXY), from the environment or /etc/turnaroundiq.env."""
+    from collectors.betfair import setting
+
+    return setting("BETFAIR_PROXY").strip()
+
+
 def _http():
     global _session
     if _session is None:
@@ -38,7 +45,7 @@ def _http():
 
         _session = requests.Session()
         _session.headers.update(HEADERS)
-        proxy = os.environ.get("BETFAIR_PROXY", "").strip()
+        proxy = proxy_setting()
         if proxy:
             _session.proxies = {"https": proxy, "http": proxy}
     return _session
@@ -53,7 +60,7 @@ def _curl(url: str) -> tuple:
     if not shutil.which("curl"):
         return None, ""
     cmd = ["curl", "-s", "-L", "--max-time", "60", "-A", HEADERS["User-Agent"], "-w", "\n%{http_code}", url]
-    proxy = os.environ.get("BETFAIR_PROXY", "").strip()
+    proxy = proxy_setting()
     if proxy:
         cmd[1:1] = ["-x", proxy]
     try:

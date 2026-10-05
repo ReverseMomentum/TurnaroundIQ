@@ -6,7 +6,7 @@
  * PageShell, Paywall, ...), so this page looks like every other page.
  */
 import React, { useMemo, useState } from "react";
-import { Check, ChevronDown, Info, Plus, RefreshCw, X } from "lucide-react";
+import { Check, ChevronDown, Filter, Info, Plus, RefreshCw, X } from "lucide-react";
 import { api } from "../lib/api";
 
 const pct = (v, dp = 1) => (v == null || isNaN(v) ? "—" : (100 * Number(v)).toFixed(dp) + "%");
@@ -317,7 +317,17 @@ function OpportunityList({ ui, list }) {
 // Runners whose exchange price already beats the "value from" line: the ones worth
 // checking with the bookmaker. Races with entered offers use each bookmaker's real
 // terms; other races use the generic "extra places" setting.
-function Shortlist({ ui, races, extra, onOpen }) {
+// Odds filter for the shortlist and value list (decimal prices, lower bound inclusive).
+const ODDS_FILTERS = [
+  { key: "all", label: "All", lo: 0, hi: Infinity },
+  { key: "short", label: "Up to 4/1", lo: 0, hi: 5.0 },
+  { key: "mid", label: "4/1–8/1", lo: 5.0, hi: 9.0 },
+  { key: "long", label: "8/1–16/1", lo: 9.0, hi: 17.0 },
+  { key: "big", label: "16/1–33/1", lo: 17.0, hi: 34.0 },
+];
+const inOdds = (filter, price) => !filter || filter.key === "all" || (price >= filter.lo && price < filter.hi);
+
+function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
   const { c, card, SectionLabel, Empty } = ui;
   const rows = [];
   for (const race of races) {
@@ -331,7 +341,7 @@ function Shortlist({ ui, races, extra, onOpen }) {
       // One row per horse: the offer with the lowest value line (the best terms).
       const ok = terms.map((t) => ({ t, vf: t.get(r) })).filter(({ vf }) => vf && price && price >= vf)
         .sort((a, b) => a.vf - b.vf);
-      if (ok.length) rows.push({ race, r, vf: ok[0].vf, price, t: ok[0].t, more: ok.length - 1, ratio: price / ok[0].vf });
+      if (ok.length && inOdds(oddsFilter, price)) rows.push({ race, r, vf: ok[0].vf, price, t: ok[0].t, more: ok.length - 1, ratio: price / ok[0].vf });
     }
   }
   rows.sort((a, b) => (b.t.book ? 1 : 0) - (a.t.book ? 1 : 0) || b.ratio - a.ratio);
@@ -344,7 +354,7 @@ function Shortlist({ ui, races, extra, onOpen }) {
         those terms, the model rates it value. Races with entered offers come first, on each bookmaker's terms;
         the rest use {extra ? `${extra} extra place${extra > 1 ? "s" : ""}` : "standard terms"}.
       </p>
-      {top.length === 0 && <Empty>No runner clears the value line at exchange prices.</Empty>}
+      {top.length === 0 && <Empty>No runner clears the value line at exchange prices{oddsFilter && oddsFilter.key !== "all" ? ` in the ${oddsFilter.label} range` : ""}.</Empty>}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-6">
         {top.map(({ race, r, vf, price, t, more }) => (
           <button key={race.race_id + r.name + (t.book || "")} onClick={() => onOpen?.(race, r)} style={{ ...card, textAlign: "left" }} className="rounded-xl px-4 py-3 flex items-center justify-between gap-3">
@@ -911,7 +921,7 @@ function TrackerTab({ ui, entitled }) {
 
 function CardsTab({ ui, entitled }) {
   const { c, chip, useApi, Loading, ErrorBox, Empty, SectionLabel } = ui;
-  const [date, setDate] = useState(null);
+  const date = null;   // always today's cards
   const [refreshes, setRefreshes] = useState(0);
   const [extra, setExtra] = useState(1);
   const [showStarted, setShowStarted] = useState(false);
@@ -925,46 +935,63 @@ function CardsTab({ ui, entitled }) {
   const updated = data?.priced_at
     ? new Date(data.priced_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
     : null;
-  const dates = useMemo(() => {
-    const ds = new Set(data?.dates || []);
-    if (data?.date) ds.add(data.date);
-    return [...ds].sort().reverse().slice(0, 10);
-  }, [data]);
+  const [oddsKey, setOddsKeyState] = useState(() => {
+    try { return localStorage.getItem("tiq_stables_odds") || "all"; } catch { return "all"; }
+  });
+  const setOddsKey = (k) => {
+    setOddsKeyState(k);
+    try { localStorage.setItem("tiq_stables_odds", k); } catch { /* private mode */ }
+  };
+  const [oddsOpen, setOddsOpen] = useState(false);
+  const oddsFilter = ODDS_FILTERS.find((f) => f.key === oddsKey) || ODDS_FILTERS[0];
+  const refreshBtn = (
+    <button onClick={() => setRefreshes((n) => n + 1)} disabled={q.loading} aria-label="Refresh races"
+      style={{ color: c.green, border: "1px solid rgba(54,233,143,0.35)", opacity: q.loading ? 0.6 : 1 }}
+      className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold px-2.5 py-2 rounded-lg">
+      <RefreshCw size={15} className={q.loading ? "animate-spin" : ""} />
+      <span className="hidden sm:inline">{refreshing ? "Refreshing…" : "Refresh"}</span>
+    </button>
+  );
   return (
     <>
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <button onClick={() => setRefreshes((n) => n + 1)} disabled={q.loading}
-          style={{ color: c.green, border: "1px solid rgba(54,233,143,0.35)", opacity: q.loading ? 0.6 : 1 }}
-          className="flex items-center gap-2 text-xs font-semibold px-3.5 py-2 rounded-lg">
-          <RefreshCw size={14} className={q.loading ? "animate-spin" : ""} /> {refreshing ? "Refreshing…" : "Refresh races"}
-        </button>
-        {updated && <span style={{ color: c.textMuted }} className="text-[11px] text-right">Priced at {updated}{fed ? ` · Betfair ${fed}` : ""}</span>}
-      </div>
       {data?.feed?.error && <p style={{ color: c.orange }} className="text-[11px] mb-3">Betfair: {data.feed.error}</p>}
-      {dates.length > 1 && (
-        <div className="no-scrollbar flex gap-2 overflow-x-auto mb-4 -mx-1 px-1">
-          {dates.map((d) => (
-            <button key={d} onClick={() => setDate(d)} style={chip(d === data?.date)} className="flex-shrink-0 text-xs font-semibold px-3.5 py-2 rounded-lg whitespace-nowrap num">{d}</button>
-          ))}
-        </div>
-      )}
       {q.loading && !data && <Loading />}
       {q.error && <ErrorBox error={q.error} onRetry={q.reload} />}
       {data && data.races.length === 0 && (
-        <Empty>No race cards loaded for {data.date} yet. Use “Price a race” to enter one by hand.</Empty>
+        <>
+          <div className="flex mb-3">{refreshBtn}</div>
+          <Empty>No race cards loaded for {data.date} yet. Use “Price a race” to enter one by hand.</Empty>
+        </>
       )}
       {data && data.races.length > 0 && (
         <>
           <ModelNote ui={ui} cal={data.calibration} source={data.races[0]?.probability_source} />
-          <div className="flex items-center gap-2 mb-4">
-            <span style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mr-1">Extra places</span>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mr-0.5">Extra places</span>
             {[0, 1, 2, 3].map((x) => (
-              <button key={x} onClick={() => setExtra(x)} style={chip(x === extra)} className="text-xs font-semibold px-3 py-1.5 rounded-lg num">{x === 0 ? "None" : "+" + x}</button>
+              <button key={x} onClick={() => setExtra(x)} style={chip(x === extra)} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg num">{x === 0 ? "None" : "+" + x}</button>
             ))}
+            {refreshBtn}
+          </div>
+          {updated && <p style={{ color: c.textMuted }} className="text-[11px] text-right mb-3">Priced at {updated}{fed ? ` · Betfair ${fed}` : ""}</p>}
+          <div className="mb-4">
+            <button onClick={() => setOddsOpen(!oddsOpen)} style={chip(oddsFilter.key !== "all")}
+              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg">
+              <Filter size={13} /> Odds: {oddsFilter.label}
+              <ChevronDown size={13} style={{ transform: oddsOpen ? "rotate(180deg)" : "none" }} />
+            </button>
+            {oddsOpen && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {ODDS_FILTERS.map((f) => (
+                  <button key={f.key} onClick={() => { setOddsKey(f.key); setOddsOpen(false); }} style={chip(f.key === oddsFilter.key)}
+                    className="num text-xs font-semibold px-3 py-1.5 rounded-lg">{f.label}</button>
+                ))}
+              </div>
+            )}
           </div>
           {data.can_edit_offers && <OffersPanel ui={ui} races={data.races} onSaved={q.reload} />}
-          <Shortlist ui={ui} races={data.races.filter((r) => !r.started)} extra={extra} onOpen={open} />
-          {data.opportunities.length > 0 && <OpportunityList ui={ui} list={data.opportunities} />}
+          <Shortlist ui={ui} races={data.races.filter((r) => !r.started)} extra={extra} onOpen={open} oddsFilter={oddsFilter} />
+          {data.opportunities.length > 0 && <OpportunityList ui={ui} list={data.opportunities.filter((o) => inOdds(oddsFilter, o.win_odds))} />}
           <SectionLabel>Races · {data.races.filter((r) => !r.started).length} to come</SectionLabel>
           {data.races.every((r) => r.started) && <Empty>All of this day's races have started.</Empty>}
           <div className="flex flex-col gap-3">

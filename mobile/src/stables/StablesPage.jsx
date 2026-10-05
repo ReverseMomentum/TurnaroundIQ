@@ -688,6 +688,9 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
 
       <SectionLabel>Track this bet</SectionLabel>
       <div style={card} className="rounded-xl p-3 flex flex-col gap-3 mb-3">
+        <div className="-mb-4">
+          <ui.SlideSwitch options={LAY_MODES} value={layMode} onChange={setLayMode} />
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             {label("Bookmaker")}
@@ -740,7 +743,13 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
   );
 }
 
-// Lay the win on the exchange: none / part / full, with what each option returns.
+const LAY_MODES = [
+  { key: "none", label: "No lay" },
+  { key: "part", label: "Part lay" },
+  { key: "full", label: "Full lay" },
+];
+
+// Lay the win on the exchange (picked with the switch at the top of the bet form): what each option returns.
 function LayChooser({ ui, mode, setMode, layPct, setLayPct, layText, setLayText, commission, setCommission, outcomes, partPct, label }) {
   const { c, chip } = ui;
   const modes = [["none", "No lay"], ["part", "Part lay"], ["full", "Full lay"]];
@@ -759,13 +768,14 @@ function LayChooser({ ui, mode, setMode, layPct, setLayPct, layText, setLayText,
   );
   return (
     <div>
-      {label("Lay the win on the exchange")}
-      <div className="flex flex-wrap gap-2 mb-2">
-        {modes.map(([k, t]) => <button key={k} onClick={() => setMode(k)} style={chip(mode === k)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">{t}</button>)}
-        {mode === "part" && ["25", "50", "75"].map((p) => (
-          <button key={p} onClick={() => setLayPct(p)} style={chip(layPct === p)} className="num text-xs font-semibold px-2.5 py-1.5 rounded-lg">{p}%</button>
-        ))}
-      </div>
+      {label(mode === "none" ? "Win lay on the exchange · off" : mode === "full" ? "Full lay of the win half" : "Part lay of the win half")}
+      {mode === "part" && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {["25", "50", "75"].map((p) => (
+            <button key={p} onClick={() => setLayPct(p)} style={chip(layPct === p)} className="num text-xs font-semibold px-2.5 py-1.5 rounded-lg">{p}%</button>
+          ))}
+        </div>
+      )}
       {mode !== "none" && (
         <div className="grid grid-cols-3 gap-3 mb-2">
           <div>

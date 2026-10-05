@@ -2568,7 +2568,7 @@ export default function App() {
 // Design system handed to pages that live in their own files (The Stables).
 const STABLES_UI = {
   c, card, accentCard, primaryBtn, chip, useApi,
-  PageShell, PageTitle, SectionLabel, Paywall, Loading, ErrorBox, Empty, Bar, Sheet, money,
+  PageShell, PageTitle, SectionLabel, Paywall, Loading, ErrorBox, Empty, Bar, Sheet, money, SlideSwitch,
 };
 
 // After web sign-in the session token is already set on the API client.

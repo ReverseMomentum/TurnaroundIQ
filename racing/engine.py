@@ -84,6 +84,11 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
     if n < 2:
         return {**out, "runners": [], "opportunities": [], "error": "need at least 2 runners"}
 
+    # Offers with a minimum field ("12+ runners") only stand once the field is big enough.
+    all_terms = race.get("terms") or []
+    race = {**race, "terms": [t for t in all_terms if n >= int(t.get("min_runners") or 0)]}
+    inactive = [t for t in all_terms if n < int(t.get("min_runners") or 0)]
+
     p_win, source, diag = market.fair_win_probs(runners)
     blend = calibration.get("blend")
     if blend and blend.get("fitted") and blend.get("kind") == "exploded":
@@ -199,6 +204,8 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
         "book_overround": diag["book_overround"],
         "standard_terms": {"places": std_places, "fraction": std_frac},
         "offers": [t.__dict__ for t in offers],
+        "inactive_offers": [{k: t.get(k) for k in ("bookmaker", "places", "fraction", "min_runners")}
+                            for t in inactive],
         "discounts": list(disc),
         "position_segment": calibrate.segment(rtype, n)
         if calibrate.segment(rtype, n) in (calibration.get("segment_discounts") or {}) else None,

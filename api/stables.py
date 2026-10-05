@@ -176,6 +176,23 @@ def stables_add_offers(body: OffersIn, authorization: str | None = Header(defaul
     return {"updated": n, "bookmakers": books, "races": n // len(books)}
 
 
+class OffersPasteIn(BaseModel):
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    text: str = Field(min_length=1, max_length=20000)
+
+
+@router.post("/offers/paste")
+def stables_paste_offers(body: OffersPasteIn, authorization: str | None = Header(default=None)):
+    """A day's offers pasted as a list ("14:10 Killarney / (4 places, 1/5 odds) / bet365 / Betway (12+)")."""
+    _require_admin(authorization)
+    from racing import offers_text
+
+    out = offers_text.apply(body.text, body.date)
+    with _lock:
+        _cache.clear()
+    return out
+
+
 @router.delete("/offers")
 def stables_delete_offer(race_id: int, bookmaker: str, authorization: str | None = Header(default=None)):
     _require_admin(authorization)

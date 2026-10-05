@@ -106,6 +106,7 @@ MIGRATIONS = {
     ],
     # chances from the race's prices, for the "placer" features (racing/features.py)
     "rac_history": [("exp_win", "REAL"), ("exp_place", "REAL")],
+    "rac_offers": [("min_runners", "INTEGER")],     # offer stands only with this many runners
 }
 
 
@@ -270,8 +271,9 @@ def load_race(conn, race_id: int) -> Optional[dict]:
             "exchange": {"back": e[1], "lay": e[2], "volume": e[3]} if e else None,
             "features": feats.get(hid),
         })
-    race["terms"] = [{"bookmaker": b, "places": p, "fraction": f} for b, p, f in conn.execute(
-        "SELECT bookmaker, places, fraction FROM rac_offers WHERE race_id = ? ORDER BY bookmaker", (race_id,))]
+    race["terms"] = [{"bookmaker": b, "places": p, "fraction": f, "min_runners": mr} for b, p, f, mr in conn.execute(
+        "SELECT bookmaker, places, fraction, min_runners FROM rac_offers WHERE race_id = ? ORDER BY bookmaker",
+        (race_id,))]
     return race
 
 
@@ -324,7 +326,8 @@ def races_with_results(conn=None) -> list[dict]:
     return out
 
 
-def set_offers(race_ids: list[int], bookmaker: str, places: int, fraction: float, conn=None) -> int:
+def set_offers(race_ids: list[int], bookmaker: str, places: int, fraction: float, conn=None,
+               min_runners: Optional[int] = None) -> int:
     """Add / replace one bookmaker's extra-place terms on several races. Returns races updated."""
     own = conn is None
     conn = conn or get_db()
@@ -335,10 +338,10 @@ def set_offers(race_ids: list[int], bookmaker: str, places: int, fraction: float
         if not conn.execute("SELECT 1 FROM rac_races WHERE id = ?", (rid,)).fetchone():
             continue
         conn.execute(
-            "INSERT INTO rac_offers (race_id, bookmaker, places, fraction, timestamp) VALUES (?,?,?,?,?) "
-            "ON CONFLICT(race_id, bookmaker) DO UPDATE SET places=excluded.places, "
-            "fraction=excluded.fraction, timestamp=excluded.timestamp",
-            (rid, bookmaker, int(places), float(fraction), ts))
+            "INSERT INTO rac_offers (race_id, bookmaker, places, fraction, timestamp, min_runners) "
+            "VALUES (?,?,?,?,?,?) ON CONFLICT(race_id, bookmaker) DO UPDATE SET places=excluded.places, "
+            "fraction=excluded.fraction, timestamp=excluded.timestamp, min_runners=excluded.min_runners",
+            (rid, bookmaker, int(places), float(fraction), ts, min_runners))
         n += 1
     conn.commit()
     if own:

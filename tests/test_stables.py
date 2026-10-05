@@ -167,7 +167,7 @@ def test_store_roundtrip_and_persist():
     race = races[0]
     assert race["course"] == "Testcourse" and len(race["runners"]) == 12
     assert race["runners"][0]["odds"]["Book A"] == 3.5
-    assert race["terms"] == [{"bookmaker": "Book A", "places": 5, "fraction": 0.2}]
+    assert race["terms"] == [{"bookmaker": "Book A", "places": 5, "fraction": 0.2, "min_runners": None}]
     priced = price_race(race)
     store.save_priced(priced)
     hist = store.races_with_results()
@@ -897,3 +897,47 @@ def test_vectorised_order_likelihood_matches_per_race():
     lam = np.array([1.0, 0.8, 0.7, 0.6, 0.55, 0.5])
     slow = sum(calibrate._race_nll(lp, o, lam) for lp, o in prepared) / len(prepared)
     assert calibrate._nll_all(calibrate._pad(prepared), lam) == pytest.approx(slow)
+
+
+def test_pasted_offer_list_parse_match_and_min_runners(monkeypatch):
+    from racing import offers_text as T
+
+    text = """Extra places today:
+14:45 Killarney
+
+(5 places, 1/5 odds)
+Sky Bet (12+)
+(4 places, 1/4 odds)
+Betfred
+16:05 Great Yarmouth
+(4 places, 1/5 odds)
+Sky Bet (8+)
+21:00 Nowhere
+(4 places, 1/5 odds)
+bet365
+"""
+    offers, skipped = T.parse(text)
+    assert [(o["bookmaker"], o["places"], o["fraction"], o["min_runners"]) for o in offers[:2]] == [
+        ("Sky Bet", 5, "1/5", 12), ("Betfred", 4, "1/4", None)]
+    assert offers[2]["course"] == "Great Yarmouth" and offers[2]["min_runners"] == 8
+    pairs, missing = T.match(offers, [{"race_id": 1, "time": "14:45", "course": "Killarney"},
+                                      {"race_id": 2, "time": "16:05", "course": "Yarmouth"}])
+    assert [rid for rid, _ in pairs] == [1, 1, 2] and missing == ["21:00 Nowhere"]
+    assert skipped == ["Extra places today:"]
+
+    # end to end: stored, and a 12+ offer does not stand in a 10-runner race
+    store.import_card({"timestamp": "2026-10-05T09:00:00Z", "races": [{
+        "id": "bf:7.777", "date": "2026-10-05", "time": "14:45", "course": "Killarney", "name": "2m Hcap Hrd",
+        "handicap": True, "runners": [{"horse": f"K{i}", "exchange": {"back": o, "lay": o + 0.2}}
+                                      for i, o in enumerate([4, 5, 6, 8, 10, 12, 15, 20, 26, 34])]}]})
+    monkeypatch.setattr(app_module, "require_pro", lambda a: "u_admin")
+    monkeypatch.setattr(app_module, "ADMIN_USER_IDS", {"u_admin"})
+    with TestClient(app_module.app) as client:
+        out = client.post("/stables/offers/paste", json={"date": "2026-10-05", "text": text}).json()
+        assert out["offers"] == 2 and out["races"] == 1
+        assert "21:00 Nowhere" in out["not_found"] and "16:05 Great Yarmouth" in out["not_found"]
+    race = next(r for r in store.races_on("2026-10-05") if r["course"] == "Killarney")
+    assert {(t["bookmaker"], t["min_runners"]) for t in race["terms"]} == {("Sky Bet", 12), ("Betfred", None)}
+    priced = price_race(race, n_sims=2000)
+    assert [o["bookmaker"] for o in priced["offers"]] == ["Betfred"]
+    assert priced["inactive_offers"] == [{"bookmaker": "Sky Bet", "places": 5, "fraction": 0.2, "min_runners": 12}]

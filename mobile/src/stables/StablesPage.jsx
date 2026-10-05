@@ -245,6 +245,11 @@ function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen }) {
           ))}
         </div>
       )}
+      {race.inactive_offers?.length > 0 && (
+        <p style={{ color: c.textMuted }} className="text-[11px] mt-1.5">
+          Not standing with {race.field_size} runners: {race.inactive_offers.map((t) => `${t.bookmaker} (${t.min_runners}+)`).join(", ")}
+        </p>
+      )}
       {open && (
         <div className="mt-3">
           <RunnerTable ui={ui} race={race} extra={extra} onOpen={onOpen} />
@@ -373,7 +378,26 @@ function OffersPanel({ ui, races, onSaved }) {
   const [sel, setSel] = useState(() => new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [mode, setMode] = useState("pick");
+  const [pasted, setPasted] = useState("");
   const upcoming = races.filter((r) => !r.started && r.race_id);
+  const day = races.find((r) => r.date)?.date;
+  const savePasted = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const out = await api.stablesPasteOffers(day, pasted);
+      const parts = [`Saved ${out.offers} offer${out.offers === 1 ? "" : "s"} on ${out.races} race${out.races === 1 ? "" : "s"}.`];
+      if (out.not_found?.length) parts.push(`Not on the cards yet: ${out.not_found.join(", ")}.`);
+      if (out.not_understood?.length) parts.push(`Lines not understood: ${out.not_understood.slice(0, 5).join(" · ")}`);
+      setMsg(parts.join(" "));
+      if (out.offers) setPasted("");
+      onSaved?.();
+    } catch (e) {
+      setMsg(e.message);
+    }
+    setBusy(false);
+  };
   const byCourse = useMemo(() => {
     const m = new Map();
     for (const r of upcoming) {
@@ -426,6 +450,26 @@ function OffersPanel({ ui, races, onSaved }) {
         <p style={{ color: c.text }} className="text-sm font-semibold">Add extra-place offer</p>
         <button onClick={() => setOpen(false)} aria-label="Close" style={{ color: c.textMuted }}><X size={18} /></button>
       </div>
+      <div className="flex gap-2">
+        {[["pick", "Pick races"], ["paste", "Paste a list"]].map(([k, t]) => (
+          <button key={k} onClick={() => { setMode(k); setMsg(null); }} style={chip(mode === k)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">{t}</button>
+        ))}
+      </div>
+      {mode === "paste" ? (
+        <>
+          <div>
+            {label(`Offers for ${day || "today"}`)}
+            <textarea value={pasted} onChange={(e) => setPasted(e.target.value)} rows={10} maxLength={20000}
+              placeholder={"14:10 Killarney\n(4 places, 1/5 odds)\nbet365\nBetway (12+)\n(5 places, 1/5 odds)\nSky Bet (12+)"}
+              style={{ background: c.cardAlt, border: "1px solid " + c.border, color: c.text }} className="w-full rounded-lg px-3 py-2 text-sm outline-none num" />
+          </div>
+          {msg && <p style={{ color: c.textSecondary }} className="text-xs">{msg}</p>}
+          <button disabled={!pasted.trim() || !day || busy} onClick={savePasted} style={{ ...primaryBtn, opacity: !pasted.trim() || !day || busy ? 0.5 : 1 }} className="rounded-xl py-3 text-sm font-bold">
+            {busy ? "Saving…" : "Save offers"}
+          </button>
+          <p style={{ color: c.textMuted }} className="text-[11px] -mt-2">One race per line ("14:10 Killarney"), then the terms ("(4 places, 1/5 odds)"), then one bookmaker per line. "(12+)" means the offer only stands with 12 or more runners. Saving again replaces a bookmaker's terms on that race.</p>
+        </>
+      ) : (<>
       <div>
         {label("Bookmakers · separate with commas")}
         <input value={book} onChange={(e) => setBook(e.target.value)} maxLength={400} placeholder="e.g. Bet365, Paddy Power"
@@ -477,6 +521,7 @@ function OffersPanel({ ui, races, onSaved }) {
         {busy ? "Saving…" : `Add${books.length > 1 ? ` ${books.length} bookmakers` : ""} to ${sel.size} race${sel.size === 1 ? "" : "s"}`}
       </button>
       <p style={{ color: c.textMuted }} className="text-[11px] -mt-2">Offers are shared with everyone using The Stables. Several bookmakers with the same terms: separate them with commas. A tick shows races that already have these offers; saving again replaces them.</p>
+      </>)}
     </div>
   );
 }

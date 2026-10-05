@@ -5,7 +5,7 @@
  * App.jsx passes its design system in as `ui` (colours, card styles,
  * PageShell, Paywall, ...), so this page looks like every other page.
  */
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, Filter, Info, Plus, RefreshCw, X } from "lucide-react";
 import { api } from "../lib/api";
 
@@ -830,6 +830,20 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
   const offer = offers.find((t) => t.bookmaker === book.trim() && t.places === places && fractionLabel(t.fraction) === fraction);
   const generic = fraction === fractionLabel(std.fraction) ? runner.value_from?.[String(places - (std.places || 0))] : null;
   const valueLine = offer ? runner.offer_value_from?.[offer.bookmaker] : generic;
+  // The model's grade for this exact bet: your bookmaker, price and terms (asked from the server as you type).
+  const [quote, setQuote] = useState(null);
+  useEffect(() => {
+    if (!odds || race.started) { setQuote(null); return undefined; }
+    let live = true;
+    const t = setTimeout(() => {
+      api.stablesQuote({ race_id: race.race_id, horse: runner.name, bookmaker: book.trim() || "Bookmaker", odds, places, fraction })
+        .then((q) => live && setQuote(q)).catch(() => live && setQuote(null));
+    }, 400);
+    return () => { live = false; clearTimeout(t); };
+  }, [odds, book, places, fraction, race.race_id, runner.name, race.started]);
+  // Before a price is typed: the engine's grade for these terms at the exchange price.
+  const atExchange = (runner.offers || []).find((o) => o.places_paid === places && fractionLabel(o.fraction) === fraction
+    && (o.bookmaker === book.trim() || !offers.some((t) => t.bookmaker === book.trim())));
   const pickOffer = (t) => { setBook(t.bookmaker); setPlaces(t.places); setFraction(fractionLabel(t.fraction)); };
   const submit = async () => {
     setBusy(true);
@@ -929,6 +943,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
             <p style={{ color: c.textMuted }} className="text-[10px] mt-1 num">£{(parseFloat(stakeEach) || 0).toFixed(2)} win + £{(parseFloat(stakeEach) || 0).toFixed(2)} place = £{(2 * (parseFloat(stakeEach) || 0)).toFixed(2)} total</p>
           </div>
         </div>
+        <BetGrade ui={ui} q={quote || atExchange} typed={Boolean(quote)} exchange={runner.exchange_back} />
         <LayChooser ui={ui} mode={layMode} setMode={setLayMode} placeLayText={placeLayText} setPlaceLayText={setPlaceLayText}
           stdPlaces={stdPlaces} places={places}
           layText={layText} setLayText={setLayText} commission={commission} setCommission={setCommission}
@@ -960,6 +975,37 @@ const LAY_MODES = [
   { key: "part", label: "Part lay" },
   { key: "full", label: "Full lay" },
 ];
+
+// The model's verdict on one bet: grade, each-way EV, confidence, place chance vs the bookmaker's terms.
+const GRADE_NOTE = {
+  A: "Clear value with room for model error",
+  B: "Value, after allowing for model error",
+  C: "Thin: only positive before allowing for model error",
+  D: "Not value at this price",
+};
+function BetGrade({ ui, q, typed, exchange }) {
+  const { c } = ui;
+  if (!q || !q.grade) return null;
+  const tone = { A: c.green, B: c.green, C: c.orange, D: c.red }[q.grade] || c.textSecondary;
+  const ev = q.each_way_ev;
+  return (
+    <div style={{ border: "1px solid " + c.border }} className="rounded-xl p-3 flex items-center gap-3">
+      <div style={{ background: tone, color: "#03140B" }} className="w-11 h-11 rounded-lg flex items-center justify-center text-xl font-bold flex-shrink-0">{q.grade}</div>
+      <div className="min-w-0 text-xs leading-snug">
+        <p style={{ color: c.text }} className="font-semibold">{GRADE_NOTE[q.grade]}</p>
+        <p style={{ color: c.textSecondary }} className="num">
+          Each-way EV <span style={{ color: ev >= 0 ? c.green : c.red }}>{signedPct(ev)}</span>
+          {" · "}place chance {pct(q.model_probability)} vs {pct(q.market_probability)} in the terms
+          {q.confidence != null ? ` · confidence ${q.confidence}` : ""}
+        </p>
+        <p style={{ color: c.textMuted }} className="text-[10px]">
+          {typed ? "At your price and terms." : `At the exchange price${exchange ? ` (${Number(exchange).toFixed(2)})` : ""}; type your bookmaker's price for its own grade.`}
+          {q.beyond_value_range ? " 33/1 or bigger: capped at C." : ""}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 // Lay on the exchange (picked with the switch at the top of the bet form): what each option returns.
 function LayChooser({ ui, mode, setMode, placeLayText, setPlaceLayText, stdPlaces, places, layText, setLayText,

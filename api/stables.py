@@ -232,6 +232,28 @@ def stables_track(body: TrackIn, authorization: str | None = Header(default=None
         raise HTTPException(400, str(e))
 
 
+class QuoteIn(BaseModel):
+    race_id: int
+    horse: str = Field(min_length=1, max_length=60)
+    bookmaker: str = Field(default="Bookmaker", max_length=40)
+    odds: float = Field(gt=1, le=1001)
+    places: int = Field(ge=1, le=10)
+    fraction: str = Field(default="1/5", max_length=8)
+
+
+@router.post("/quote")
+def stables_quote(body: QuoteIn, authorization: str | None = Header(default=None)):
+    """Grade, each-way EV and confidence for one bet at the bettor's price and terms (nothing is saved)."""
+    _require_pro(authorization)
+    from racing import bets as racing_bets
+
+    try:
+        return racing_bets.quote(body.race_id, body.horse, body.bookmaker or "Bookmaker", body.odds,
+                                 body.places, body.fraction)
+    except racing_bets.TrackError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.get("/tracker")
 def stables_tracker(authorization: str | None = Header(default=None), paper: Optional[bool] = None):
     """Tracked racing bets: return vs the model's expectation, CLV vs Betfair SP, splits."""

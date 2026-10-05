@@ -96,6 +96,7 @@ export const api = {
   stablesTrack: (bet) => request("/stables/track", { method: "POST", body: bet }),
   stablesTracker: (paper) => request("/stables/tracker" + (paper == null ? "" : `?paper=${paper}`)),
   stablesAddOffers: (offer) => request("/stables/offers", { method: "POST", body: offer }),
+  stablesQuote: (body) => request("/stables/quote", { method: "POST", body }),
   stablesPasteOffers: (date, text) => request("/stables/offers/paste", { method: "POST", body: { date, text } }),
   stablesDeleteOffer: (raceId, bookmaker) =>
     request(`/stables/offers?race_id=${raceId}&bookmaker=${encodeURIComponent(bookmaker)}`, { method: "DELETE" }),

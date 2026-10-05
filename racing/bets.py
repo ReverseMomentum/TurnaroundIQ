@@ -45,21 +45,8 @@ class TrackError(ValueError):
 LAY_MODES = ("none", "win", "full")
 
 
-def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: float, stake: float,
-          places: int, fraction, paper: bool = True, lay_pct: float = 0.0, lay_odds: Optional[float] = None,
-          commission: Optional[float] = None, lay_mode: Optional[str] = None,
-          place_lay_odds: Optional[float] = None) -> dict:
-    """
-    lay_mode: "none"; "win" (part lay: the win laid on Betfair, sized for the smallest worst case);
-    "full" (the win half and the place half laid, the place on Betfair's place
-    market at the standard places, so the bet mainly pays on an extra place).
-    lay_pct is the older form (share of the win lay) and is used when lay_mode is not given.
-    """
-    frac = parse_fraction(fraction)
-    if not frac or frac > 1:
-        raise TrackError("fraction must look like 1/5")
-    if not odds or odds <= 1:
-        raise TrackError("odds must be above evens-1 (decimal > 1)")
+def _price_bet(race_id: int, horse: str, bookmaker: str, odds: float, places: int, frac: float) -> dict:
+    """Price one runner with the bettor's own bookmaker, odds and each-way terms."""
     conn = get_db()
     try:
         race = store.load_race(conn, race_id)
@@ -82,6 +69,47 @@ def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: floa
     offer = next((o for o in row["offers"] if o["bookmaker"] == book), None)
     if offer is None:
         raise TrackError("could not price this bet")
+    return {"race": race, "runner": runner, "priced": priced, "row": row, "offer": offer, "book": book,
+            "calibration": cal}
+
+
+QUOTE_KEYS = ("grade", "each_way_ev", "win_ev", "place_ev", "edge", "robust_edge", "confidence",
+              "confidence_label", "model_probability", "market_probability", "place_odds", "places_paid",
+              "recommended_stake_pct")
+
+
+def quote(race_id: int, horse: str, bookmaker: str, odds: float, places: int, fraction) -> dict:
+    """The model's view of one each-way bet at the bettor's price and terms (grade, EV, confidence)."""
+    frac = parse_fraction(fraction)
+    if not frac or frac > 1:
+        raise TrackError("fraction must look like 1/5")
+    if not odds or odds <= 1:
+        raise TrackError("odds must be above evens (decimal > 1)")
+    q = _price_bet(race_id, horse, bookmaker, odds, places, frac)
+    out = {k: q["offer"].get(k) for k in QUOTE_KEYS}
+    out["value_from"] = q["row"]["offer_value_from"].get(q["book"])
+    out["beyond_value_range"] = q["row"].get("beyond_value_range")
+    return out
+
+
+def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: float, stake: float,
+          places: int, fraction, paper: bool = True, lay_pct: float = 0.0, lay_odds: Optional[float] = None,
+          commission: Optional[float] = None, lay_mode: Optional[str] = None,
+          place_lay_odds: Optional[float] = None) -> dict:
+    """
+    lay_mode: "none"; "win" (part lay: the win laid on Betfair, sized for the smallest worst case);
+    "full" (the win half and the place half laid, the place on Betfair's place
+    market at the standard places, so the bet mainly pays on an extra place).
+    lay_pct is the older form (share of the win lay) and is used when lay_mode is not given.
+    """
+    frac = parse_fraction(fraction)
+    if not frac or frac > 1:
+        raise TrackError("fraction must look like 1/5")
+    if not odds or odds <= 1:
+        raise TrackError("odds must be above evens-1 (decimal > 1)")
+    q = _price_bet(race_id, horse, bookmaker, odds, places, frac)
+    race, runner, priced, row, offer, book, cal = (q[k] for k in ("race", "runner", "priced", "row", "offer",
+                                                                    "book", "calibration"))
     if lay_mode is None:
         lay_mode = "win" if lay_pct and lay_pct > 0 else "none"
     if lay_mode not in LAY_MODES:

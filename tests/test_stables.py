@@ -639,13 +639,15 @@ def tracked_store_list(uid):
 
 
 def test_betfair_results_collection(monkeypatch, tmp_path):
+    # today (UK) at 00:01: always gone off and inside the 36-hour results window
+    _DAY = __import__("datetime").datetime.now(__import__("zoneinfo").ZoneInfo("Europe/London")).date().isoformat()
     from collectors import betfair
 
     for k, v in {"BETFAIR_APP_KEY": "k", "BETFAIR_USERNAME": "u", "BETFAIR_PASSWORD": "p"}.items():
         monkeypatch.setenv(k, v)
     monkeypatch.setattr(betfair, "SESSION_FILE", tmp_path / "s.json")
-    store.import_card({"timestamp": "2026-10-04T09:00:00Z", "races": [{
-        "id": "bf:1.777", "date": "2026-10-04", "time": "00:01", "course": "Resultford", "handicap": True,
+    store.import_card({"timestamp": f"{_DAY}T00:00:00Z", "races": [{
+        "id": "bf:1.777", "date": _DAY, "time": "00:01", "course": "Resultford", "handicap": True,
         "runners": [{"horse": f"R{i}", "exchange": {"back": o, "lay": o + 0.1}} for i, o in enumerate([3, 5, 8, 12, 20, 30])]}]})
 
     class Fake(_FakeBetfair):
@@ -654,14 +656,14 @@ def test_betfair_results_collection(monkeypatch, tmp_path):
                 return _Resp({"token": "t", "status": "SUCCESS"})
             m, prm = json["method"].split("/")[-1], json["params"]
             if m == "listMarketCatalogue" and "marketIds" in prm["filter"]:
-                return _Resp({"result": [{"marketId": "1.777", "marketStartTime": "2026-10-04T00:01:00Z",
+                return _Resp({"result": [{"marketId": "1.777", "marketStartTime": f"{_DAY}T00:01:00Z",
                                           "event": {"id": "E1"},
                                           "runners": [{"selectionId": 10 + i, "runnerName": f"R{i}"} for i in range(6)]}]})
             if m == "listMarketCatalogue":
                 return _Resp({"result": [
-                    {"marketId": "1.778", "marketStartTime": "2026-10-04T00:01:00Z", "event": {"id": "E1"},
+                    {"marketId": "1.778", "marketStartTime": f"{_DAY}T00:01:00Z", "event": {"id": "E1"},
                      "description": {"numberOfWinners": 3}},
-                    {"marketId": "1.779", "marketStartTime": "2026-10-04T00:01:00Z", "event": {"id": "E1"},
+                    {"marketId": "1.779", "marketStartTime": f"{_DAY}T00:01:00Z", "event": {"id": "E1"},
                      "description": {"numberOfWinners": 4}}]})
             if m == "listMarketBook" and "1.777" in prm["marketIds"]:
                 return _Resp({"result": [{"marketId": "1.777", "status": "CLOSED", "runners": [
@@ -1159,3 +1161,38 @@ def test_part_lay_defaults_to_min_loss():
     # (16 + 4) / 16 = 125% of the 100% lay: a winner and an unplaced horse cost the same
     assert bet["lay_stake"] == pytest.approx(1.25 * 5 * 16 / 16.98, abs=0.01)
     assert bet["snapshot"]["lay"]["pct"] == pytest.approx(125)
+
+
+@pytest.mark.parametrize("stake,o,f,lo,plo,c", [(10, 8.0, 0.2, 9.0, 2.6, 2), (20, 4.0, 0.25, 4.3, 1.9, 5),
+                                                (6, 26.0, 0.2, 30.0, 6.5, 2)])
+def test_lay_stakes_give_the_smallest_worst_case(stake, o, f, lo, plo, c):
+    """Brute force over every pair of lay stakes: nothing beats the app's worst case by more than a penny."""
+    from api.tracked import ew_lay_stake, ew_place_lay_stake, ew_returns
+
+    part = ew_lay_stake(stake, o, lo, c, 100 * (o + 1 + (o - 1) * f) / o)[0]
+    worst = lambda a, b=None: min(ew_returns(r, stake, o, f, lo, a, c, plo if b else None, b)  # noqa: E731
+                                  for r in ("won", "placed", "extra_place", "lost"))
+    assert worst(part) >= max(worst(x) for x in np.arange(0, 3 * part, 0.01)) - 0.011
+    lw, lp = ew_lay_stake(stake, o, lo, c, 100)[0], ew_place_lay_stake(stake, o, f, plo, c)[0]
+    grid = max(worst(a, b) for a in np.arange(0.01, 2.5 * lw, lw / 60) for b in np.arange(0.01, 2.5 * lp, lp / 60))
+    assert worst(lw, lp) >= grid - 0.011
+
+
+def test_quote_grades_a_bet_and_exchange_only_races_are_graded():
+    from racing import bets as racing_bets
+
+    store.import_card({"timestamp": "2026-10-04T09:00:00Z", "races": [{
+        "id": "bf:4.444", "date": "2026-10-10", "time": "15:00", "course": "Quoteford", "name": "1m Hcap",
+        "handicap": True, "terms": [{"bookmaker": "Book Q", "places": 5, "fraction": "1/5"}],
+        "runners": [{"horse": f"Q{i}", "exchange": {"back": o, "lay": round(o * 1.03, 2)}}
+                    for i, o in enumerate([3.5, 5, 7, 9, 11, 13, 17, 21, 26, 34, 41, 51])]}]})
+    race = next(r for r in store.races_on("2026-10-10") if r["course"] == "Quoteford")
+    priced = price_race(race, n_sims=2000)
+    offers = [o for r in priced["runners"] for o in r["offers"]]
+    assert offers and all(o["price_source"] == "exchange" and o["grade"] in "ABCD" for o in offers)
+    q = racing_bets.quote(race["race_id"], "Q4", "Book Q", 12.0, 5, "1/5")
+    assert q["grade"] in "ABCD" and q["places_paid"] == 5 and q["value_from"]
+    lower = racing_bets.quote(race["race_id"], "Q4", "Book Q", 6.0, 5, "1/5")
+    assert lower["each_way_ev"] < q["each_way_ev"]                     # a shorter price is worth less
+    with pytest.raises(racing_bets.TrackError):
+        racing_bets.quote(race["race_id"], "Nobody", "Book Q", 12.0, 5, "1/5")

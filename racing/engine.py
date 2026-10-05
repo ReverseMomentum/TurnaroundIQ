@@ -157,9 +157,14 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
         }
         for t in offers:
             odds = (r.get("odds") or {}).get(t.bookmaker) or row["best_win_odds"]
+            price_source = "bookmaker"
+            if not market.implied(odds):
+                # Betfair-only cards: grade at the exchange back price until a bookmaker price is entered
+                odds, price_source = (r.get("exchange") or {}).get("back"), "exchange"
             if not market.implied(odds):
                 continue
             ev = evaluate(float(p_win[i]), list(top[i]), float(odds), t)
+            ev["price_source"] = price_source
             k = t.places
             if edge_shrink is not None:
                 ev = shrink(ev, float(edge_shrink))

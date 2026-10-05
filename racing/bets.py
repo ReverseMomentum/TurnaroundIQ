@@ -50,7 +50,7 @@ def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: floa
           commission: Optional[float] = None, lay_mode: Optional[str] = None,
           place_lay_odds: Optional[float] = None) -> dict:
     """
-    lay_mode: "none"; "win" (part lay: the win half laid on Betfair's win market);
+    lay_mode: "none"; "win" (part lay: the win laid on Betfair, sized for the smallest worst case);
     "full" (the win half and the place half laid, the place on Betfair's place
     market at the standard places, so the bet mainly pays on an extra place).
     lay_pct is the older form (share of the win lay) and is used when lay_mode is not given.
@@ -86,7 +86,9 @@ def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: floa
         lay_mode = "win" if lay_pct and lay_pct > 0 else "none"
     if lay_mode not in LAY_MODES:
         raise TrackError("lay mode must be none, win or full")
-    pct = (lay_pct or 100) if lay_mode == "win" and lay_pct else 100
+    # Part lay (win only) is sized for the smallest worst case unless a share is given:
+    # winner and unplaced cost the same -> (odds + place odds) / odds of the 100% lay.
+    pct = (lay_pct if lay_pct else 100 * (odds + 1 + (odds - 1) * frac) / odds) if lay_mode == "win" else 100
     lay_odds = lay_odds or (runner.get("exchange") or {}).get("lay")
     lay_stake = liability = place_lay_stake = None
     std = priced["standard_terms"]["places"]

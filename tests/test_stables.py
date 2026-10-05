@@ -1147,3 +1147,15 @@ def test_min_loss_win_lay_and_full_lay_balance():
     outs = [ew_returns(r, 10, 8.0, 0.2, 9.0, lw, 2, 2.6, lp) for r in ("won", "placed", "lost")]
     assert max(outs) - min(outs) < 0.05
     assert ew_returns("extra_place", 10, 8.0, 0.2, 9.0, lw, 2, 2.6, lp) > 10
+
+
+def test_part_lay_defaults_to_min_loss():
+    from racing import bets as racing_bets
+
+    store.import_card({**CARD, "races": [{**CARD["races"][0], "id": "bf:9.12", "date": "2026-10-09"}]})
+    race = next(r for r in store.races_on("2026-10-09") if r["course"] == "Testcourse")
+    bet = racing_bets.track("u_m", race["race_id"], "Horse 6", "Book Z", 16.0, 10, 5, "1/5",
+                            lay_mode="win", lay_odds=17.0, commission=2)
+    # (16 + 4) / 16 = 125% of the 100% lay: a winner and an unplaced horse cost the same
+    assert bet["lay_stake"] == pytest.approx(1.25 * 5 * 16 / 16.98, abs=0.01)
+    assert bet["snapshot"]["lay"]["pct"] == pytest.approx(125)

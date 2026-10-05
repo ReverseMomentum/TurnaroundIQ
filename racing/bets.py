@@ -41,10 +41,19 @@ class TrackError(ValueError):
     pass
 
 
+LAY_MODES = ("none", "win", "full")
+
+
 def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: float, stake: float,
           places: int, fraction, paper: bool = True, lay_pct: float = 0.0, lay_odds: Optional[float] = None,
-          commission: Optional[float] = None) -> dict:
-    """lay_pct: share of the full win lay placed on the exchange (0 = no lay, 100 = full lay)."""
+          commission: Optional[float] = None, lay_mode: Optional[str] = None,
+          place_lay_odds: Optional[float] = None) -> dict:
+    """
+    lay_mode: "none"; "win" (part lay: the win half laid on Betfair's win market);
+    "full" (the win half and the place half laid, the place on Betfair's place
+    market at the standard places, so the bet mainly pays on an extra place).
+    lay_pct is the older form (share of the win lay) and is used when lay_mode is not given.
+    """
     frac = parse_fraction(fraction)
     if not frac or frac > 1:
         raise TrackError("fraction must look like 1/5")
@@ -72,12 +81,26 @@ def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: floa
     offer = next((o for o in row["offers"] if o["bookmaker"] == book), None)
     if offer is None:
         raise TrackError("could not price this bet")
+    if lay_mode is None:
+        lay_mode = "win" if lay_pct and lay_pct > 0 else "none"
+    if lay_mode not in LAY_MODES:
+        raise TrackError("lay mode must be none, win or full")
+    pct = (lay_pct or 100) if lay_mode == "win" and lay_pct else 100
     lay_odds = lay_odds or (runner.get("exchange") or {}).get("lay")
-    lay_stake, liability = (None, None)
-    if lay_pct and lay_pct > 0:
+    lay_stake = liability = place_lay_stake = None
+    std = priced["standard_terms"]["places"]
+    if lay_mode != "none":
         if not lay_odds or lay_odds <= 1:
             raise TrackError("lay odds needed for a lay (no exchange lay price for this runner)")
-        lay_stake, liability = tracked_store.ew_lay_stake(stake, odds, lay_odds, commission or 0, lay_pct)
+        lay_stake, liability = tracked_store.ew_lay_stake(stake, odds, lay_odds, commission or 0, pct)
+    if lay_mode == "full":
+        if not priced["standard_terms"]["fraction"] or not std:
+            raise TrackError("no standard place market for this race (win only)")
+        if not place_lay_odds or place_lay_odds <= 1:
+            raise TrackError(f"place lay odds needed for a full lay (Betfair's place market, {std} places)")
+        place_lay_stake, place_liab = tracked_store.ew_place_lay_stake(stake, odds, frac, place_lay_odds,
+                                                                       commission or 0)
+        liability = round((liability or 0) + place_liab, 2)
     now = datetime.now(UK)
     off = f"{race.get('date')} {race.get('time') or '00:00'}"
     try:
@@ -96,8 +119,10 @@ def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: floa
         "minutes_to_off": mins_to_off,
         "calibration": {k: cal.get(k) for k in ("fitted", "n_races", "created_at", "source")},
         "paper": bool(paper),
-        "lay": {"pct": lay_pct or 0, "odds": lay_odds if lay_stake else None, "stake": lay_stake,
-                "liability": liability, "commission": commission},
+        "lay": {"mode": lay_mode, "pct": pct if lay_stake else 0, "odds": lay_odds if lay_stake else None,
+                "stake": lay_stake, "place_odds": place_lay_odds if place_lay_stake else None,
+                "place_stake": place_lay_stake, "standard_places": std, "liability": liability,
+                "commission": commission},
     }
     bet = tracked_store.create_tracked(app_user_id, {
         "home_team": horse,
@@ -114,7 +139,12 @@ def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: floa
         "liability": liability,
         "fta_pct": round(100 * offer["model_probability"], 2),
         "notes": f"each-way {int(places)} places 1/{round(1 / frac)}"
-                 + (f"; win lay {lay_pct:g}% £{lay_stake:.2f} @ {lay_odds:g}" if lay_stake else ""),
+                 + (f"; win lay £{lay_stake:.2f} @ {lay_odds:g}" if lay_stake else "")
+                 + (f"; place lay ({std} pl) £{place_lay_stake:.2f} @ {place_lay_odds:g}" if place_lay_stake else ""),
+        "place_lay_odds": float(place_lay_odds) if place_lay_stake else None,
+        "place_lay_stake": place_lay_stake,
+        "std_places": std,
+        "p_std": _top(row, std),
         "paper": bool(paper),
         "product": "stables",
         "ew_places": int(places),
@@ -125,6 +155,14 @@ def track(app_user_id: str, race_id: int, horse: str, bookmaker: str, odds: floa
     store.record_bet(bet["id"], app_user_id, race_id, runner.get("horse_id"), horse, book, float(odds),
                      int(places), frac, snapshot)
     return {**bet, "snapshot": snapshot}
+
+
+def _top(row: dict, k: int) -> Optional[float]:
+    """Model chance of finishing in the first k (top3-6 recalibrated, else summed positions)."""
+    if not k:
+        return None
+    v = row.get(f"top{k}_probability")
+    return float(v) if v is not None else float(sum((row.get("positions") or [])[:k]))
 
 
 def _open_ids() -> set:
@@ -156,6 +194,11 @@ def auto_settle() -> int:
         if b["tracked_bet_id"] not in open_ids:
             continue
         result = "void" if _non_runner(b["race_id"], b["horse_id"]) else b["ew_result"]
+        lay = (b["snapshot"] or {}).get("lay") or {}
+        if result == "placed" and lay.get("place_stake"):
+            # full lay: inside the standard places (place lay loses) or only an extra place (it wins)?
+            inside = store.ew_result(False, b["placed_within"], b["outside_within"], lay.get("standard_places") or 0)
+            result = {"placed": "placed", "lost": "extra_place"}.get(inside)    # None: wait for a manual result
         if result:
             tracked_store.settle_tracked(b["app_user_id"], b["tracked_bet_id"], result)
             n += 1
@@ -172,7 +215,7 @@ def _summ(rows: list[dict]) -> dict:
     profit = sum(r["profit"] for r in settled)
     expected = sum(r["expected"] or 0 for r in settled)
     clv = [r["clv"] for r in rows if r["clv"] is not None]
-    placed = [r for r in settled if r["result"] in ("won", "placed", "lost")]
+    placed = [r for r in settled if r["result"] in ("won", "placed", "extra_place", "lost")]
     return {
         "bets": len(rows), "settled": len(settled),
         "staked": round(staked, 2), "profit": round(profit, 2),
@@ -180,7 +223,8 @@ def _summ(rows: list[dict]) -> dict:
         "expected_roi": round(expected / staked, 4) if staked else None,
         "avg_clv": round(sum(clv) / len(clv), 4) if clv else None,
         "beat_sp": round(sum(c > 0 for c in clv) / len(clv), 3) if clv else None,
-        "placed_rate": round(sum(r["result"] in ("won", "placed") for r in placed) / len(placed), 3) if placed else None,
+        "placed_rate": round(sum(r["result"] in ("won", "placed", "extra_place") for r in placed) / len(placed), 3)
+        if placed else None,
         "model_place": round(sum(r["p_place"] for r in placed) / len(placed), 3) if placed else None,
     }
 

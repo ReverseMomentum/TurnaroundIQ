@@ -985,7 +985,7 @@ def test_each_way_with_win_lay_track_and_settle():
     bet = racing_bets.track("u_l", race["race_id"], "Horse 6", "Book Z", 16.0, 10, 5, "1/5",
                             lay_pct=50, lay_odds=17.0, commission=2)
     assert bet["lay_stake"] == pytest.approx(0.5 * 5 * 16 / 16.98, abs=0.01) and bet["lay_odds"] == 17.0
-    assert bet["snapshot"]["lay"]["pct"] == 50 and "win lay 50%" in bet["notes"]
+    assert bet["snapshot"]["lay"]["pct"] == 50 and "win lay £" in bet["notes"]
     from api import tracked
     tracked.settle_tracked("u_l", bet["id"], "placed")
     s = next(b for b in tracked_store_list("u_l") if b["id"] == bet["id"])
@@ -1042,3 +1042,44 @@ def test_settings_fall_back_to_env_file(monkeypatch, tmp_path):
     monkeypatch.setenv("BETFAIR_PROXY", "socks5h://x:1")
     assert bsp_files.proxy_setting() == "socks5h://x:1"           # the environment wins
     assert betfair.setting("NOT_THERE") == ""
+
+
+def test_full_lay_win_and_place_extra_place_settles():
+    from api import tracked
+    from api.tracked import ew_place_lay_stake, ew_returns
+    from racing import bets as racing_bets
+
+    # £10 EW at 16.0, 5 places 1/5 (place odds 4.0); full lay: win at 17, place (3 places) at 4.0, 2% commission
+    lw = tracked.ew_lay_stake(10, 16.0, 17.0, 2, 100)[0]
+    lp, lp_liab = ew_place_lay_stake(10, 16.0, 0.2, 4.0, 2)
+    assert lp == pytest.approx(5 * 4.0 / 3.98, abs=0.01) and lp_liab == pytest.approx(lp * 3, abs=0.02)
+    args = (10, 16.0, 0.2, 17.0, lw, 2, 4.0, lp)
+    out = {r: ew_returns(r, *args) for r in ("won", "placed", "extra_place", "lost")}
+    assert out["extra_place"] > 10                                  # both place bets pay: the target outcome
+    assert abs(out["placed"]) < 1.0 and abs(out["won"]) < 1.5       # covered inside the standard places
+    assert out["lost"] < 0 and out["extra_place"] > out["placed"]
+    assert ew_returns("extra_place", 10, 16.0, 0.2) == ew_returns("placed", 10, 16.0, 0.2)   # no place lay: same
+
+    store.import_card({**CARD, "races": [{**CARD["races"][0], "id": "bf:9.11", "date": "2026-10-07"}]})
+    race = next(r for r in store.races_on("2026-10-07") if r["course"] == "Testcourse")
+    with pytest.raises(racing_bets.TrackError):
+        racing_bets.track("u_f", race["race_id"], "Horse 6", "Book Z", 16.0, 10, 5, "1/5",
+                          lay_mode="full", lay_odds=17.0, commission=2)          # no place lay price
+    bet = racing_bets.track("u_f", race["race_id"], "Horse 6", "Book Z", 16.0, 10, 5, "1/5",
+                            lay_mode="full", lay_odds=17.0, place_lay_odds=4.0, commission=2)
+    assert bet["place_lay_stake"] == pytest.approx(lp, abs=0.01) and bet["std_places"] == 3
+    assert bet["snapshot"]["lay"]["mode"] == "full" and "place lay (3 pl)" in bet["notes"]
+    assert bet["liability"] == pytest.approx(bet["lay_stake"] * 16 + lp * 3, abs=0.05)
+    part = racing_bets.track("u_f", race["race_id"], "Horse 6", "Book Z", 16.0, 10, 5, "1/5",
+                             lay_mode="win", lay_odds=17.0, commission=2)
+    assert part["lay_stake"] == pytest.approx(lw, abs=0.01) and part["place_lay_stake"] is None
+    # Horse 6 placed 4th: inside the 5 paid places, outside the 3 standard ones -> extra place
+    hid = {r["name"]: r["horse_id"] for r in race["runners"]}
+    store.save_results(race["race_id"], [
+        {"horse_id": hid["Horse 0"], "won": True, "exchange_sp": 4.0, "placed_within": 3},
+        {"horse_id": hid["Horse 6"], "won": False, "exchange_sp": 14.0, "placed_within": 4, "outside_within": 3}])
+    racing_bets.auto_settle()
+    got = {b["id"]: b for b in tracked_store_list("u_f")}
+    assert got[bet["id"]]["result"] == "extra_place"
+    assert got[bet["id"]]["actual_profit"] == pytest.approx(-5 + 5 * 3.0 + bet["lay_stake"] * 0.98 + lp * 0.98, abs=0.02)
+    assert got[part["id"]]["result"] == "placed"

@@ -67,7 +67,8 @@ SELECT_COLS = """
     status, result, actual_profit, actual_fta,
     COALESCE(paper, 1), expected_profit,
     COALESCE(product, 'fta'), created_at, settled_at,
-    ew_places, ew_fraction, p_win, p_place
+    ew_places, ew_fraction, p_win, p_place,
+    place_lay_odds, place_lay_stake, std_places, p_std
 """
 
 
@@ -110,6 +111,11 @@ def ensure_tracked_tables():
         ("ew_fraction", "REAL", "NULL"),
         ("p_win", "REAL", "NULL"),
         ("p_place", "REAL", "NULL"),
+        # full lay: the place half also laid on Betfair's place market (standard places)
+        ("place_lay_odds", "REAL", "NULL"),
+        ("place_lay_stake", "REAL", "NULL"),
+        ("std_places", "INTEGER", "NULL"),
+        ("p_std", "REAL", "NULL"),
     ):
         if name not in cols:
             conn.execute(
@@ -178,6 +184,7 @@ def _row_to_dict(row):
         "status", "result", "actual_profit", "actual_fta", "paper",
         "expected_profit", "product", "created_at", "settled_at",
         "ew_places", "ew_fraction", "p_win", "p_place",
+        "place_lay_odds", "place_lay_stake", "std_places", "p_std",
     ]
     vals = list(row)
     while len(vals) < len(keys):
@@ -236,8 +243,15 @@ def _lay_parts(lay_odds, lay_stake, commission):
     return -ls * (lo - 1), ls * (1 - cm)
 
 
-def ew_returns(result, stake, odds, fraction, lay_odds=None, lay_stake=None, commission=0.0):
-    """Profit of an each-way bet (stake = total, half win / half place), plus an optional win lay."""
+def ew_returns(result, stake, odds, fraction, lay_odds=None, lay_stake=None, commission=0.0,
+               place_lay_odds=None, place_lay_stake=None):
+    """
+    Profit of an each-way bet (stake = total, half win / half place), plus an
+    optional win lay and place lay. Results: won, placed (inside the standard
+    places), extra_place (placed only thanks to the extra places), lost, void.
+    The place lay (Betfair's place market, standard places) wins on extra_place
+    and lost, and loses on won and placed. Without one, extra_place = placed.
+    """
     try:
         stake, odds, fraction = float(stake or 0), float(odds or 0), float(fraction or 0)
     except (TypeError, ValueError):
@@ -245,17 +259,22 @@ def ew_returns(result, stake, odds, fraction, lay_odds=None, lay_stake=None, com
     half = stake / 2
     place_odds = 1 + (odds - 1) * fraction
     lay_if_win, lay_if_not = _lay_parts(lay_odds, lay_stake, commission)
+    pl_if_in, pl_if_out = _lay_parts(place_lay_odds, place_lay_stake, commission)
     r = (result or "").lower()
     if r in ("won", "win"):
-        return round(half * (odds - 1) + half * (place_odds - 1) + lay_if_win, 2)
+        return round(half * (odds - 1) + half * (place_odds - 1) + lay_if_win + pl_if_in, 2)
     if r == "placed":
-        return round(-half + half * (place_odds - 1) + lay_if_not, 2)
+        return round(-half + half * (place_odds - 1) + lay_if_not + pl_if_in, 2)
+    if r == "extra_place":
+        return round(-half + half * (place_odds - 1) + lay_if_not + pl_if_out, 2)
     if r in ("lost", "lose", "unplaced"):
-        return round(-stake + lay_if_not, 2)
+        return round(-stake + lay_if_not + pl_if_out, 2)
     return 0.0
 
 
-def ew_expected(stake, odds, fraction, p_win, p_place, lay_odds=None, lay_stake=None, commission=0.0):
+def ew_expected(stake, odds, fraction, p_win, p_place, lay_odds=None, lay_stake=None, commission=0.0,
+                place_lay_odds=None, place_lay_stake=None, p_std=None):
+    """p_place: chance of the paid places; p_std: of the standard places (needed with a place lay)."""
     try:
         stake, odds, fraction = float(stake), float(odds), float(fraction)
         p_win, p_place = float(p_win), float(p_place)
@@ -263,8 +282,33 @@ def ew_expected(stake, odds, fraction, p_win, p_place, lay_odds=None, lay_stake=
         return None
     place_odds = 1 + (odds - 1) * fraction
     lay_if_win, lay_if_not = _lay_parts(lay_odds, lay_stake, commission)
-    return round(stake / 2 * (p_win * odds - 1) + stake / 2 * (p_place * place_odds - 1)
-                 + p_win * lay_if_win + (1 - p_win) * lay_if_not, 2)
+    out = (stake / 2 * (p_win * odds - 1) + stake / 2 * (p_place * place_odds - 1)
+           + p_win * lay_if_win + (1 - p_win) * lay_if_not)
+    pl_if_in, pl_if_out = _lay_parts(place_lay_odds, place_lay_stake, commission)
+    if pl_if_in or pl_if_out:
+        try:
+            ps = float(p_std if p_std is not None else p_place)
+        except (TypeError, ValueError):
+            ps = p_place
+        out += ps * pl_if_in + (1 - ps) * pl_if_out
+    return round(out, 2)
+
+
+def ew_place_lay_stake(stake, odds, fraction, place_lay_odds, commission) -> tuple:
+    """
+    Lay of the place half on Betfair's place market (standard places): the place
+    half then roughly breaks even inside the standard places, and both bets pay
+    when the horse lands an extra place. Returns (lay_stake, liability) or (None, None).
+    """
+    try:
+        stake, odds, fraction = float(stake), float(odds), float(fraction)
+        plo, cm = float(place_lay_odds or 0), float(commission or 0) / 100.0
+    except (TypeError, ValueError):
+        return None, None
+    if plo <= 1 or plo - cm <= 0:
+        return None, None
+    ls = round((stake / 2) * (1 + (odds - 1) * fraction) / (plo - cm), 2)
+    return ls, round(ls * (plo - 1), 2)
 
 
 def ew_lay_stake(stake, odds, lay_odds, commission, lay_pct) -> tuple:
@@ -308,11 +352,13 @@ def _expected_profit(stake, back_odds, fta_pct, commission=2.0, lay_odds=None, p
 
 
 def compute_profit(result, stake, back_odds, commission=2.0, actual_profit=None,
-                   lay_odds=None, product="fta", ew_fraction=None, lay_stake=None):
+                   lay_odds=None, product="fta", ew_fraction=None, lay_stake=None,
+                   place_lay_odds=None, place_lay_stake=None):
     if actual_profit is not None:
         return float(actual_profit)
     if (product or "fta") == "stables":
-        return ew_returns(result, stake, back_odds, ew_fraction, lay_odds, lay_stake, commission)
+        return ew_returns(result, stake, back_odds, ew_fraction, lay_odds, lay_stake, commission,
+                          place_lay_odds, place_lay_stake)
     r = (result or "").lower().strip()
     if r in ("void", "push", "cancelled"):
         return 0.0
@@ -381,7 +427,8 @@ def create_tracked(app_user_id, data):
         # optional win lay on the exchange (lay_odds + lay_stake), no FTA-style lay
         lay = data.get("lay_odds") if data.get("lay_stake") else None
         exp = ew_expected(stake, back, data.get("ew_fraction"), data.get("p_win"), data.get("p_place"),
-                          lay, data.get("lay_stake"), commission)
+                          lay, data.get("lay_stake"), commission, data.get("place_lay_odds"),
+                          data.get("place_lay_stake"), data.get("p_std"))
     paper = 1 if data.get("paper", True) else 0
 
     conn = get_db()
@@ -391,8 +438,9 @@ def create_tracked(app_user_id, data):
             app_user_id, match_id, league, home_team, away_team, team, is_home,
             kickoff, bookmaker, back_odds, lay_odds, stake, commission,
             lay_stake, liability, fta_pct, notes, status, paper, expected_profit,
-            product, created_at, ew_places, ew_fraction, p_win, p_place
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            product, created_at, ew_places, ew_fraction, p_win, p_place,
+            place_lay_odds, place_lay_stake, std_places, p_std
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             app_user_id,
@@ -421,6 +469,10 @@ def create_tracked(app_user_id, data):
             data.get("ew_fraction"),
             data.get("p_win"),
             data.get("p_place"),
+            data.get("place_lay_odds"),
+            data.get("place_lay_stake"),
+            data.get("std_places"),
+            data.get("p_std"),
         ),
     )
     bet_id = cur.lastrowid
@@ -440,7 +492,7 @@ def settle_tracked(app_user_id, bet_id, result, actual_profit=None, actual_fta=N
     row = conn.execute(
         """
         SELECT id, stake, back_odds, commission, actual_fta, lay_odds,
-               COALESCE(product, 'fta'), ew_fraction, lay_stake
+               COALESCE(product, 'fta'), ew_fraction, lay_stake, place_lay_odds, place_lay_stake
         FROM tracked_bets WHERE id = ? AND app_user_id = ?
         """,
         (bet_id, app_user_id),
@@ -453,6 +505,7 @@ def settle_tracked(app_user_id, bet_id, result, actual_profit=None, actual_fta=N
         result, row[1], row[2], row[3], actual_profit=actual_profit,
         lay_odds=row[5], product=row[6], ew_fraction=row[7],
         lay_stake=row[8] if row[6] == "stables" else None,
+        place_lay_odds=row[9], place_lay_stake=row[10],
     )
     if actual_fta is None:
         r = (result or "").lower()
@@ -510,16 +563,19 @@ def update_tracked(app_user_id, bet_id, changes):
                            product=bet["product"])
     if bet["product"] == "stables":
         lay_stake, liability = bet.get("lay_stake"), bet.get("liability")
-        if lay_stake and bet.get("lay_odds"):     # odds edited: keep the lay stake, refresh the liability
-            liability = round(float(lay_stake) * (float(bet["lay_odds"]) - 1), 2)
+        if lay_stake and bet.get("lay_odds"):     # odds edited: keep the lay stakes, refresh the liability
+            liability = round(float(lay_stake) * (float(bet["lay_odds"]) - 1)
+                              + float(bet.get("place_lay_stake") or 0) * (float(bet.get("place_lay_odds") or 1) - 1), 2)
         exp = ew_expected(stake, back, bet.get("ew_fraction"), bet.get("p_win"), bet.get("p_place"),
-                          bet.get("lay_odds"), lay_stake, comm)
+                          bet.get("lay_odds"), lay_stake, comm, bet.get("place_lay_odds"),
+                          bet.get("place_lay_stake"), bet.get("p_std"))
     profit = bet.get("actual_profit")
     # a traded-out bet's profit is what the user really got: keep it
     if bet["status"] == "settled" and bet.get("result") and bet["result"] != "traded":
         profit = compute_profit(bet["result"], stake, back, comm, lay_odds=bet.get("lay_odds"),
                                 product=bet["product"], ew_fraction=bet.get("ew_fraction"),
-                                lay_stake=lay_stake if bet["product"] == "stables" else None)
+                                lay_stake=lay_stake if bet["product"] == "stables" else None,
+                                place_lay_odds=bet.get("place_lay_odds"), place_lay_stake=bet.get("place_lay_stake"))
     conn.execute(
         """UPDATE tracked_bets SET stake=?, back_odds=?, lay_odds=?, commission=?, bookmaker=?,
                notes=?, lay_stake=?, liability=?, expected_profit=?, actual_profit=?

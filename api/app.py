@@ -130,7 +130,7 @@ class TrackedCreate(BaseModel):
 
 
 class TrackedSettle(BaseModel):
-    result: str = Field(description="won|lost|void|fta|no_fta|placed (racing)")
+    result: str = Field(description="won|lost|void|fta|no_fta|placed|extra_place (racing)")
     actual_profit: Optional[float] = None
     actual_fta: Optional[int] = None
 

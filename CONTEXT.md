@@ -126,6 +126,12 @@ Read this first. It is what a fresh session needs to work on this repo.
   BSP chances. No jockeys / trainers there. Live features carry run counts
   (course_runs, jockey_30d_runs, priced_runs ...) and the app shows "—" where
   a rate has no runs behind it.
+- Lay options on a tracked bet (runner sheet switch): none; part = lay the win
+  half on Betfair's win market; full = also lay the place half on Betfair's
+  place market at the standard places (place lay odds entered by hand).
+  Results: won / placed (inside the standard places) / extra_place / lost.
+  auto_settle splits placed into placed vs extra_place for full lays from
+  rac_results (placed_within / outside_within), else waits for a manual result.
 - Offers from a pasted daily list ("14:10 Killarney" / "(4 places, 1/5 odds)" /
   "Betway (12+)"): racing/offers_text.py, app "Paste a list" (admin, POST
   /stables/offers/paste) or `scripts/stables_offers.py data/offers/DATE.txt`.

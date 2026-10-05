@@ -341,12 +341,12 @@ function depthLabel(score) {
 }
 
 function resultTone(result) {
-  if (result === "fta" || result === "won" || result === "placed") return c.green;
+  if (result === "fta" || result === "won" || result === "placed" || result === "extra_place") return c.green;
   if (result === "no_fta" || result === "lost") return c.red;
   return c.textSecondary;
 }
 function resultLabel(result) {
-  const labels = { fta: "FTA hit", no_fta: "No FTA", won: "Hit", lost: "Miss", void: "Void", traded: "Traded out", placed: "Placed" };
+  const labels = { fta: "FTA hit", no_fta: "No FTA", won: "Hit", lost: "Miss", void: "Void", traded: "Traded out", placed: "Placed", extra_place: "Extra place" };
   return labels[result] || result || "Open";
 }
 
@@ -1768,7 +1768,7 @@ function MyBetsPage({ nav, entitled, onPurchased, reloadMe }) {
       roi_pct: staked ? (100 * profit) / staked : null,
       total: bets.length,
       fta_hits: settled.filter((b) => b.result === "fta").length,
-      placed: settled.filter((b) => b.result === "won" || b.result === "placed").length,
+      placed: settled.filter((b) => b.result === "won" || b.result === "placed" || b.result === "extra_place").length,
     };
   }, [sport, q.data, bets, settled]);
 
@@ -1900,7 +1900,7 @@ function BetRow({ b, onClick }) {
         </div>
       </div>
       <div style={{ borderTop: "1px solid " + c.border }} className="flex items-center justify-between pt-3 text-xs">
-        <span style={{ color: c.textSecondary }} className="num">£{Number(b.stake || 0).toFixed(2)} @ <span style={{ color: c.green }} className="font-semibold">{b.back_odds ? Number(b.back_odds).toFixed(2) : "—"}</span>{b.lay_odds ? <> · lay <span style={{ color: c.cyan }} className="font-semibold">{Number(b.lay_odds).toFixed(2)}</span></> : null}</span>
+        <span style={{ color: c.textSecondary }} className="num">£{Number(b.stake || 0).toFixed(2)} @ <span style={{ color: c.green }} className="font-semibold">{b.back_odds ? Number(b.back_odds).toFixed(2) : "—"}</span>{b.lay_odds ? <> · lay <span style={{ color: c.cyan }} className="font-semibold">{Number(b.lay_odds).toFixed(2)}</span></> : null}{b.place_lay_odds ? <> · place lay <span style={{ color: c.cyan }} className="font-semibold">{Number(b.place_lay_odds).toFixed(2)}</span></> : null}</span>
         <span style={{ color: c.textMuted }}>{isOpen ? "Opened " + dateStr(b.created_at) : "Settled " + dateStr(b.settled_at)}</span>
       </div>
     </button>
@@ -2129,7 +2129,7 @@ function BetEditSheet({ bet, onClose, onChanged, live }) {
           <SectionLabel>Settle manually</SectionLabel>
           <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-3">Settles itself from Betfair results when it can. Places beyond Betfair's place markets need you.</p>
           <div className="grid grid-cols-2 gap-2 mb-6">
-            {[["won", "Won", c.green], ["placed", "Placed", c.green], ["lost", "Unplaced", c.text], ["void", "Void / NR", c.textSecondary]].map(([r, l, tone]) => (
+            {[["won", "Won", c.green], ["placed", bet.place_lay_stake && bet.std_places ? `Placed (top ${bet.std_places})` : "Placed", c.green], ...(bet.place_lay_stake ? [["extra_place", "Extra place only", c.green]] : []), ["lost", "Unplaced", c.text], ["void", "Void / NR", c.textSecondary]].map(([r, l, tone]) => (
               <button key={r} disabled={busy} onClick={() => run(() => api.settleTracked(bet.id, r))} style={chip(false)} className="rounded-xl py-3 text-xs font-semibold">
                 <span style={{ color: tone }}>{l}</span>
               </button>

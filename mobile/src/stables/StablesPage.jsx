@@ -210,9 +210,54 @@ function RunnerTable({ ui, race, extra, onOpen }) {
   );
 }
 
-function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen }) {
+// Races as tiles, three per row, grouped by course (in order of each course's first race).
+function RaceGrid({ ui, races, onPick }) {
   const { c, card } = ui;
-  const [open, setOpen] = useState(false);
+  const byCourse = new Map();
+  for (const r of races) {
+    const k = r.course || "Other";
+    if (!byCourse.has(k)) byCourse.set(k, []);
+    byCourse.get(k).push(r);
+  }
+  const courses = [...byCourse.entries()]
+    .map(([k, list]) => [k, list.sort((a, b) => (a.time || "").localeCompare(b.time || ""))])
+    .sort((a, b) => (a[1][0].time || "").localeCompare(b[1][0].time || ""));
+  return (
+    <div className="flex flex-col gap-5">
+      {courses.map(([course, list]) => (
+        <div key={course}>
+          <p style={{ color: c.text }} className="text-base font-semibold mb-2">{course}</p>
+          <div className="grid grid-cols-3 gap-2">
+            {list.map((r) => {
+              const std = r.standard_terms || {};
+              const offers = realOffers(r);
+              const bestExtra = offers.length ? Math.max(...offers.map((t) => t.places - (std.places || 0))) : 0;
+              const strong = r.opportunities.filter((o) => o.grade === "A" || o.grade === "B").length;
+              const label = (r.name || "").replace(/^\s*\d+[:.]\d+\s*/, "") || `${r.field_size} runners`;
+              return (
+                <button key={r.race_id} onClick={() => onPick(r)} style={{ ...card, textAlign: "left", opacity: r.started ? 0.5 : 1 }}
+                  className="relative rounded-xl px-2.5 py-2.5 min-w-0">
+                  {bestExtra > 0 && (
+                    <span style={{ background: c.green, color: "#03140B" }} className="absolute top-1.5 right-1.5 num text-[10px] font-bold px-1.5 rounded">+{bestExtra}</span>
+                  )}
+                  <p style={{ color: c.text }} className="num text-base font-bold leading-tight">{r.time}</p>
+                  <p style={{ color: c.textMuted }} className="text-[11px] leading-snug mt-0.5 line-clamp-2 break-words">{label}</p>
+                  <p style={{ color: strong ? c.green : c.textMuted }} className="text-[10px] mt-1">
+                    {r.field_size} runners{strong ? ` · ${strong} value` : ""}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen, defaultOpen = false }) {
+  const { c, card } = ui;
+  const [open, setOpen] = useState(defaultOpen);
   const [busy, setBusy] = useState(false);
   const [showBooks, setShowBooks] = useState(false);
   const strong = race.opportunities.filter((o) => o.grade === "A" || o.grade === "B").length;
@@ -1077,9 +1122,11 @@ function CardsTab({ ui, entitled }) {
   const [extra, setExtra] = useState(1);
   const [showStarted, setShowStarted] = useState(false);
   const [picked, setPicked] = useState(null);
+  const [raceId, setRaceId] = useState(null);     // race opened from the grid (closing a runner returns to it)
   const open = (race, runner) => setPicked({ race, runner });
   const q = useApi(() => api.stablesRaces(date, refreshes > 0), [entitled, date, refreshes]);
   const data = q.data;
+  const sheetRace = raceId != null ? (data?.races || []).find((r) => r.race_id === raceId) : null;
   const refreshing = q.loading && Boolean(data);
   const clock = (iso) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const fed = data?.feed?.last_fetch ? clock(data.feed.last_fetch) : null;
@@ -1145,13 +1192,7 @@ function CardsTab({ ui, entitled }) {
           {data.opportunities.length > 0 && <OpportunityList ui={ui} list={data.opportunities.filter((o) => inOdds(oddsFilter, o.win_odds))} />}
           <SectionLabel>Races · {data.races.filter((r) => !r.started).length} to come</SectionLabel>
           {data.races.every((r) => r.started) && <Empty>All of this day's races have started.</Empty>}
-          <div className="flex flex-col gap-3">
-            {data.races.filter((r) => showStarted || !r.started).map((r) => (
-              <div key={r.race_id} style={{ opacity: r.started ? 0.5 : 1 }}>
-                <RaceCard ui={ui} race={r} extra={extra} canEdit={data.can_edit_offers} onChanged={q.reload} onOpen={open} />
-              </div>
-            ))}
-          </div>
+          <RaceGrid ui={ui} races={data.races.filter((r) => showStarted || !r.started)} onPick={(r) => setRaceId(r.race_id)} />
           {data.started_count > 0 && (
             <button onClick={() => setShowStarted(!showStarted)} style={{ color: c.textSecondary, border: "1px solid " + c.border }} className="w-full rounded-xl py-2.5 text-xs font-medium mt-3">
               {showStarted ? "Hide started races" : `Show ${data.started_count} started race${data.started_count === 1 ? "" : "s"}`}
@@ -1159,7 +1200,12 @@ function CardsTab({ ui, entitled }) {
           )}
         </>
       )}
-      {data && <p style={{ color: c.textMuted }} className="text-[11px] mt-3">Prices are as loaded; check the live price and terms with the bookmaker. Tap a runner for details and to track a bet.</p>}
+      {data && <p style={{ color: c.textMuted }} className="text-[11px] mt-3">Tap a race for its runners and offers; a green +1 / +2 marks races with extra-place offers entered. Prices are as loaded; check the live price and terms with the bookmaker.</p>}
+      {sheetRace && !picked && (
+        <ui.Sheet open onClose={() => setRaceId(null)}>
+          <RaceCard ui={ui} race={sheetRace} extra={extra} canEdit={data.can_edit_offers} onChanged={q.reload} onOpen={open} defaultOpen />
+        </ui.Sheet>
+      )}
       {picked && <RunnerSheet ui={ui} race={picked.race} runner={picked.runner} extra={extra} onClose={() => setPicked(null)} />}
     </>
   );

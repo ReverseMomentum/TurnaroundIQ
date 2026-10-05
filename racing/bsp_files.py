@@ -2,7 +2,7 @@
 Betfair's free daily BSP files (promo.betfair.com): every UK and Irish race,
 win market and "To Be Placed" market, with each runner's BSP and win/lose flag.
 
-fetch()         cached download (data/bsp/), through BETFAIR_PROXY when set:
+fetch()         cached download (data/bsp/) with curl, through BETFAIR_PROXY when set:
                 Betfair refuses non-UK servers, so the VPS uses the SSH link
                 to the UK server, as the collector does.
 history_rows()  one day's files -> rac_history rows (horse, course, trip,
@@ -44,6 +44,26 @@ def _http():
     return _session
 
 
+def _curl(url: str) -> tuple:
+    """(status, text) with the curl binary. Betfair's file server let a plain curl through
+    (HTTP 200) but refused Python's HTTP client (403) from the same server and link."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("curl"):
+        return None, ""
+    cmd = ["curl", "-s", "-L", "--max-time", "60", "-A", HEADERS["User-Agent"], "-w", "\n%{http_code}", url]
+    proxy = os.environ.get("BETFAIR_PROXY", "").strip()
+    if proxy:
+        cmd[1:1] = ["-x", proxy]
+    try:
+        out = subprocess.run(cmd, capture_output=True, timeout=90).stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 0, f"{type(e).__name__}"
+    body, _, code = out.rpartition("\n")
+    return (int(code) if code.isdigit() else 0), body
+
+
 def fetch(region: str, market: str, day: date, pause: float = 0.3) -> str:
     """Cached download; only real CSVs are cached, so a failed day is retried next run."""
     d = day.strftime("%d%m%Y")
@@ -52,18 +72,20 @@ def fetch(region: str, market: str, day: date, pause: float = 0.3) -> str:
         return path.read_text(errors="replace")
     for host in HOSTS:
         url = host + PATH.format(region=region, market=market, d=d)
-        try:
-            r = _http().get(url, timeout=30)
-        except Exception as e:  # noqa: BLE001  network / proxy errors: try the next host
-            failures.append(f"{url}: {type(e).__name__}: {e}"[:200])
-            continue
-        finally:
-            time.sleep(pause)
-        if r.status_code == 200 and "EVENT_ID" in r.text[:300].upper():
+        status, text = _curl(url)
+        if status is None:            # no curl on this machine: Python's client
+            try:
+                r = _http().get(url, timeout=30)
+                status, text = r.status_code, r.text
+            except Exception as e:  # noqa: BLE001  network / proxy errors: try the next host
+                failures.append(f"{url}: {type(e).__name__}: {e}"[:200])
+                continue
+        time.sleep(pause)
+        if status == 200 and "EVENT_ID" in text[:300].upper():
             CACHE.mkdir(parents=True, exist_ok=True)
-            path.write_text(r.text)
-            return r.text
-        failures.append(f"{url}: HTTP {r.status_code}, starts {r.text[:80]!r}")
+            path.write_text(text)
+            return text
+        failures.append(f"{url}: HTTP {status}, starts {text[:80]!r}")
     return ""
 
 

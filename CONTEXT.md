@@ -115,6 +115,13 @@ Read this first. It is what a fresh session needs to work on this repo.
 - No value calls at 33/1 or bigger (engine.MAX_VALUE_ODDS = 34 decimal): the
   learned-model backtest overrated 33/1-50/1 as well as 50/1+. Backtests print
   grade A/B by odds bracket (summarise()["by_grade_odds"]).
+- Recent history: Kaggle stops in 2020, so `scripts/stables_bsp_history.py`
+  (run via scripts/cron_job.sh for BETFAIR_PROXY) fills rac_history from
+  Betfair's free daily BSP files (racing/bsp_files.py): horse, course (Betfair
+  short names, matched by live_features.same_course), trip, won / placed,
+  BSP chances. No jockeys / trainers there. Live features carry run counts
+  (course_runs, jockey_30d_runs, priced_runs ...) and the app shows "—" where
+  a rate has no runs behind it.
 - Offers from a pasted daily list ("14:10 Killarney" / "(4 places, 1/5 odds)" /
   "Betway (12+)"): racing/offers_text.py, app "Paste a list" (admin, POST
   /stables/offers/paste) or `scripts/stables_offers.py data/offers/DATE.txt`.

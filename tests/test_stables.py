@@ -820,7 +820,7 @@ def test_placer_features_training_and_live(tmp_path):
     f = live_features._placer(h + [{"placed": 1, "won": 0, "exp_place": None, "exp_win": None}])
     assert f["place_excess"] == pytest.approx(4 * 0.8 / (4 + F.SHRINK_HORSE))
     assert f["win_excess"] == pytest.approx(-4 * 0.05 / (4 + F.SHRINK_HORSE))
-    assert live_features._placer([]) == {"place_excess": 0.0, "win_excess": 0.0}
+    assert live_features._placer([]) == {"place_excess": 0.0, "win_excess": 0.0, "priced_runs": 0}
 
 
 def test_history_from_results_stores_expected_chances():
@@ -990,3 +990,41 @@ def test_each_way_with_win_lay_track_and_settle():
     tracked.settle_tracked("u_l", bet["id"], "placed")
     s = next(b for b in tracked_store_list("u_l") if b["id"] == bet["id"])
     assert s["actual_profit"] == pytest.approx(-5 + 5 * 3.0 + bet["lay_stake"] * 0.98, abs=0.01)
+
+
+def test_bsp_history_rows_and_live_counts():
+    from database import get_db
+    from racing import bsp_files, live_features
+
+    assert bsp_files.course_from_menu("UK / Kemp 5th Oct") == "kemp"
+    assert bsp_files.course_from_menu("Kempton (IRE) 12th Jan") == "kempton"
+    assert live_features.same_course("kemp", "Kempton") and live_features.same_course("Epsm", "Epsom")
+    assert live_features.same_course("Kempton (AW)", "kempton") and not live_features.same_course("kemp", "Kelso")
+    bsps = [3.0, 4.0, 6.0, 9.0, 13.0, 21.0]
+    win = _bsp_csv([(5, "UK / Kemp 1st Sep", "1m Hcap", "01-09-2025 14:30", 100 + i, f"Bsp Horse {i}",
+                     int(i == 1), b) for i, b in enumerate(bsps)])
+    place = _bsp_csv([(6, "UK / Kemp 1st Sep", "3 TBP", "01-09-2025 14:30", 100 + i, f"Bsp Horse {i}",
+                       int(i in (1, 2, 5)), 1.5) for i in range(6)])
+    rows = bsp_files.history_rows(win, place)
+    by = {r["horse_key"]: r for r in rows}
+    assert len(rows) == 6 and by["bsp horse 1"]["pos"] == 1 and by["bsp horse 5"]["placed"] == 1
+    assert by["bsp horse 0"]["placed"] == 0 and by["bsp horse 0"]["dist_f"] == 8 and by["bsp horse 0"]["course"] == "kemp"
+    assert 0 < by["bsp horse 5"]["exp_win"] < by["bsp horse 5"]["exp_place"] < 1
+    assert abs(sum(r["exp_win"] for r in rows) - 1) < 1e-9
+    # 4 places paid: an unplaced horse was not in the first three; a placed loser is unknown
+    place4 = _bsp_csv([(6, "UK / Kemp 1st Sep", "4 TBP", "01-09-2025 14:30", 100 + i, f"Bsp Horse {i}",
+                        int(i in (1, 2, 3, 5)), 1.5) for i in range(6)])
+    by4 = {r["horse_key"]: r["placed"] for r in bsp_files.history_rows(win, place4)}
+    assert by4["bsp horse 0"] == 0 and by4["bsp horse 5"] is None and by4["bsp horse 1"] == 1
+
+    store.add_history(rows)
+    store.import_card({"timestamp": "2026-10-04T09:00:00Z", "races": [{
+        "id": "bf:8.888", "date": "2026-10-05", "time": "19:15", "course": "Kempton", "name": "1m Hcap",
+        "runners": [{"horse": f"Bsp Horse {i}", "jockey": "Nobody New", "exchange": {"back": o, "lay": o + 0.2}}
+                    for i, o in enumerate([3, 5, 8, 12, 20, 30])]}]})
+    rid = store.race_ids_for(["bf:8.888"])[0]
+    live_features.refresh([rid])
+    race = store.load_race(get_db(), rid)
+    f5 = next(r for r in race["runners"] if r["name"] == "Bsp Horse 5")["features"]
+    assert f5["course_runs"] == 1 and f5["distance_runs"] == 1 and f5["course_rate"] > 0.3
+    assert f5["priced_runs"] == 1 and f5["place_excess"] > 0 and f5["jockey_runs"] == 0

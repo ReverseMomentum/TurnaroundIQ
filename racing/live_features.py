@@ -71,6 +71,28 @@ def _rate(rows, test=lambda r: True, m=F.SHRINK_HORSE):
     return F.shrink(sum(r["placed"] for r in known), len(known), m)
 
 
+def _runs(rows, test=lambda r: True) -> int:
+    """How many runs a rate was built from (the app shows "—" for none instead of the 30% default)."""
+    return sum(1 for r in rows if r["placed"] is not None and test(r))
+
+
+def _letters(name: Optional[str]) -> str:
+    s = re.sub(r"\(.*?\)", " ", str(name or "").lower())
+    s = re.sub(r"\b(great|park|racecourse|aw|the)\b", " ", s)
+    return re.sub(r"[^a-z]", "", s)
+
+
+def same_course(a: Optional[str], b: Optional[str]) -> bool:
+    """'Kempton' vs 'Kempton (AW)' vs Betfair's short 'Kemp' / 'Epsm': same first letter and one's
+    letters appear in order in the other."""
+    x, y = _letters(a), _letters(b)
+    if not x or not y or x[0] != y[0]:
+        return False
+    short, long_ = (x, y) if len(x) <= len(y) else (y, x)
+    it = iter(long_)
+    return len(short) >= 3 and all(ch in it for ch in short)
+
+
 def build(races: list[dict], conn=None, today: Optional[date] = None) -> dict:
     """{race_id: {horse_id: features}} for races from store.load_race."""
     own = conn is None
@@ -112,6 +134,9 @@ def build(races: list[dict], conn=None, today: Optional[date] = None) -> dict:
         for r, pi in zip(live, p):
             h = [x for x in hist.get(horse_key(r["name"]), []) if x["date"] < (race.get("date") or "9999")]
             jk, tk = person_key(r.get("jockey")), person_key(r.get("trainer"))
+            at_course = lambda x: same_course(x["course"], course)  # noqa: E731
+            at_trip = lambda x: dist is not None and x["dist_f"] is not None and abs(x["dist_f"] - dist) <= 1  # noqa: E731
+            with_jockey = lambda x, jk=jk: jk is not None and x["jockey"] == jk  # noqa: E731
             positions = F.parse_form(r.get("form"))
             days = r.get("days_since_run")
             if days is None and h:
@@ -123,11 +148,17 @@ def build(races: list[dict], conn=None, today: Optional[date] = None) -> dict:
                 **F.form_features(positions),
                 "first_run": 1.0 if not positions and not h and days is None else 0.0,
                 "log_days": math.log1p(max(0, days)) if days is not None else 0.0,
-                "course_rate": _rate(h, lambda x: x["course"] == course),
-                "distance_rate": _rate(h, lambda x: dist is not None and x["dist_f"] is not None
-                                       and abs(x["dist_f"] - dist) <= 1),
+                "course_rate": _rate(h, at_course),
+                "distance_rate": _rate(h, at_trip),
                 "going_rate": None,
-                "horse_jockey_rate": _rate(h, lambda x: jk is not None and x["jockey"] == jk),
+                "horse_jockey_rate": _rate(h, with_jockey),
+                # sample sizes, shown in the app (not model inputs)
+                "course_runs": _runs(h, at_course), "distance_runs": _runs(h, at_trip),
+                "horse_jockey_runs": _runs(h, with_jockey),
+                "jockey_runs": _people(people["jockey_key"], jk)[1],
+                "trainer_runs": _people(people["trainer_key"], tk)[1],
+                "jockey_30d_runs": _people(people["jockey_key_30"], jk)[1],
+                "trainer_30d_runs": _people(people["trainer_key_30"], tk)[1],
                 "jockey_rate": F.shrink(*_people(people["jockey_key"], jk), F.SHRINK_PEOPLE),
                 "trainer_rate": F.shrink(*_people(people["trainer_key"], tk), F.SHRINK_PEOPLE),
                 "jockey_30d": F.shrink(*_people(people["jockey_key_30"], jk), F.SHRINK_PEOPLE / 3),
@@ -146,10 +177,12 @@ def build(races: list[dict], conn=None, today: Optional[date] = None) -> dict:
 def _placer(h: list) -> dict:
     """Placed / won vs what the prices said, over runs with stored chances (features.py "placer")."""
     known = [x for x in h if x["placed"] is not None and x.get("exp_place") is not None]
+    priced = [x for x in h if x.get("exp_win") is not None]      # the win flag is always known
     return {"place_excess": float(F.excess(sum(x["placed"] for x in known), sum(x["exp_place"] for x in known),
                                            len(known))),
-            "win_excess": float(F.excess(sum(x["won"] for x in known), sum(x["exp_win"] or 0 for x in known),
-                                         len(known)))}
+            "win_excess": float(F.excess(sum(x["won"] for x in priced), sum(x["exp_win"] for x in priced),
+                                         len(priced))),
+            "priced_runs": len(priced)}
 
 
 def _people(table: dict, key) -> tuple:

@@ -12,46 +12,15 @@ BSP is scored on the same runners as a benchmark.
 """
 import json
 import sys
-import time
 from datetime import date, timedelta
 from pathlib import Path
 
-import requests
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from racing import backtest, positions, store  # noqa: E402
+from racing import backtest, bsp_files, positions, store  # noqa: E402
 
-HOSTS = ("https://promo.betfair.com", "https://www.betfairpromo.com")
-PATH = "/betfairsp/prices/dwbfprices{region}{market}{d}.csv"
-CACHE = ROOT / "data" / "bsp"
-HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                         "Chrome/124.0 Safari/537.36", "Accept": "text/csv,text/plain,*/*"}
-_failures = []
-
-
-def fetch(region, market, day):
-    """Cached download; only real CSVs are cached, so a failed day is retried next run."""
-    d = day.strftime("%d%m%Y")
-    path = CACHE / f"{region}{market}{d}.csv"
-    if path.exists() and path.stat().st_size > 0:
-        return path.read_text(errors="replace")
-    for host in HOSTS:
-        url = host + PATH.format(region=region, market=market, d=d)
-        try:
-            r = requests.get(url, timeout=30, headers=HEADERS)
-        except requests.RequestException as e:
-            _failures.append(f"{url}: {type(e).__name__}: {e}"[:200])
-            continue
-        finally:
-            time.sleep(0.3)
-        if r.status_code == 200 and "EVENT_ID" in r.text[:300].upper():
-            CACHE.mkdir(parents=True, exist_ok=True)
-            path.write_text(r.text)
-            return r.text
-        _failures.append(f"{url}: HTTP {r.status_code}, {r.headers.get('content-type')}, "
-                         f"starts {r.text[:80]!r}")
-    return ""
+fetch = bsp_files.fetch
+_failures = bsp_files.failures
 
 
 def main():

@@ -39,7 +39,9 @@ def _runner_features(runners, names):
 
 SHOWN_FEATURES = ("last_pos", "avg3_pos", "avg5_pos", "log_days", "course_rate", "distance_rate",
                   "jockey_rate", "trainer_rate", "jockey_30d", "trainer_30d", "horse_jockey_rate",
-                  "or_rel", "or_gap_top", "history_runs", "place_excess", "win_excess")
+                  "or_rel", "or_gap_top", "or_missing", "history_runs", "place_excess", "win_excess",
+                  "priced_runs", "course_runs", "distance_runs", "horse_jockey_runs", "jockey_runs",
+                  "trainer_runs", "jockey_30d_runs", "trainer_30d_runs")
 
 
 def opportunity_score(edge: float, confidence: int, volume, field_size: int) -> float:

@@ -563,37 +563,47 @@ function RunnerFacts({ ui, runner }) {
   // average points a run above (+) or below (-) what its starting prices implied, shrunk towards 0
   const pts = (v) => (v == null ? "—" : `${v >= 0 ? "+" : "−"}${Math.abs(100 * v).toFixed(0)} pts`);
   const days = runner.days_since_run ?? (f.log_days != null && f.log_days > 0 ? Math.round(Math.exp(f.log_days) - 1) : null);
+  // [label, value, runs it is based on]: no runs on file -> "—" rather than the 30% starting point
+  const rate = (v, runs) => (runs === 0 ? "—" : pct(v, 0));
+  const runsSub = (runs) => (runs == null ? null : runs === 0 ? "no runs on file" : `${runs} run${runs === 1 ? "" : "s"}`);
   const items = [
     ["Last run", f.last_pos == null ? "—" : f.last_pos >= 12 ? "DNF" : ordinal(f.last_pos)],
     ["Avg of last 3", num(f.avg3_pos)],
     ["Avg of last 5", num(f.avg5_pos)],
     ["Days since run", days == null ? "—" : String(days)],
-    ["Course place", pct(f.course_rate, 0)],
-    ["Distance place", pct(f.distance_rate, 0)],
-    ["Jockey place", pct(f.jockey_rate, 0)],
-    ["Jockey 30 days", pct(f.jockey_30d, 0)],
-    ["Trainer place", pct(f.trainer_rate, 0)],
-    ["Trainer 30 days", pct(f.trainer_30d, 0)],
-    ["Horse + jockey", pct(f.horse_jockey_rate, 0)],
-    ["OR vs field", f.or_rel == null ? "—" : (f.or_rel >= 0 ? "+" : "") + num(f.or_rel, 0)],
-    ["Placed vs prices", pts(f.place_excess)],
-    ["Won vs prices", pts(f.win_excess)],
+    ["Course place", rate(f.course_rate, f.course_runs), f.course_runs],
+    ["Distance place", rate(f.distance_rate, f.distance_runs), f.distance_runs],
+    ["Jockey place", rate(f.jockey_rate, f.jockey_runs), f.jockey_runs],
+    ["Jockey 30 days", rate(f.jockey_30d, f.jockey_30d_runs), f.jockey_30d_runs],
+    ["Trainer place", rate(f.trainer_rate, f.trainer_runs), f.trainer_runs],
+    ["Trainer 30 days", rate(f.trainer_30d, f.trainer_30d_runs), f.trainer_30d_runs],
+    ["Horse + jockey", rate(f.horse_jockey_rate, f.horse_jockey_runs), f.horse_jockey_runs],
+    ["OR vs field", f.or_missing === 1 || f.or_rel == null ? "—" : (f.or_rel >= 0 ? "+" : "") + num(f.or_rel, 0),
+      null, f.or_missing === 1 ? "no rating" : null],
+    ["Placed vs prices", f.priced_runs === 0 ? "—" : pts(f.place_excess), f.priced_runs],
+    ["Won vs prices", f.priced_runs === 0 ? "—" : pts(f.win_excess), f.priced_runs],
   ];
   return (
     <>
       <SectionLabel>Form & connections</SectionLabel>
       <div className="grid grid-cols-3 gap-x-3 gap-y-2 mb-1">
-        {items.map(([k, v]) => <Metric key={k} ui={ui} label={k} value={v} />)}
+        {items.map(([k, v, runs, note]) => <Metric key={k} ui={ui} label={k} value={v} sub={note || runsSub(runs)} />)}
       </div>
       <p style={{ color: c.textMuted }} className="text-[11px] mb-4">
         Place = finished in the first three. Rates lean towards the 30% average until there are enough runs
-        {f.history_runs != null ? ` (${f.history_runs} past runs on file)` : ""}. "vs prices" compares its
+        {f.history_runs != null ? ` (${f.history_runs} past runs on file for this horse)` : ""}. "vs prices" compares its
         record with the chances its prices gave it; a horse that places more often than it wins can be under-rated
         by place terms based on its win price.
       </p>
     </>
   );
 }
+
+// Betfair gives weight in lbs ("148.0") -> "10-8"; anything else is shown as given.
+const stoneLbs = (w) => {
+  const n = Number(w);
+  return Number.isFinite(n) && n > 60 ? `${Math.floor(n / 14)}-${Math.round(n % 14)}` : String(w);
+};
 
 const ordinal = (n) => {
   const v = Math.round(n);
@@ -647,7 +657,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
   const label = (t) => <p style={{ color: c.textMuted, letterSpacing: "0.08em" }} className="text-[10px] font-semibold uppercase mb-1.5">{t}</p>;
   const facts = [
     runner.jockey && `J: ${runner.jockey}`, runner.trainer && `T: ${runner.trainer}`,
-    runner.age && `${runner.age}yo`, runner.weight && `${runner.weight}`,
+    runner.age && `${runner.age}yo`, runner.weight && stoneLbs(runner.weight),
     runner.official_rating && `OR ${runner.official_rating}`, runner.draw && `draw ${runner.draw}`,
     runner.form && `form ${runner.form}`,
   ].filter(Boolean);

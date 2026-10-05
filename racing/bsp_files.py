@@ -1,0 +1,138 @@
+"""
+Betfair's free daily BSP files (promo.betfair.com): every UK and Irish race,
+win market and "To Be Placed" market, with each runner's BSP and win/lose flag.
+
+fetch()         cached download (data/bsp/), through BETFAIR_PROXY when set:
+                Betfair refuses non-UK servers, so the VPS uses the SSH link
+                to the UK server, as the collector does.
+history_rows()  one day's files -> rac_history rows (horse, course, trip,
+                race type, won / placed, and the chances the BSPs gave), so
+                live runners get recent course / distance / "vs prices" records.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import time
+from collections import defaultdict
+from datetime import date, datetime
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+
+ROOT = Path(__file__).resolve().parent.parent
+CACHE = ROOT / "data" / "bsp"
+HOSTS = ("https://promo.betfair.com", "https://www.betfairpromo.com")
+PATH = "/betfairsp/prices/dwbfprices{region}{market}{d}.csv"
+HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                         "Chrome/124.0 Safari/537.36", "Accept": "text/csv,text/plain,*/*"}
+failures: list = []
+_session = None
+
+
+def _http():
+    global _session
+    if _session is None:
+        import requests
+
+        _session = requests.Session()
+        _session.headers.update(HEADERS)
+        proxy = os.environ.get("BETFAIR_PROXY", "").strip()
+        if proxy:
+            _session.proxies = {"https": proxy, "http": proxy}
+    return _session
+
+
+def fetch(region: str, market: str, day: date, pause: float = 0.3) -> str:
+    """Cached download; only real CSVs are cached, so a failed day is retried next run."""
+    d = day.strftime("%d%m%Y")
+    path = CACHE / f"{region}{market}{d}.csv"
+    if path.exists() and path.stat().st_size > 0:
+        return path.read_text(errors="replace")
+    for host in HOSTS:
+        url = host + PATH.format(region=region, market=market, d=d)
+        try:
+            r = _http().get(url, timeout=30)
+        except Exception as e:  # noqa: BLE001  network / proxy errors: try the next host
+            failures.append(f"{url}: {type(e).__name__}: {e}"[:200])
+            continue
+        finally:
+            time.sleep(pause)
+        if r.status_code == 200 and "EVENT_ID" in r.text[:300].upper():
+            CACHE.mkdir(parents=True, exist_ok=True)
+            path.write_text(r.text)
+            return r.text
+        failures.append(f"{url}: HTTP {r.status_code}, starts {r.text[:80]!r}")
+    return ""
+
+
+def course_from_menu(menu: Optional[str]) -> str:
+    """'UK / Kemp 5th Oct' / 'Kempton (IRE) 5th Oct' -> 'kemp' / 'kempton'."""
+    s = str(menu or "").split(" / ")[-1]
+    s = re.sub(r"\s+\d{1,2}(st|nd|rd|th)\s+\w+\s*$", "", s, flags=re.I)
+    s = re.sub(r"\(.*?\)", " ", s)
+    return re.sub(r"\s+", " ", s).strip().lower()
+
+
+def _date(event_dt: Optional[str]) -> Optional[str]:
+    for fmt in ("%d-%m-%Y %H:%M", "%d-%m-%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(str(event_dt).strip(), fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def history_rows(win_text: str, place_text: str) -> list[dict]:
+    """
+    One day's win + place files -> rac_history rows. "Placed" means the first
+    three (as in the Kaggle history): known exactly when the place market paid
+    3; with 4+ paid an unplaced horse was not in the first three; with 2 paid a
+    placed horse was. Otherwise left unknown, apart from winners.
+    """
+    from racing import market, nonfinish, positions
+    from racing.backtest import _f, _rows
+    from racing.live_features import distance_from_name, horse_key
+
+    win = defaultdict(list)
+    for r in _rows(win_text):
+        win[(r.get("MENU_HINT"), r.get("EVENT_DT"))].append(r)
+    place = defaultdict(dict)
+    for r in _rows(place_text or ""):
+        place[(r.get("MENU_HINT"), r.get("EVENT_DT"))][r.get("SELECTION_ID")] = r
+    out = []
+    for key, runners in win.items():
+        day = _date(key[1])
+        if not day or len(runners) < 2:
+            continue
+        bsp = [_f(r.get("BSP")) for r in runners]
+        p = top3 = None
+        if all(bsp):
+            p = np.asarray(market.devig_multiplicative([float(b) for b in bsp]), float)  # BSP is close to fair
+            top3 = positions.harville_top3(p)
+        pl = place.get(key) or {}
+        k = sum(1 for r in pl.values() if r.get("WIN_LOSE") == "1") if pl else 0
+        name = runners[0].get("EVENT_NAME")
+        for i, r in enumerate(runners):
+            won = r.get("WIN_LOSE") == "1"
+            in_place = (pl.get(r.get("SELECTION_ID")) or {}).get("WIN_LOSE")
+            if won:
+                placed = 1
+            elif in_place is None or k == 0:
+                placed = None
+            elif k == 3:
+                placed = 1 if in_place == "1" else 0
+            elif k > 3:
+                placed = 0 if in_place != "1" else None
+            else:   # 2 places paid
+                placed = 1 if in_place == "1" else None
+            out.append({"race_ref": f"bsp:{runners[0].get('EVENT_ID')}", "date": day,
+                        "course": course_from_menu(key[0]), "dist_f": distance_from_name(name), "going": None,
+                        "race_type": nonfinish.race_type(name), "horse_key": horse_key(r.get("SELECTION_NAME")),
+                        "jockey_key": None, "trainer_key": None, "pos": 1 if won else None, "placed": placed,
+                        "source": "bsp",
+                        "exp_win": float(p[i]) if p is not None else None,
+                        "exp_place": float(top3[i]) if top3 is not None else None})
+    return [r for r in out if r["horse_key"]]

@@ -17,6 +17,7 @@ in data/bsp/, so a stopped run carries on where it left off. Roughly 4 files a
 day: about 1-3 hours for five years.
 """
 import argparse
+import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -46,7 +47,8 @@ def main():
     a = ap.parse_args()
     start, end = _bounds()
     start, end = a.since or start, a.until or end
-    print(f"BSP history {start} to {end}", flush=True)
+    proxy = os.environ.get("BETFAIR_PROXY", "").strip()
+    print(f"BSP history {start} to {end}, {'via ' + proxy if proxy else 'no proxy (BETFAIR_PROXY not set)'}", flush=True)
     day, month, races, runners, empty_days = start, None, 0, 0, 0
     while day <= end:
         found = False

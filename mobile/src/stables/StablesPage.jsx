@@ -383,7 +383,9 @@ function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
     if (!(race.standard_terms?.fraction > 0)) continue;
     const offers = realOffers(race);
     const terms = offers.length
-      ? offers.map((t) => ({ book: t.bookmaker, label: `${t.bookmaker} · ${t.places} places ${fractionLabel(t.fraction)}`, get: (r) => r.offer_value_from?.[t.bookmaker] }))
+      ? groupOffers(offers).map((g) => ({ book: g.books[0],
+          label: `${g.places} places ${fractionLabel(g.fraction)} · ${g.books.length === 1 ? g.books[0] : g.books.length + " bookmakers"}`,
+          get: (r) => r.offer_value_from?.[g.books[0]] }))
       : [{ book: null, label: `${race.standard_terms.places + extra} places ${fractionLabel(race.standard_terms.fraction)}`, get: (r) => r.value_from?.[String(extra)] }];
     for (const r of race.runners) {
       const price = r.best_win_odds || r.exchange_back;

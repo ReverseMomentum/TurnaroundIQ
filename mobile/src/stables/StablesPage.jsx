@@ -560,8 +560,11 @@ export function ewLayOutcomes({ stake, odds, fraction, layOdds, placeLayOdds, mo
   const cm = (commission || 0) / 100;
   // 100% = the win half covered; part lay can go lower, or higher ("min loss", below)
   const pctUsed = mode === "part" ? Math.min(Math.max(winPct, 0), 200) : 100;
-  const winLay = mode !== "none" && layOdds > 1 && layOdds - cm > 0 ? (pctUsed / 100) * (half * odds) / (layOdds - cm) : 0;
-  const placeLay = mode === "full" && placeLayOdds > 1 && placeLayOdds - cm > 0 ? (half * placeOdds) / (placeLayOdds - cm) : 0;
+  // Stakes rounded to the penny first, as Betfair takes them; liability and outcomes follow from those.
+  const pence = (v) => Math.round(v * 100) / 100;
+  const winLay = mode !== "none" && layOdds > 1 && layOdds - cm > 0 ? pence((pctUsed / 100) * (half * odds) / (layOdds - cm)) : 0;
+  if (mode === "full" && !(placeLayOdds > 1)) return null;       // needs the place lay price
+  const placeLay = mode === "full" && placeLayOdds - cm > 0 ? pence((half * placeOdds) / (placeLayOdds - cm)) : 0;
   const winLiab = winLay * ((layOdds || 1) - 1);
   const placeLiab = placeLay * ((placeLayOdds || 1) - 1);
   const win = half * (odds - 1) + half * (placeOdds - 1) - winLiab - placeLiab;
@@ -622,7 +625,7 @@ function PlaceMarkets({ ui, runner, stdPlaces }) {
 export function minLossWinPct(odds, fraction) {
   if (!(odds > 1)) return 100;
   const placeOdds = 1 + (odds - 1) * fraction;
-  return Math.round((100 * (odds + placeOdds)) / odds);
+  return (100 * (odds + placeOdds)) / odds;
 }
 
 // The learned model's inputs for one runner (place rates are shrunk towards ~30%).
@@ -861,8 +864,8 @@ function LayChooser({ ui, mode, setMode, placeLayText, setPlaceLayText, stdPlace
     <tr>
       <td style={{ color: c.textMuted }} className="py-1 pr-1">{title}</td>
       {rows.map(([k, o]) => (
-        <td key={k} style={{ color: money ? tone(o[key]) : c.textSecondary, fontWeight: k === mode ? 700 : 500 }} className="num py-1 px-1 text-right">
-          {!money && !o[key] ? "—" : gbp(o[key])}
+        <td key={k} style={{ color: !o ? c.textMuted : money ? tone(o[key]) : c.textSecondary, fontWeight: k === mode ? 700 : 500 }} className="num py-1 px-1 text-right">
+          {!o || (!money && !o[key]) ? "—" : gbp(o[key])}
         </td>
       ))}
     </tr>
@@ -881,6 +884,9 @@ function LayChooser({ ui, mode, setMode, placeLayText, setPlaceLayText, stdPlace
           {mode === "full" && input(`Place lay odds (${stdPlaces} pl)`, placeLayText, setPlaceLayText, "e.g. 3.2")}
           {input("Commission %", commission, setCommission)}
         </div>
+      )}
+      {rows.some(([k, o]) => k === "full" && !o) && stdPlaces > 0 && (
+        <p style={{ color: c.textMuted }} className="text-[11px] mb-2">Full lay figures need the place lay price ({stdPlaces} places on Betfair).</p>
       )}
       {mode === "full" && !stdPlaces && (
         <p style={{ color: c.orange }} className="text-[11px] mb-2">This race has no standard place market (win only), so a full lay isn't possible.</p>

@@ -554,11 +554,13 @@ function placeChance(runner, k) {
  *         standard places, and both place bets pay if it lands an extra place.
  * pWin / pStd / pPlace: model chances of winning, the standard places, the paid places.
  */
-export function ewLayOutcomes({ stake, odds, fraction, layOdds, placeLayOdds, mode, commission, pWin, pStd, pPlace }) {
+export function ewLayOutcomes({ stake, odds, fraction, layOdds, placeLayOdds, mode, commission, pWin, pStd, pPlace, winPct = 100 }) {
   const half = stake / 2;
   const placeOdds = 1 + (odds - 1) * fraction;
   const cm = (commission || 0) / 100;
-  const winLay = mode !== "none" && layOdds > 1 && layOdds - cm > 0 ? (half * odds) / (layOdds - cm) : 0;
+  // 100% = the win half covered; part lay can go lower, or higher ("min loss", below)
+  const pctUsed = mode === "part" ? Math.min(Math.max(winPct, 0), 200) : 100;
+  const winLay = mode !== "none" && layOdds > 1 && layOdds - cm > 0 ? (pctUsed / 100) * (half * odds) / (layOdds - cm) : 0;
   const placeLay = mode === "full" && placeLayOdds > 1 && placeLayOdds - cm > 0 ? (half * placeOdds) / (placeLayOdds - cm) : 0;
   const winLiab = winLay * ((layOdds || 1) - 1);
   const placeLiab = placeLay * ((placeLayOdds || 1) - 1);
@@ -609,6 +611,18 @@ function PlaceMarkets({ ui, runner, stdPlaces }) {
       </div>
     </>
   );
+}
+
+/**
+ * Win lay % (of the 100% lay) that loses least in the worst case when only the win
+ * is laid: it makes "wins" and "unplaced" cost the same, and a placed horse then
+ * collects the win lay and the place part. = (win odds + place odds) / win odds.
+ * With a full lay (win + place) the standard 100% / 100% stakes already do this.
+ */
+export function minLossWinPct(odds, fraction) {
+  if (!(odds > 1)) return 100;
+  const placeOdds = 1 + (odds - 1) * fraction;
+  return Math.round((100 * (odds + placeOdds)) / odds);
 }
 
 // The learned model's inputs for one runner (place rates are shrunk towards ~30%).
@@ -683,6 +697,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [layMode, setLayMode] = useState("none");
+  const [winPctText, setWinPctText] = useState("100");
   // Betfair's place market at the standard places (the one a full lay uses), filled in when collected
   const stdLay = runner.place_exchange?.[String(std.fraction > 0 ? std.places : 0)]?.lay;
   const [placeLayText, setPlaceLayText] = useState(stdLay ? String(stdLay) : "");
@@ -693,7 +708,9 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
   const placeLayOdds = parseFloat(placeLayText) || null;
   const stdPlaces = std.fraction > 0 ? std.places : 0;
   const frac = 1 / (Number(String(fraction).split("/")[1]) || 5);
-  const outcomes = (m) => ewLayOutcomes({ stake: Number(stake) || 0, odds: odds || 0, fraction: frac, layOdds,
+  const winPct = Math.min(200, Math.max(0, parseFloat(winPctText) || 0));
+  const minLossPct = minLossWinPct(odds || 0, frac);
+  const outcomes = (m) => ewLayOutcomes({ stake: Number(stake) || 0, odds: odds || 0, fraction: frac, layOdds, winPct,
     placeLayOdds, mode: m, commission: parseFloat(commission) || 0, pWin: runner.win_probability || 0,
     pStd: stdPlaces ? placeChance(runner, stdPlaces) : null, pPlace: placeChance(runner, places) });
   const offer = offers.find((t) => t.bookmaker === book.trim() && t.places === places && fractionLabel(t.fraction) === fraction);
@@ -707,6 +724,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
       await api.stablesTrack({ race_id: race.race_id, horse: runner.name, bookmaker: book.trim(), odds,
         stake: Number(stake), places, fraction, paper,
         lay_mode: { none: "none", part: "win", full: "full" }[layMode],
+        lay_pct: layMode === "part" ? winPct : layMode === "full" ? 100 : 0,
         lay_odds: layMode !== "none" ? layOdds : null, place_lay_odds: layMode === "full" ? placeLayOdds : null,
         commission: parseFloat(commission) || 0 });
       setMsg({ ok: true, text: `Added to My bets (${paper ? "paper" : "real"}). It settles itself from Betfair results where it can.` });
@@ -723,7 +741,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
     runner.form && `form ${runner.form}`,
   ].filter(Boolean);
   const ex = runner.exchange || {};
-  const layOk = layMode === "none" || (layOdds > 1 && (layMode === "part" || (placeLayOdds > 1 && stdPlaces > 0)));
+  const layOk = layMode === "none" || (layOdds > 1 && (layMode === "part" ? winPct > 0 : placeLayOdds > 1 && stdPlaces > 0));
   const ready = book.trim() && odds && Number(stake) > 0 && !race.started && layOk;
   return (
     <Sheet open onClose={onClose}>
@@ -791,6 +809,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
           </div>
         </div>
         <LayChooser ui={ui} mode={layMode} setMode={setLayMode} placeLayText={placeLayText} setPlaceLayText={setPlaceLayText}
+          winPctText={winPctText} setWinPctText={setWinPctText} winPct={winPct} minLossPct={minLossPct}
           stdPlaces={stdPlaces} places={places}
           layText={layText} setLayText={setLayText} commission={commission} setCommission={setCommission}
           outcomes={odds && Number(stake) > 0 ? outcomes : null} label={label} />
@@ -824,8 +843,8 @@ const LAY_MODES = [
 
 // Lay on the exchange (picked with the switch at the top of the bet form): what each option returns.
 function LayChooser({ ui, mode, setMode, placeLayText, setPlaceLayText, stdPlaces, places, layText, setLayText,
-  commission, setCommission, outcomes, label }) {
-  const { c } = ui;
+  commission, setCommission, outcomes, label, winPctText, setWinPctText, winPct, minLossPct }) {
+  const { c, chip } = ui;
   const modes = [["none", "No lay"], ["part", "Part lay"], ["full", "Full lay"]];
   const gbp = (v) => (v < 0 ? "−£" : "£") + Math.abs(v).toFixed(2);
   const tone = (v) => (v > 0.005 ? c.green : v < -0.005 ? c.red : c.textSecondary);
@@ -851,12 +870,23 @@ function LayChooser({ ui, mode, setMode, placeLayText, setPlaceLayText, stdPlace
   );
   const title = {
     none: "No lay: a straight each-way bet",
-    part: "Part lay: lay the win on Betfair",
+    part: `Part lay: lay the win on Betfair (${winPct}% of the win half)`,
     full: `Full lay: lay the win and the place (${stdPlaces || "standard"} places) on Betfair`,
   }[mode];
   return (
     <div>
       {label(title)}
+      {mode === "part" && (
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          {["25", "50", "75", "100"].map((p) => (
+            <button key={p} onClick={() => setWinPctText(p)} style={chip(winPctText === p)} className="num text-xs font-semibold px-2.5 py-1.5 rounded-lg">{p}%</button>
+          ))}
+          <button onClick={() => setWinPctText(String(minLossPct))} style={chip(winPctText === String(minLossPct))}
+            className="text-xs font-semibold px-2.5 py-1.5 rounded-lg">Min loss <span className="num">{minLossPct}%</span></button>
+          <input value={winPctText} onChange={(e) => setWinPctText(e.target.value)} inputMode="decimal" aria-label="Win lay %"
+            style={{ background: c.cardAlt, border: "1px solid " + c.border, color: c.text }} className="w-16 rounded-lg px-2 py-1.5 text-sm num outline-none" />
+        </div>
+      )}
       {mode !== "none" && (
         <div className={`grid ${mode === "full" ? "grid-cols-3" : "grid-cols-2"} gap-3 mb-2`}>
           {input("Win lay odds", layText, setLayText, "e.g. 11.5")}
@@ -874,7 +904,7 @@ function LayChooser({ ui, mode, setMode, placeLayText, setPlaceLayText, stdPlace
               <th className="py-1 text-left font-semibold"></th>
               {modes.map(([k, t]) => (
                 <th key={k} className="py-1 px-1 text-right font-semibold">
-                  <button onClick={() => setMode(k)} style={{ color: k === mode ? c.green : c.textMuted }}>{t}</button>
+                  <button onClick={() => setMode(k)} style={{ color: k === mode ? c.green : c.textMuted }}>{k === "part" ? `Part ${winPct}%` : t}</button>
                 </th>
               ))}
             </tr>
@@ -892,10 +922,11 @@ function LayChooser({ ui, mode, setMode, placeLayText, setPlaceLayText, stdPlace
         </table>
       )}
       <p style={{ color: c.textMuted }} className="text-[11px] mt-1.5 leading-snug">
-        Part lay covers the win half, so the bet mostly rides on the place terms. Full lay also lays the place
-        half on Betfair's place market at the standard places: close to level if it wins or places normally, and
-        both place bets pay if it finishes in an extra place. Neither removes the risk, and exchange prices move:
-        enter the lay prices you can actually get.
+        Part lay lays the win only: 100% covers the win half, so a placed horse collects the win lay and the
+        place part. "Min loss" lays more than that so a winner and an unplaced horse cost the same, the smallest
+        possible worst case, with placing paying most. Full lay also lays the place half at the standard places;
+        its stakes are already set for the smallest worst case, and an extra place pays both place bets.
+        None of this removes the risk, and exchange prices move: enter the lay prices you can actually get.
       </p>
     </div>
   );

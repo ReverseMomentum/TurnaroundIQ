@@ -1128,3 +1128,22 @@ def test_betfair_place_market_prices_collected(monkeypatch, tmp_path):
     assert r3["place_exchange"]["4"]["back"] == 2.96
     priced = price_race(race, n_sims=2000)
     assert next(r for r in priced["runners"] if r["name"] == "Pl 3")["place_exchange"]["3"]["lay"] == 3.55
+
+
+def test_min_loss_win_lay_and_full_lay_balance():
+    from api.tracked import ew_lay_stake, ew_place_lay_stake, ew_returns
+
+    # £10 EW at 8.0, 1/5 (place 2.4), win lay at 9.0, 2% commission
+    pct = 100 * (8.0 + 2.4) / 8.0                                   # "min loss" = 130%
+    ls = ew_lay_stake(10, 8.0, 9.0, 2, pct)[0]
+    won, placed, lost = (ew_returns(r, 10, 8.0, 0.2, 9.0, ls, 2) for r in ("won", "placed", "lost"))
+    assert won == pytest.approx(lost, abs=0.02) and placed > 0       # winner and unplaced cost the same
+    ls100 = ew_lay_stake(10, 8.0, 9.0, 2, 100)[0]
+    worst100 = min(ew_returns(r, 10, 8.0, 0.2, 9.0, ls100, 2) for r in ("won", "placed", "lost"))
+    assert min(won, placed, lost) > worst100                         # smaller worst case than a 100% lay
+    assert ew_lay_stake(10, 8.0, 9.0, 2, 500)[0] == pytest.approx(2 * ls100, abs=0.02)   # capped at 200%
+    # full lay at the standard stakes: won, placed (standard) and lost come out level
+    lw, lp = ew_lay_stake(10, 8.0, 9.0, 2, 100)[0], ew_place_lay_stake(10, 8.0, 0.2, 2.6, 2)[0]
+    outs = [ew_returns(r, 10, 8.0, 0.2, 9.0, lw, 2, 2.6, lp) for r in ("won", "placed", "lost")]
+    assert max(outs) - min(outs) < 0.05
+    assert ew_returns("extra_place", 10, 8.0, 0.2, 9.0, lw, 2, 2.6, lp) > 10

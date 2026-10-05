@@ -313,9 +313,10 @@ def ew_place_lay_stake(stake, odds, fraction, place_lay_odds, commission) -> tup
 
 def ew_lay_stake(stake, odds, lay_odds, commission, lay_pct) -> tuple:
     """
-    Win lay on the exchange for an each-way bet. Full lay (100%) covers the win
-    half: the win half then makes about the same whether the horse wins or not,
-    leaving mainly the place half riding. Part lay = that share of it.
+    Win lay on the exchange for an each-way bet. 100% covers the win half: the
+    win half then makes about the same whether the horse wins or not, leaving
+    mainly the place half riding. Less is an underlay; more (up to 200%) evens
+    out winning and finishing unplaced ("min loss" = (odds + place odds) / odds).
     Returns (lay_stake, liability) or (None, None) for no lay.
     """
     try:
@@ -325,7 +326,7 @@ def ew_lay_stake(stake, odds, lay_odds, commission, lay_pct) -> tuple:
         return None, None
     if pct <= 0 or lay_odds <= 1 or lay_odds - cm <= 0:
         return None, None
-    ls = round(min(pct, 1.0) * (stake / 2) * odds / (lay_odds - cm), 2)
+    ls = round(min(pct, 2.0) * (stake / 2) * odds / (lay_odds - cm), 2)   # up to 200% ("min loss")
     return ls, round(ls * (lay_odds - 1), 2)
 
 

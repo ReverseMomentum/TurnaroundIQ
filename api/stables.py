@@ -211,7 +211,7 @@ class TrackIn(BaseModel):
     places: int = Field(ge=1, le=10)
     fraction: str = Field(default="1/5", max_length=8)
     paper: bool = True
-    lay_pct: float = Field(default=0, ge=0, le=100)  # older clients: share of the win lay
+    lay_pct: float = Field(default=0, ge=0, le=200)  # share of the win lay: 100 covers the win half
     lay_mode: Optional[str] = Field(default=None, pattern="^(none|win|full)$")  # none / part (win) / full (win + place)
     lay_odds: Optional[float] = Field(default=None, gt=1, le=1001)
     place_lay_odds: Optional[float] = Field(default=None, gt=1, le=1001)

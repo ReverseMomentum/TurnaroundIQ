@@ -5,7 +5,7 @@
  * App.jsx passes its design system in as `ui` (colours, card styles,
  * PageShell, Paywall, ...), so this page looks like every other page.
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Filter, Info, Plus, RefreshCw, X } from "lucide-react";
 import { api } from "../lib/api";
 
@@ -89,7 +89,7 @@ function Metric({ ui, label, value, tone, sub }) {
   );
 }
 
-function OpportunityCard({ ui, o, highlight }) {
+function OpportunityCard({ ui, o, highlight, onStake }) {
   const { c, card, accentCard, Bar } = ui;
   const [open, setOpen] = useState(false);
   const stake = o.recommended_stake_pct;
@@ -125,9 +125,16 @@ function OpportunityCard({ ui, o, highlight }) {
         <Metric ui={ui} label="¼ Kelly" value={stake > 0 ? stake.toFixed(2) + "%" : "No stake"} tone={stake > 0 ? c.cyan : c.textMuted}
           sub={stake > 0 ? `bankroll in total · ${(stake / 2).toFixed(2)}% each way` : "of bankroll"} />
       </div>
-      <button onClick={() => setOpen(!open)} style={{ color: c.textSecondary }} className="flex items-center gap-1 text-xs font-medium self-start">
-        <ChevronDown size={14} style={{ transform: open ? "rotate(180deg)" : "none" }} /> {open ? "Hide" : "Positions and confidence"}
-      </button>
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => setOpen(!open)} style={{ color: c.textSecondary }} className="flex items-center gap-1 text-xs font-medium">
+          <ChevronDown size={14} style={{ transform: open ? "rotate(180deg)" : "none" }} /> {open ? "Hide" : "Positions and confidence"}
+        </button>
+        {onStake && (
+          <button onClick={() => onStake(o)} style={{ color: "#03140B", background: c.green }} className="text-xs font-bold px-3.5 py-2 rounded-lg">
+            Stake this →
+          </button>
+        )}
+      </div>
       {open && (
         <div className="flex flex-col gap-3">
           {o.books && o.books.length > 1 && (
@@ -385,7 +392,7 @@ function mergeOffers(list) {
   return [...m.values()];
 }
 
-function OpportunityList({ ui, list: raw }) {
+function OpportunityList({ ui, list: raw, onStake }) {
   const { c, SectionLabel, Empty } = ui;
   const [showC, setShowC] = useState(false);
   const list = mergeOffers(raw);
@@ -400,7 +407,7 @@ function OpportunityList({ ui, list: raw }) {
         <Empty>Nothing clears the uncertainty band. {marginal.length} runner{marginal.length === 1 ? "" : "s"} show a thin positive EV.</Empty>
       )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
-        {shown.map((o, i) => <OpportunityCard key={offerKey(o)} ui={ui} o={o} highlight={i === 0 && o.grade !== "C"} />)}
+        {shown.map((o, i) => <OpportunityCard key={offerKey(o)} ui={ui} o={o} highlight={i === 0 && o.grade !== "C"} onStake={onStake} />)}
       </div>
       {marginal.length > 0 && (
         <button onClick={() => setShowC(!showC)} style={{ color: c.textSecondary, border: "1px solid " + c.border }} className="w-full rounded-xl py-2.5 text-xs font-medium mb-6">
@@ -815,11 +822,16 @@ const ordinal = (n) => {
 };
 
 // Tap a runner: what the model sees, and a form to track the bet in My bets.
-function RunnerSheet({ ui, race, runner, extra, onClose }) {
+function RunnerSheet({ ui, race, runner, extra, onClose, initial }) {
   const { c, card, chip, primaryBtn, Sheet, Bar, SectionLabel } = ui;
   const offers = realOffers(race);
   const std = race.standard_terms || {};
-  const first = offers[0];
+  // opened from a value card: start on that card's terms
+  const first = initial?.places ? initial : offers[0];
+  const stakeRef = useRef(null);
+  useEffect(() => {    // opened from "Stake this": go straight to the staking form
+    if (initial && stakeRef.current) setTimeout(() => stakeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+  }, [initial]);
   const [book, setBook] = useState(first?.bookmaker || "");
   const [places, setPlaces] = useState(first?.places || (std.places || 3) + (extra || 0));
   const [fraction, setFraction] = useState(first ? fractionLabel(first.fraction) : fractionLabel(std.fraction || 0.2));
@@ -930,7 +942,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
         {runner.beyond_value_range && <span style={{ color: c.textMuted }} className="text-xs">No value call at 33/1 or bigger.</span>}
       </div>
 
-      <SectionLabel>Track this bet</SectionLabel>
+      <div ref={stakeRef} style={{ scrollMarginTop: 12 }}><SectionLabel>Track this bet</SectionLabel></div>
       <div style={card} className="rounded-xl p-3 flex flex-col gap-3 mb-3">
         <div className="-mb-4">
           <ui.SlideSwitch options={LAY_MODES} value={layMode} onChange={setLayMode} />
@@ -1293,7 +1305,15 @@ function CardsTab({ ui, entitled }) {
           </div>
           {data.can_edit_offers && <OffersPanel ui={ui} races={data.races} onSaved={q.reload} />}
           <Shortlist ui={ui} races={data.races.filter((r) => !r.started)} extra={extra} onOpen={open} oddsFilter={oddsFilter} />
-          {data.opportunities.length > 0 && <OpportunityList ui={ui} list={data.opportunities.filter((o) => inOdds(oddsFilter, o.win_odds))} />}
+          {data.opportunities.length > 0 && <OpportunityList ui={ui} list={data.opportunities.filter((o) => inOdds(oddsFilter, o.win_odds))}
+            onStake={(o) => {
+              const race = data.races.find((r) => r.race_id === o.race_id);
+              const runner = race?.runners.find((r) => r.name === o.horse);
+              if (race && runner) {
+                const book = o.bookmaker && o.bookmaker !== "Best price" ? o.bookmaker : "";
+                setPicked({ race, runner, initial: { bookmaker: book, places: o.places_paid, fraction: o.fraction } });
+              }
+            }} />}
           <SectionLabel>Races · {data.races.filter((r) => !r.started).length} to come</SectionLabel>
           {data.races.every((r) => r.started) && <Empty>All of this day's races have started.</Empty>}
           <RaceGrid ui={ui} races={data.races.filter((r) => showStarted || !r.started)} onPick={(r) => setRaceId(r.race_id)} />
@@ -1310,7 +1330,8 @@ function CardsTab({ ui, entitled }) {
           <RaceCard ui={ui} race={sheetRace} extra={extra} canEdit={data.can_edit_offers} onChanged={q.reload} onOpen={open} defaultOpen />
         </ui.Sheet>
       )}
-      {picked && <RunnerSheet ui={ui} race={picked.race} runner={picked.runner} extra={extra} onClose={() => setPicked(null)} />}
+      {picked && <RunnerSheet key={picked.race.race_id + picked.runner.name + (picked.initial?.places || "")} ui={ui} race={picked.race}
+        runner={picked.runner} extra={extra} initial={picked.initial} onClose={() => setPicked(null)} />}
     </>
   );
 }

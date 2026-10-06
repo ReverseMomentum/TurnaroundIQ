@@ -122,7 +122,8 @@ function OpportunityCard({ ui, o, highlight }) {
         <Metric ui={ui} label="Edge" value={pts(o.edge)} tone={o.robust_edge > 0 ? c.green : c.orange} sub={o.robust_edge > 0 ? "clears the band" : "inside the band"} />
         <Metric ui={ui} label="Each-way EV" value={signedPct(o.each_way_ev)} tone={o.each_way_ev > 0 ? c.green : c.red} sub="per £1 staked" />
         <Metric ui={ui} label="Place EV" value={signedPct(o.place_ev)} sub="place half" />
-        <Metric ui={ui} label="¼ Kelly" value={stake > 0 ? stake.toFixed(2) + "%" : "No stake"} tone={stake > 0 ? c.cyan : c.textMuted} sub="of bankroll, EW" />
+        <Metric ui={ui} label="¼ Kelly" value={stake > 0 ? stake.toFixed(2) + "%" : "No stake"} tone={stake > 0 ? c.cyan : c.textMuted}
+          sub={stake > 0 ? `bankroll in total · ${(stake / 2).toFixed(2)}% each way` : "of bankroll"} />
       </div>
       <button onClick={() => setOpen(!open)} style={{ color: c.textSecondary }} className="flex items-center gap-1 text-xs font-medium self-start">
         <ChevronDown size={14} style={{ transform: open ? "rotate(180deg)" : "none" }} /> {open ? "Hide" : "Positions and confidence"}
@@ -150,7 +151,8 @@ function OpportunityCard({ ui, o, highlight }) {
             ))}
           </div>
           <p style={{ color: c.textMuted }} className="text-[11px] leading-snug">
-            Kelly stakes use the low end of the uncertainty band (±{pct(o.uncertainty)}) and are capped at 5% of bankroll.
+            Kelly figures are the whole each-way stake (win + place together, half on each) as a share of
+            bankroll, for a bet with no lay. Kelly stakes use the low end of the uncertainty band (±{pct(o.uncertainty)}) and are capped at 5% of bankroll.
             ½ Kelly: {o.stakes?.half?.each_way_pct?.toFixed(2)}% · full: {o.stakes?.full?.each_way_pct?.toFixed(2)}% · place-only ¼ Kelly: {o.stakes?.quarter?.place_only_pct?.toFixed(2)}%.
           </p>
         </div>

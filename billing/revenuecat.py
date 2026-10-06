@@ -40,6 +40,7 @@ DEFAULT_PREFS = {
     "notify_live_trigger": True,
     "notify_exchange_entry": True,
     "bookmakers": [],  # bookmakers the user can bet with; [] = any UK bookmaker
+    "bankroll": None,  # betting bank in £, for Kelly stakes (The Stables); None = not set
 }
 
 

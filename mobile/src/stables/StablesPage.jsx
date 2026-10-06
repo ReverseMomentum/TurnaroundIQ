@@ -964,6 +964,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose }) {
           </div>
         </div>
         <BetGrade ui={ui} q={quote || atExchange} typed={Boolean(quote)} exchange={runner.exchange_back} />
+        <KellyStake ui={ui} q={quote || atExchange} setStakeEach={setStakeEach} laid={layMode !== "none"} />
         <LayChooser ui={ui} mode={layMode} setMode={setLayMode} placeLayText={placeLayText} setPlaceLayText={setPlaceLayText}
           stdPlaces={stdPlaces} places={places}
           layText={layText} setLayText={setLayText} commission={commission} setCommission={setCommission}
@@ -1023,6 +1024,43 @@ function BetGrade({ ui, q, typed, exchange }) {
           {q.beyond_value_range ? " 33/1 or bigger: capped at C." : ""}
         </p>
       </div>
+    </div>
+  );
+}
+
+// Kelly stakes from the bankroll (Settings, or typed here once): tap to fill in the stake each way.
+function KellyStake({ ui, q, setStakeEach, laid }) {
+  const { c, chip } = ui;
+  const [bank, setBank] = useState(ui.bankroll != null ? String(ui.bankroll) : "");
+  const [savedBank, setSavedBank] = useState(ui.bankroll ?? null);
+  const b = parseFloat(bank) || 0;
+  const saveBank = () => {
+    if (b > 0 && b !== savedBank) api.patchPrefs({ bankroll: b }).then(() => setSavedBank(b)).catch(() => {});
+  };
+  if (!q || !q.stakes) return null;
+  const options = [["¼ Kelly", q.stakes.quarter?.each_way_pct], ["½ Kelly", q.stakes.half?.each_way_pct]];
+  // pct = whole each-way stake as % of bankroll -> stake each way is half of it, rounded down to the penny
+  const each = (pct) => Math.floor((b * pct) / 100 / 2 * 100) / 100;
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span style={{ color: c.textMuted }} className="text-[10px] font-semibold uppercase tracking-wider">Bankroll £</span>
+        <input value={bank} onChange={(e) => setBank(e.target.value)} onBlur={saveBank} inputMode="decimal" placeholder="e.g. 500"
+          style={{ background: c.cardAlt, border: "1px solid " + c.border, color: c.text }} className="w-20 rounded-lg px-2 py-1.5 text-sm num outline-none" />
+        {options.map(([lbl, pct]) => (
+          <button key={lbl} disabled={!(b > 0 && pct > 0)} onClick={() => { saveBank(); setStakeEach(String(each(pct))); }}
+            style={{ ...chip(false), opacity: b > 0 && pct > 0 ? 1 : 0.5 }} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg num">
+            {lbl}{b > 0 && pct > 0 ? `: £${each(pct).toFixed(2)} EW` : ""}
+          </button>
+        ))}
+      </div>
+      <p style={{ color: c.textMuted }} className="text-[10px] mt-1 leading-snug">
+        {!(options[0][1] > 0)
+          ? "Kelly suggests no stake at this price: the edge doesn't survive the model's uncertainty."
+          : `¼ Kelly = ${options[0][1].toFixed(2)}% of bankroll in total (${(options[0][1] / 2).toFixed(2)}% each way), capped at 5%.`}
+        {laid ? " Kelly here is for the bet without a lay: with a lay, keep the worst case in the table below within this stake." : ""}
+        {b > 0 && savedBank !== b ? " Bankroll is saved to Settings when you tap a Kelly stake." : ""}
+      </p>
     </div>
   );
 }

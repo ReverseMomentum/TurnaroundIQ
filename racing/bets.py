@@ -75,7 +75,7 @@ def _price_bet(race_id: int, horse: str, bookmaker: str, odds: float, places: in
 
 QUOTE_KEYS = ("grade", "each_way_ev", "win_ev", "place_ev", "edge", "robust_edge", "confidence",
               "confidence_label", "model_probability", "market_probability", "place_odds", "places_paid",
-              "recommended_stake_pct")
+              "recommended_stake_pct", "stakes")
 
 
 def quote(race_id: int, horse: str, bookmaker: str, odds: float, places: int, fraction) -> dict:

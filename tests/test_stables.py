@@ -1196,3 +1196,17 @@ def test_quote_grades_a_bet_and_exchange_only_races_are_graded():
     assert lower["each_way_ev"] < q["each_way_ev"]                     # a shorter price is worth less
     with pytest.raises(racing_bets.TrackError):
         racing_bets.quote(race["race_id"], "Nobody", "Book Q", 12.0, 5, "1/5")
+
+
+def test_bankroll_pref_and_quote_kelly(monkeypatch):
+    from racing import bets as racing_bets
+
+    monkeypatch.setattr(app_module, "user_from_auth", lambda a: "u_bank")
+    with TestClient(app_module.app) as client:
+        assert client.get("/me/prefs").json()["prefs"]["bankroll"] is None
+        assert client.patch("/me/prefs", json={"bankroll": 500}).json()["prefs"]["bankroll"] == 500
+        assert client.patch("/me/prefs", json={"bankroll": -5}).status_code == 422
+    store.import_card({**CARD, "races": [{**CARD["races"][0], "id": "bf:9.13", "date": "2026-10-11"}]})
+    race = next(r for r in store.races_on("2026-10-11") if r["course"] == "Testcourse")
+    q = racing_bets.quote(race["race_id"], "Horse 6", "Book Z", 16.0, 5, "1/5")
+    assert set(q["stakes"]) == {"quarter", "half", "full"} and q["stakes"]["quarter"]["each_way_pct"] <= 5

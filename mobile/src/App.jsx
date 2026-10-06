@@ -2277,6 +2277,7 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
   const [stake, setStake] = useState(String(prefs.default_stake ?? 40));
   const [commission, setCommission] = useState(String(prefs.default_commission ?? 2));
   const [risk, setRisk] = useState(String(prefs.risk_warning_pct ?? 5));
+  const [bankroll, setBankroll] = useState(prefs.bankroll == null ? "" : String(prefs.bankroll));
   const [saved, setSaved] = useState(null);
   const [busy, setBusy] = useState(false);
   const status = subscriptionStatusText(me);
@@ -2288,6 +2289,7 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
         default_stake: parseFloat(stake) || 0,
         default_commission: parseFloat(commission) || 0,
         risk_warning_pct: parseFloat(risk) || 0,
+        ...(parseFloat(bankroll) > 0 ? { bankroll: parseFloat(bankroll) } : {}),
       });
       await reloadMe();
       setSaved("Saved");
@@ -2380,6 +2382,11 @@ function SettingsPage({ nav, entitled, me, userId, onPurchased, reloadMe, onSign
           <span style={{ color: c.text }} className="text-sm">Default stake</span>
           <div className="flex items-center gap-1"><span style={{ color: c.textSecondary }} className="text-sm">£</span>
             <input type="number" inputMode="decimal" value={stake} onChange={(e) => setStake(e.target.value)} style={{ background: "transparent", color: c.text, width: 60 }} className="text-sm text-right" /></div>
+        </div>
+        <div className="flex items-center justify-between">
+          <span style={{ color: c.text }} className="text-sm">Betting bankroll <span style={{ color: c.textMuted }} className="text-xs">(Kelly stakes)</span></span>
+          <div className="flex items-center gap-1"><span style={{ color: c.textSecondary }} className="text-sm">£</span>
+            <input type="number" inputMode="decimal" value={bankroll} onChange={(e) => setBankroll(e.target.value)} placeholder="not set" style={{ background: "transparent", color: c.text, width: 80 }} className="text-sm text-right" /></div>
         </div>
         <div className="flex items-center justify-between">
           <span style={{ color: c.text }} className="text-sm">Default commission</span>
@@ -2565,7 +2572,7 @@ export default function App() {
     opportunities: <OpportunitiesPage {...common} opps={opps} onOpen={setSelected} />,
     "early-goal-hunter": <EarlyGoalHunterPage {...common} />,
     "chaos-factor": <ChaosFactorPage {...common} />,
-    stables: <StablesPage {...common} ui={{ ...STABLES_UI, defaultCommission: me?.prefs?.default_commission ?? 2 }} />,
+    stables: <StablesPage {...common} ui={{ ...STABLES_UI, defaultCommission: me?.prefs?.default_commission ?? 2, bankroll: me?.prefs?.bankroll ?? null }} />,
     live: <LiveMonitorPage {...common} />,
     bets: <MyBetsPage {...common} reloadMe={loadMe} />,
     calculator: <CalculatorPage {...common} prefs={me?.prefs} />,

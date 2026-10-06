@@ -123,6 +123,7 @@ class PrefsPatch(BaseModel):
     notify_live_trigger: Optional[bool] = None
     notify_exchange_entry: Optional[bool] = None
     bookmakers: Optional[list[str]] = None  # [] = any UK bookmaker
+    bankroll: Optional[float] = Field(default=None, ge=0, le=10_000_000)  # £, for Kelly stakes
 
 
 class TrackedCreate(BaseModel):

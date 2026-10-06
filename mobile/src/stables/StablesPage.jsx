@@ -101,7 +101,7 @@ function OpportunityCard({ ui, o, highlight }) {
           {o.course && <span style={{ color: c.textMuted }} className="text-xs truncate">{o.course}</span>}
         </span>
         <span style={{ color: c.textMuted, letterSpacing: "0.06em" }} className="text-[10px] font-semibold uppercase whitespace-nowrap">
-          {o.bookmaker} · {o.places_paid} places · {fractionLabel(o.fraction)}
+          {o.books && o.books.length > 1 ? `${o.books.length} bookmakers` : o.bookmaker} · {o.places_paid} places · {fractionLabel(o.fraction)}
         </span>
       </div>
       <div className="flex items-center justify-between gap-3">
@@ -129,6 +129,11 @@ function OpportunityCard({ ui, o, highlight }) {
       </button>
       {open && (
         <div className="flex flex-col gap-3">
+          {o.books && o.books.length > 1 && (
+            <p style={{ color: c.textSecondary }} className="text-xs leading-snug">
+              <span style={{ color: c.textMuted }}>Same terms with: </span>{o.books.join(", ")}
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
             <Bar label="Win" value={100 * o.win_probability} tone={c.green} right={pct(o.win_probability)} />
             <Bar label="Top 3" value={100 * o.top3_probability} tone={c.cyan} right={pct(o.top3_probability)} />
@@ -366,9 +371,22 @@ function ModelNote({ ui, cal, source }) {
 }
 
 // A/B up front; grade C (positive EV but inside the uncertainty band) behind a toggle.
-function OpportunityList({ ui, list }) {
+// One card per horse and set of terms: bookmakers offering the same places and fraction at the
+// same price give the same numbers, so they share a card ("12 bookmakers").
+function mergeOffers(list) {
+  const m = new Map();
+  for (const o of list) {
+    const key = `${o.race_id}|${o.horse}|${o.places_paid}|${fractionLabel(o.fraction)}|${o.win_odds}`;
+    if (m.has(key)) m.get(key).books.push(o.bookmaker);
+    else m.set(key, { ...o, books: [o.bookmaker] });
+  }
+  return [...m.values()];
+}
+
+function OpportunityList({ ui, list: raw }) {
   const { c, SectionLabel, Empty } = ui;
   const [showC, setShowC] = useState(false);
+  const list = mergeOffers(raw);
   const strong = list.filter((o) => o.grade === "A" || o.grade === "B");
   const marginal = list.filter((o) => o.grade === "C");
   const shown = showC ? [...strong, ...marginal] : strong;

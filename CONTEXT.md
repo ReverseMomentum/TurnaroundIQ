@@ -142,6 +142,12 @@ Read this first. It is what a fresh session needs to work on this repo.
   (snapshots, pruned like the win prices). Runners carry place_exchange
   {places: {back, lay, volume}}; the runner sheet shows them against the
   model's chance, and the full-lay place odds fill in from the standard-places market.
+- No bookmaker feed: offers are graded at an ESTIMATED bookmaker price, not the
+  exchange (Betfair has no each-way and no margin). market.estimated_book_odds:
+  exchange fair chances -> q = p^k summing to a typical book (calibration
+  "book_overround" by field size from scripts/stables_overround.py, else
+  1 + 1.8%/runner), rounded down to a UK price. Rows carry est_book_odds; offers
+  price_source "estimated". The bettor's own price (quote / track) replaces it.
 - Offers from a pasted daily list ("14:10 Killarney" / "(4 places, 1/5 odds)" /
   "Betway (12+)"): racing/offers_text.py, app "Paste a list" (admin, POST
   /stables/offers/paste) or `scripts/stables_offers.py data/offers/DATE.txt`.

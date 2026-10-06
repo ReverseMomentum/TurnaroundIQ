@@ -94,6 +94,8 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
     inactive = [t for t in all_terms if n < int(t.get("min_runners") or 0)]
 
     p_win, source, diag = market.fair_win_probs(runners)
+    # what a bookmaker would likely offer (exchange fair chances + a typical book), for races with no bookmaker prices
+    est_book = market.estimated_book_odds(p_win, calibration.get("book_overround"))
     blend = calibration.get("blend")
     if blend and blend.get("fitted") and blend.get("kind") == "exploded":
         p_win = learn.apply(p_win, runners, blend)          # learned ranking model (racing/learn.py)
@@ -135,6 +137,7 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
             **{f"top{k}_probability": topk(top, i, k) for k in (3, 4, 5, 6)},
             "positions": [round(float(x), 5) for x in P[i, :MAX_POSITIONS]],
             "best_win_odds": r.get("win_odds") or market.best_price(r.get("odds") or {}),
+            "est_book_odds": est_book[i],
             "exchange_back": (r.get("exchange") or {}).get("back"),
             "value_from": {} if ref_price[i] >= MAX_VALUE_ODDS else {
                 str(extra): _within_range(min_value_odds(float(p_win[i]), topk(top, i, std_places + extra),
@@ -159,8 +162,9 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
             odds = (r.get("odds") or {}).get(t.bookmaker) or row["best_win_odds"]
             price_source = "bookmaker"
             if not market.implied(odds):
-                # Betfair-only cards: grade at the exchange back price until a bookmaker price is entered
-                odds, price_source = (r.get("exchange") or {}).get("back"), "exchange"
+                # No bookmaker price: grade at an estimated bookmaker price, NOT the exchange price
+                # (the exchange is bigger and has no each-way), until the bettor enters their own.
+                odds, price_source = est_book[i], "estimated"
             if not market.implied(odds):
                 continue
             ev = evaluate(float(p_win[i]), list(top[i]), float(odds), t)

@@ -1189,7 +1189,9 @@ def test_quote_grades_a_bet_and_exchange_only_races_are_graded():
     race = next(r for r in store.races_on("2026-10-10") if r["course"] == "Quoteford")
     priced = price_race(race, n_sims=2000)
     offers = [o for r in priced["runners"] for o in r["offers"]]
-    assert offers and all(o["price_source"] == "exchange" and o["grade"] in "ABCD" for o in offers)
+    assert offers and all(o["price_source"] == "estimated" and o["grade"] in "ABCD" for o in offers)
+    # graded at an estimated bookmaker price: never above the exchange price
+    assert all(r["est_book_odds"] <= r["exchange_back"] for r in priced["runners"] if r["est_book_odds"])
     q = racing_bets.quote(race["race_id"], "Q4", "Book Q", 12.0, 5, "1/5")
     assert q["grade"] in "ABCD" and q["places_paid"] == 5 and q["value_from"]
     lower = racing_bets.quote(race["race_id"], "Q4", "Book Q", 6.0, 5, "1/5")
@@ -1210,3 +1212,23 @@ def test_bankroll_pref_and_quote_kelly(monkeypatch):
     race = next(r for r in store.races_on("2026-10-11") if r["course"] == "Testcourse")
     q = racing_bets.quote(race["race_id"], "Horse 6", "Book Z", 16.0, 5, "1/5")
     assert set(q["stakes"]) == {"quarter", "half", "full"} and q["stakes"]["quarter"]["each_way_pct"] <= 5
+
+
+def test_estimated_bookmaker_prices():
+    from racing import market as m
+    import importlib.util
+
+    p = m.devig_power([3.5, 5, 7, 9, 11, 13, 17, 21, 26, 34, 41, 51])
+    est = m.estimated_book_odds(p)
+    fair = 1 / p
+    assert all(e < f for e, f in zip(est, fair))                          # always shorter than fair
+    assert all(e in m.UK_PRICES for e in est)                             # real UK prices
+    assert (fair[-1] / est[-1]) > (fair[0] / est[0])                       # outsiders cut more (longshot bias)
+    q = m.book_from_fair(p, 1.25)
+    assert abs(q.sum() - 1.25) < 1e-6
+    assert m.typical_overround(12, {"8": 1.15, "12": 1.24, "16": 1.31}) == 1.24
+    spec = importlib.util.spec_from_file_location("ov", "scripts/stables_overround.py")
+    ov = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ov)
+    races = [{"runners": [{"odds": o} for o in (2.0, 4.0, 5.0, 10.0)]}] * 40
+    assert ov.fit(races) == {"4": round(0.5 + 0.25 + 0.2 + 0.1, 4)}

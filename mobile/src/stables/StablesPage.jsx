@@ -108,7 +108,8 @@ function OpportunityCard({ ui, o, highlight, onStake }) {
         <div className="min-w-0">
           <p style={{ color: c.text }} className="text-base font-semibold truncate">{o.horse}</p>
           <p style={{ color: c.textSecondary }} className="text-sm">
-            <span className="num">{Number(o.win_odds).toFixed(2)}</span> win · place pays <span className="num">{Number(o.place_odds).toFixed(2)}</span>
+            <span className="num">{o.price_source === "estimated" ? ukPriceAtLeast(o.win_odds) : Number(o.win_odds).toFixed(2)}</span>
+            {o.price_source === "estimated" ? " est. bookmaker" : " win"} · place pays <span className="num">{Number(o.place_odds).toFixed(2)}</span>
           </p>
           <p style={{ color: c.textMuted }} className="text-xs mt-0.5">
             {o.standard_places} places as standard, {o.places_paid - o.standard_places} extra
@@ -196,7 +197,9 @@ function RunnerTable({ ui, race, extra, onOpen }) {
         <tbody>
           {race.runners.map((r) => {
             const value = race.opportunities.some((o) => o.horse === r.name && (o.grade === "A" || o.grade === "B"));
-            const price = r.best_win_odds || r.exchange_back;
+            // judged on a bookmaker price: the real one if loaded, else the estimate from the exchange
+      const price = r.best_win_odds || r.est_book_odds;                 // shown: the exchange
+            const bookPrice = r.best_win_odds || r.est_book_odds;              // judged: a bookmaker price
             return (
               <tr key={r.name} onClick={onOpen ? () => onOpen(race, r) : undefined} style={{ borderBottom: "1px solid " + c.border, cursor: onOpen ? "pointer" : "default" }}>
                 <td className="py-2 px-1 max-w-[104px] lg:max-w-[220px] truncate" style={{ color: value ? c.green : c.text }}>{r.number ? <span style={{ color: c.textMuted }} className="num mr-1">{r.number}</span> : null}{r.name}</td>
@@ -210,7 +213,7 @@ function RunnerTable({ ui, race, extra, onOpen }) {
                 {valueCols.map((v) => {
                   const vf = v.get(r);
                   return (
-                    <td key={v.key} style={{ color: vf && price && price >= vf ? c.green : c.textSecondary }} className="num py-2 px-1 text-right whitespace-nowrap font-semibold">
+                    <td key={v.key} style={{ color: vf && bookPrice && bookPrice >= vf ? c.green : c.textSecondary }} className="num py-2 px-1 text-right whitespace-nowrap font-semibold">
                       {vf ? ukPriceAtLeast(vf) : "—"}
                     </td>
                   );
@@ -352,7 +355,7 @@ function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen, defaultOpen = f
               {offers.length
                 ? "Value from: the smallest price worth taking each-way with each bookmaker's offer above."
                 : `Value from: the smallest bookmaker price worth taking each-way at ${race.standard_terms.places + extra} places, ${fractionLabel(race.standard_terms.fraction)} odds.`}{" "}
-              Green where the exchange price is already that big. No value calls on runners at 33/1 or bigger: in past races the model overrated them.
+              Green where the estimated bookmaker price (the exchange with a typical bookmaker margin) is already that big. No value calls on runners at 33/1 or bigger: in past races the model overrated them.
             </p>
           )}
         </div>
@@ -460,7 +463,8 @@ function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
           get: (r) => r.offer_value_from?.[g.books[0]] }))
       : [{ book: null, label: `${race.standard_terms.places + extra} places ${fractionLabel(race.standard_terms.fraction)}`, get: (r) => r.value_from?.[String(extra)] }];
     for (const r of race.runners) {
-      const price = r.best_win_odds || r.exchange_back;
+      // judged on a bookmaker price: the real one if loaded, else the estimate from the exchange
+      const price = r.best_win_odds || r.est_book_odds;
       // One row per horse: the offer with the lowest value line (the best terms).
       const ok = terms.map((t) => ({ t, vf: t.get(r) })).filter(({ vf }) => vf && price && price >= vf)
         .sort((a, b) => a.vf - b.vf);
@@ -477,9 +481,10 @@ function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
     <>
       <SectionLabel>Worth checking · {strong.length}</SectionLabel>
       <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-3 leading-snug">
-        The exchange price is at least {Math.round(SHORTLIST_MARGIN * 100)}% over the value line, in a market that is
-        trading properly (back/lay gap under {Math.round(SHORTLIST_SPREAD * 100)}%, £{SHORTLIST_VOLUME}+ matched). If the
-        bookmaker's price is at or above "value from" on those terms, the model rates it value. Races with entered
+        The estimated bookmaker price (the exchange's chances with a typical bookmaker margin, rounded down) is at
+        least {Math.round(SHORTLIST_MARGIN * 100)}% over the value line, in a properly traded market (back/lay gap under
+        {" "}{Math.round(SHORTLIST_SPREAD * 100)}%, £{SHORTLIST_VOLUME}+ matched). Check the real price: at or above "value from"
+        on those terms, the model rates it value. Races with entered
         offers come first, on each bookmaker's terms; the rest use {extra ? `${extra} extra place${extra > 1 ? "s" : ""}` : "standard terms"}.
       </p>
       {top.length === 0 && <Empty>No runner clears the value line with room to spare{oddsFilter && oddsFilter.key !== "all" ? ` in the ${oddsFilter.label} range` : ""}.</Empty>}
@@ -494,7 +499,7 @@ function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
             </div>
             <div className="text-right flex-shrink-0">
               <p style={{ color: c.green }} className="num text-sm font-bold">{ukPriceAtLeast(vf)}+</p>
-              <p style={{ color: c.textMuted }} className="text-[10px]">exchange <span className="num">{Number(price).toFixed(2)}</span>
+              <p style={{ color: c.textMuted }} className="text-[10px]">{r.best_win_odds ? "bookmaker" : "est. bookmaker"} <span className="num">{ukPriceAtLeast(price)}</span>
                 {" · "}<span style={{ color: why ? c.orange : c.green }} className="num">+{Math.round((ratio - 1) * 100)}%</span></p>
               {why && <p style={{ color: c.orange }} className="text-[10px]">{why}</p>}
             </div>
@@ -909,7 +914,8 @@ function RunnerSheet({ ui, race, runner, extra, onClose, initial }) {
       <p style={{ color: c.text }} className="text-xl font-bold tracking-tight">{runner.number ? <span style={{ color: c.textMuted }} className="num mr-2">{runner.number}</span> : null}{runner.name}</p>
       {facts.length > 0 && <p style={{ color: c.textSecondary }} className="text-xs mt-1">{facts.join(" · ")}</p>}
       <div className="grid grid-cols-3 gap-3 my-4">
-        <Metric ui={ui} label="Exchange" value={ex.back ? Number(ex.back).toFixed(2) : "—"} sub={ex.lay ? `lay ${Number(ex.lay).toFixed(2)}` : "back"} />
+        <Metric ui={ui} label="Exchange" value={ex.back ? Number(ex.back).toFixed(2) : "—"}
+          sub={`${ex.lay ? `lay ${Number(ex.lay).toFixed(2)}` : "back"}${runner.est_book_odds ? ` · est. bookie ${ukPriceAtLeast(runner.est_book_odds)}` : ""}`} />
         <Metric ui={ui} label="Win" value={pct(runner.win_probability)} tone={c.green} sub="model" />
         <Metric ui={ui} label={`Top ${std.places || 3}`} value={pct(runner[`top${std.places || 3}_probability`])} sub="standard places" />
       </div>
@@ -1032,7 +1038,7 @@ function BetGrade({ ui, q, typed, exchange }) {
           {q.confidence != null ? ` · confidence ${q.confidence}` : ""}
         </p>
         <p style={{ color: c.textMuted }} className="text-[10px]">
-          {typed ? "At your price and terms." : `At the exchange price${exchange ? ` (${Number(exchange).toFixed(2)})` : ""}; type your bookmaker's price for its own grade.`}
+          {typed ? "At your price and terms." : `At an estimated bookmaker price${q.win_odds ? ` (${ukPriceAtLeast(q.win_odds)})` : ""}, not the exchange: type your bookmaker's real price for its own grade.`}
           {q.beyond_value_range ? " 33/1 or bigger: capped at C." : ""}
         </p>
       </div>

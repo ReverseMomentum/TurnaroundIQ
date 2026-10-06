@@ -120,3 +120,53 @@ def fair_win_probs(runners: Sequence[dict]) -> tuple[np.ndarray, str, dict]:
     fill = max(0.0, 1.0 - min(known, 0.98)) / max(1, missing.sum())
     raw[missing] = max(fill, 0.005)
     return raw / raw.sum(), "partial", diag
+
+
+# ---- estimated bookmaker prices (no bookmaker feed) --------------------------
+# Betfair has no each-way bets and its prices carry no bookmaker margin, so an
+# exchange price overstates what a bookmaker will offer. Without a bookmaker
+# price, the engine prices offers at an estimate: the exchange's fair chances
+# inflated to a typical bookmaker book (more on outsiders: the favourite-longshot
+# bias bookmakers price in), then rounded DOWN to a standard UK price.
+
+UK_PRICES = sorted({1 + a / b for a, b in (
+    (1, 5), (2, 9), (1, 4), (2, 7), (3, 10), (1, 3), (4, 11), (2, 5), (4, 9), (1, 2), (8, 15), (4, 7), (8, 13),
+    (4, 6), (8, 11), (4, 5), (5, 6), (10, 11), (1, 1), (11, 10), (6, 5), (5, 4), (11, 8), (6, 4), (13, 8), (7, 4),
+    (15, 8), (2, 1), (9, 4), (5, 2), (11, 4), (3, 1), (10, 3), (7, 2), (4, 1), (9, 2), (5, 1), (11, 2), (6, 1),
+    (13, 2), (7, 1), (15, 2), (8, 1), (17, 2), (9, 1), (10, 1), (11, 1), (12, 1), (14, 1), (16, 1), (18, 1), (20, 1),
+    (22, 1), (25, 1), (28, 1), (33, 1), (40, 1), (50, 1), (66, 1), (80, 1), (100, 1))})
+
+
+def uk_price_at_most(d: float) -> Optional[float]:
+    """Largest standard UK price (decimal) not above d."""
+    below = [x for x in UK_PRICES if x <= d + 1e-9]
+    return below[-1] if below else None
+
+
+def typical_overround(n: int, table: Optional[dict] = None) -> float:
+    """Typical bookmaker book for an n-runner race: fitted from SP (calibration) if given, else ~1 + 1.8% a runner."""
+    if table:
+        keys = sorted(int(k) for k in table)
+        k = min(keys, key=lambda x: abs(x - n))
+        return float(table[str(k)] if str(k) in table else table[k])
+    return min(1.45, max(1.08, 1.0 + 0.018 * n))
+
+
+def book_from_fair(p_fair: Sequence[float], overround: float) -> np.ndarray:
+    """Fair chances -> bookmaker chances q = p^k with sum(q) = overround (k < 1 inflates outsiders more)."""
+    p = np.clip(np.asarray(p_fair, float), 1e-6, 1.0)
+    if overround <= 1.0 or len(p) < 2:
+        return p
+    lo, hi = 0.2, 1.0
+    for _ in range(80):
+        k = 0.5 * (lo + hi)
+        if np.power(p, k).sum() > overround:
+            lo = k
+        else:
+            hi = k
+    return np.power(p, 0.5 * (lo + hi))
+
+
+def estimated_book_odds(p_fair: Sequence[float], table: Optional[dict] = None) -> list:
+    q = book_from_fair(p_fair, typical_overround(len(p_fair), table))
+    return [uk_price_at_most(1.0 / x) for x in q]

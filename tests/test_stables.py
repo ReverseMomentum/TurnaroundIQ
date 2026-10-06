@@ -1,6 +1,8 @@
 """The Stables: extra-place value model (racing/)."""
 
 import numpy as np
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -370,8 +372,14 @@ def test_refresh_reprices_but_respects_cooldown(monkeypatch):
         client.get("/stables/races?date=2026-10-02&refresh=true")    # inside cooldown: cached
         assert len(calls) == 1
         stables_api._cache["2026-10-02"] = (0.0, first)              # pricing is old
-        client.get("/stables/races?date=2026-10-02&refresh=true")
+        again = client.get("/stables/races?date=2026-10-02&refresh=true").json()
+        assert again["priced_at"] == first["priced_at"]              # answered at once from the cache
+        for _ in range(100):                                          # re-priced in the background
+            if not stables_api._busy:
+                break
+            time.sleep(0.05)
         assert len(calls) == 2
+        assert client.get("/stables/races?date=2026-10-02").json()["refreshing"] is False
 
 
 # ---- Betfair collector (fake HTTP) and value-from prices ------------------

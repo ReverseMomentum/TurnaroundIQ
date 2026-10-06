@@ -1246,10 +1246,26 @@ function CardsTab({ ui, entitled }) {
   const [picked, setPicked] = useState(null);
   const [raceId, setRaceId] = useState(null);     // race opened from the grid (closing a runner returns to it)
   const open = (race, runner) => setPicked({ race, runner });
-  const q = useApi(() => api.stablesRaces(date, refreshes > 0), [entitled, date, refreshes]);
+  const [polls, setPolls] = useState(0);
+  const wantFresh = useRef(false);   // set by the Refresh button, used by the next call only
+  const q = useApi(() => {
+    const fresh = wantFresh.current;
+    wantFresh.current = false;
+    return api.stablesRaces(date, fresh);
+  }, [entitled, date, refreshes, polls]);
   const data = q.data;
   const sheetRace = raceId != null ? (data?.races || []).find((r) => r.race_id === raceId) : null;
-  const refreshing = q.loading && Boolean(data);
+  // the server answers at once with the last prices and re-prices in the background;
+  // while it says "refreshing", ask again every few seconds (up to ~1 minute)
+  useEffect(() => {
+    if (!data?.refreshing || q.loading || polls >= 15) return undefined;
+    const t = setTimeout(() => setPolls((n) => n + 1), 4000);
+    return () => clearTimeout(t);
+  }, [data, q.loading, polls]);
+  useEffect(() => {
+    if (data && !data.refreshing && polls > 0) setPolls(0);
+  }, [data, polls]);
+  const refreshing = (q.loading && Boolean(data)) || Boolean(data?.refreshing);
   const clock = (iso) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const fed = data?.feed?.last_fetch ? clock(data.feed.last_fetch) : null;
   const updated = data?.priced_at
@@ -1265,10 +1281,10 @@ function CardsTab({ ui, entitled }) {
   const [oddsOpen, setOddsOpen] = useState(false);
   const oddsFilter = ODDS_FILTERS.find((f) => f.key === oddsKey) || ODDS_FILTERS[0];
   const refreshBtn = (
-    <button onClick={() => setRefreshes((n) => n + 1)} disabled={q.loading} aria-label="Refresh races"
-      style={{ color: c.green, border: "1px solid rgba(54,233,143,0.35)", opacity: q.loading ? 0.6 : 1 }}
+    <button onClick={() => { wantFresh.current = true; setPolls(0); setRefreshes((n) => n + 1); }} disabled={refreshing} aria-label="Refresh races"
+      style={{ color: c.green, border: "1px solid rgba(54,233,143,0.35)", opacity: refreshing ? 0.6 : 1 }}
       className="ml-auto flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold px-2.5 py-2 rounded-lg">
-      <RefreshCw size={15} className={q.loading ? "animate-spin" : ""} />
+      <RefreshCw size={15} className={refreshing || q.loading ? "animate-spin" : ""} />
       <span className="hidden sm:inline">{refreshing ? "Refreshing…" : "Refresh"}</span>
     </button>
   );

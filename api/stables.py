@@ -83,7 +83,8 @@ def _with_live_status(body: dict) -> dict:
     live = {r["race_id"] for r in races if not r["started"]}
     return {**body, "races": races,
             "opportunities": [o for o in body["opportunities"] if o["race_id"] in live],
-            "started_count": len(races) - len(live)}
+            "started_count": len(races) - len(live),
+            "refreshing": body.get("date") in _busy}
 
 
 def _is_admin(user_id: str) -> bool:
@@ -100,19 +101,8 @@ def stables_races(authorization: str | None = Header(default=None), date: Option
     return {**_races_body(date, refresh), "can_edit_offers": _is_admin(user_id)}
 
 
-def _races_body(date: Optional[str], refresh: bool) -> dict:
-    date = date or datetime.now(UK).date().isoformat()
-    try:
-        datetime.strptime(date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(400, "date must be YYYY-MM-DD")
-    with _lock:
-        hit = _cache.get(date)
-        max_age = REFRESH_COOLDOWN_SECONDS if refresh else CACHE_SECONDS
-        if hit and time.time() - hit[0] < max_age:
-            return _with_live_status(hit[1])
-    if refresh:
-        _fetch_feed()
+def _price_date(date: str) -> dict:
+    """Price every stored race on a date (the slow part: Monte Carlo per race) and cache it."""
     cal = store.latest_calibration()
     races = [price_race(r, cal) for r in store.races_on(date)]
     opps = [{**o, "race_id": r["race_id"], "course": r["course"], "time": r["time"],
@@ -130,7 +120,87 @@ def _races_body(date: Optional[str], refresh: bool) -> dict:
     }
     with _lock:
         _cache[date] = (time.time(), body)
-    return _with_live_status(body)
+    return body
+
+
+_busy: set = set()   # dates being re-priced in the background
+
+
+def _reprice_later(date: str, fetch: bool = False) -> None:
+    """Re-price off the request path (one job per date); fetch=True pulls Betfair first."""
+    with _lock:
+        if date in _busy:
+            return
+        _busy.add(date)
+
+    def run():
+        try:
+            if fetch:
+                _fetch_feed()
+            _price_date(date)
+        except Exception:
+            pass
+        finally:
+            with _lock:
+                _busy.discard(date)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _invalidate() -> None:
+    """Offers changed: re-price the cached dates now, inside the admin's request,
+    so nobody else sees old offers or waits for the pricing."""
+    with _lock:
+        dates = list(_cache)
+        _cache.clear()
+    for d in dates:
+        try:
+            _price_date(d)
+        except Exception:
+            pass
+
+
+def _races_body(date: Optional[str], refresh: bool) -> dict:
+    """Always answers from the last pricing when there is one; stale prices (older than
+    CACHE_SECONDS) and the Refresh button re-price in the background. The reply says
+    "refreshing" while that runs so the page can ask again. Only the very first view
+    of a date waits for the pricing."""
+    date = date or datetime.now(UK).date().isoformat()
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    with _lock:
+        hit = _cache.get(date)
+    if hit:
+        age = time.time() - hit[0]
+        if refresh and age >= REFRESH_COOLDOWN_SECONDS:
+            _reprice_later(date, fetch=True)
+        elif age >= CACHE_SECONDS:
+            _reprice_later(date)
+        return _with_live_status(hit[1])
+    if refresh:
+        _fetch_feed()
+    return _with_live_status(_price_date(date))
+
+
+WARM_SECONDS = 240
+
+
+def keep_warm() -> None:
+    """Background loop (started by api.app): keep today's prices fresh so nobody waits."""
+    while True:
+        try:
+            now = datetime.now(UK)
+            if 6 <= now.hour < 23:
+                today = now.date().isoformat()
+                with _lock:
+                    hit = _cache.get(today)
+                if not hit or time.time() - hit[0] >= WARM_SECONDS:
+                    _price_date(today)
+        except Exception:
+            pass
+        time.sleep(60)
 
 
 def split_bookmakers(text: str) -> list[str]:
@@ -171,8 +241,7 @@ def stables_add_offers(body: OffersIn, authorization: str | None = Header(defaul
     if not books:
         raise HTTPException(400, "bookmaker name needed")
     n = sum(store.set_offers(body.race_ids, b, body.places, frac) for b in books)
-    with _lock:
-        _cache.clear()
+    _invalidate()
     return {"updated": n, "bookmakers": books, "races": n // len(books)}
 
 
@@ -188,8 +257,7 @@ def stables_paste_offers(body: OffersPasteIn, authorization: str | None = Header
     from racing import offers_text
 
     out = offers_text.apply(body.text, body.date)
-    with _lock:
-        _cache.clear()
+    _invalidate()
     return out
 
 
@@ -197,8 +265,7 @@ def stables_paste_offers(body: OffersPasteIn, authorization: str | None = Header
 def stables_delete_offer(race_id: int, bookmaker: str, authorization: str | None = Header(default=None)):
     _require_admin(authorization)
     n = store.delete_offer(race_id, bookmaker)
-    with _lock:
-        _cache.clear()
+    _invalidate()
     return {"deleted": n}
 
 

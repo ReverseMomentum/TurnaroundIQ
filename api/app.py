@@ -177,6 +177,7 @@ def startup():
     # Keep the fixture list and the model's team state warm off the request path,
     # so opening the app never waits for api-sports or a full history replay.
     threading.Thread(target=_keep_warm, daemon=True).start()
+    threading.Thread(target=stables.keep_warm, daemon=True).start()
 
 
 def _keep_warm():

@@ -90,6 +90,9 @@ CREATE TABLE IF NOT EXISTS rac_calibration (
 CREATE INDEX IF NOT EXISTS rac_races_date ON rac_races(date);
 CREATE INDEX IF NOT EXISTS rac_markets_race ON rac_markets(race_id, horse_id, timestamp);
 CREATE INDEX IF NOT EXISTS rac_exchange_race ON rac_exchange_markets(race_id, horse_id, timestamp);
+CREATE INDEX IF NOT EXISTS rac_runners_race ON rac_runners(race_id);
+CREATE INDEX IF NOT EXISTS rac_features_race ON rac_features(race_id);
+CREATE INDEX IF NOT EXISTS rac_offers_race ON rac_offers(race_id);
 """
 
 FEATURE_COLS = ("speed_rating", "form_rating", "distance_rating", "going_rating",

@@ -8,6 +8,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Filter, Info, Plus, RefreshCw, X } from "lucide-react";
 import { api } from "../lib/api";
+import PredictedFinish from "./PredictedFinish.jsx";
 
 const pct = (v, dp = 1) => (v == null || isNaN(v) ? "—" : (100 * Number(v)).toFixed(dp) + "%");
 const signedPct = (v, dp = 1) => (v == null || isNaN(v) ? "—" : (v >= 0 ? "+" : "") + (100 * Number(v)).toFixed(dp) + "%");
@@ -277,6 +278,7 @@ function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen, defaultOpen = f
   const [open, setOpen] = useState(defaultOpen);
   const [busy, setBusy] = useState(false);
   const [showBooks, setShowBooks] = useState(false);
+  const [showFinish, setShowFinish] = useState(false);
   const strong = race.opportunities.filter((o) => o.grade === "A" || o.grade === "B").length;
   const offers = realOffers(race);
   const groups = groupOffers(offers);
@@ -349,6 +351,15 @@ function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen, defaultOpen = f
       )}
       {open && (
         <div className="mt-3">
+          {race.runners?.length > 1 && (
+            <button onClick={() => setShowFinish(!showFinish)} style={{ color: showFinish ? c.green : c.textSecondary, border: "1px solid " + (showFinish ? "rgba(54,233,143,0.35)" : c.border) }}
+              className="w-full flex items-center justify-between rounded-lg px-3 py-2 mb-3 text-xs font-semibold">
+              <span>Predicted finish</span>
+              <ChevronDown size={14} style={{ transform: showFinish ? "rotate(180deg)" : "none" }} />
+            </button>
+          )}
+          {showFinish && <PredictedFinish ui={ui} race={race} onOpen={onOpen}
+            places={groups.length ? groups[0].places : (race.standard_terms?.places || 3) + (extra || 0)} />}
           <RunnerTable ui={ui} race={race} extra={extra} onOpen={onOpen} />
           {race.standard_terms?.fraction > 0 && (
             <p style={{ color: c.textMuted }} className="text-[11px] mt-2">

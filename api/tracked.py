@@ -539,6 +539,24 @@ def settle_tracked(app_user_id, bet_id, result, actual_profit=None, actual_fta=N
 EDITABLE = ("stake", "back_odds", "lay_odds", "commission", "bookmaker", "notes")
 
 
+def reopen_tracked(app_user_id, bet_id):
+    """Undo a settlement: back to open, result and profit cleared (racing bets may then settle again
+    from Betfair results)."""
+    ensure_tracked_tables()
+    conn = get_db()
+    cur = conn.execute(
+        """UPDATE tracked_bets SET status = 'open', result = NULL, actual_profit = NULL,
+               actual_fta = NULL, settled_at = NULL
+           WHERE id = ? AND app_user_id = ?""",
+        (bet_id, app_user_id),
+    )
+    conn.commit()
+    row = conn.execute(f"SELECT {SELECT_COLS} FROM tracked_bets WHERE id = ? AND app_user_id = ?",
+                       (bet_id, app_user_id)).fetchone() if cur.rowcount else None
+    conn.close()
+    return _row_to_dict(row) if row else None
+
+
 def update_tracked(app_user_id, bet_id, changes):
     """Edit a tracked bet. Lay stake, liability and expected profit are recomputed;
     a settled bet keeps its result and its profit is recomputed from the new prices."""

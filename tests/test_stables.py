@@ -1240,3 +1240,18 @@ def test_estimated_bookmaker_prices():
     spec.loader.exec_module(ov)
     races = [{"runners": [{"odds": o} for o in (2.0, 4.0, 5.0, 10.0)]}] * 40
     assert ov.fit(races) == {"4": round(0.5 + 0.25 + 0.2 + 0.1, 4)}
+
+
+def test_settled_bet_result_can_be_corrected_or_reopened():
+    from api import tracked
+    from racing import bets as racing_bets
+
+    store.import_card({**CARD, "races": [{**CARD["races"][0], "id": "bf:9.14", "date": "2026-10-12"}]})
+    race = next(r for r in store.races_on("2026-10-12") if r["course"] == "Testcourse")
+    bet = racing_bets.track("u_fix", race["race_id"], "Horse 6", "Book Z", 16.0, 10, 5, "1/5")
+    assert tracked.settle_tracked("u_fix", bet["id"], "lost")["actual_profit"] == -10
+    fixed = tracked.settle_tracked("u_fix", bet["id"], "placed")           # wrong result corrected
+    assert fixed["result"] == "placed" and fixed["actual_profit"] == pytest.approx(-5 + 5 * 3.0)
+    back = tracked.reopen_tracked("u_fix", bet["id"])
+    assert back["status"] == "open" and back["result"] is None and back["actual_profit"] is None
+    assert tracked.reopen_tracked("someone_else", bet["id"]) is None

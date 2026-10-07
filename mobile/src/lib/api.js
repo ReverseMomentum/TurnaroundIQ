@@ -84,6 +84,7 @@ export const api = {
       `&minute=${minute}&team_goals=${teamGoals}&opp_goals=${oppGoals}`),
   settleTracked: (id, result, actualProfit) =>
     request(`/tracked/${id}`, { method: "PATCH", body: actualProfit == null ? { result } : { result, actual_profit: actualProfit } }),
+  reopenTracked: (id) => request(`/tracked/${id}/reopen`, { method: "POST" }),
   paper: () => request("/paper"),
   autoSettle: () => request("/paper/auto-settle", { method: "POST" }),
   modelRuns: () => request("/model/runs"),

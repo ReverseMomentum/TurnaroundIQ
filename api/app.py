@@ -825,6 +825,16 @@ def tracked_create(
     return bet
 
 
+@app.post("/tracked/{bet_id}/reopen")
+def tracked_reopen(bet_id: int, authorization: str | None = Header(default=None)):
+    """Undo a settlement (e.g. a bet settled with the wrong result)."""
+    user_id = require_pro(authorization)
+    bet = tracked_store.reopen_tracked(user_id, bet_id)
+    if not bet:
+        raise HTTPException(404, "Tracked bet not found")
+    return bet
+
+
 @app.patch("/tracked/{bet_id}")
 def tracked_settle(
     bet_id: int,

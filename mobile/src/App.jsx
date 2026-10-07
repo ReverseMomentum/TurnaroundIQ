@@ -2109,28 +2109,40 @@ function BetEditSheet({ bet, onClose, onChanged, live }) {
         </>
       )}
 
-      {isOpen && racing && (
+      {racing && (
         <>
-          <SectionLabel>Settle manually</SectionLabel>
-          <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-3">Settles itself from Betfair results when it can. Places beyond Betfair's place markets need you.</p>
+          <SectionLabel>{isOpen ? "Settle manually" : "Change result"}</SectionLabel>
+          <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-3">
+            {isOpen
+              ? "Settles itself from Betfair results when it can. Places beyond Betfair's place markets need you."
+              : `Settled as ${resultLabel(bet.result)}. Tap the right result to correct it; profit is worked out again.`}
+          </p>
           <div className="grid grid-cols-2 gap-2 mb-6">
             {[["won", "Won", c.green], ["placed", bet.place_lay_stake && bet.std_places ? `Placed (top ${bet.std_places})` : "Placed", c.green], ...(bet.place_lay_stake ? [["extra_place", "Extra place only", c.green]] : []), ["lost", "Unplaced", c.text], ["void", "Void / NR", c.textSecondary]].map(([r, l, tone]) => (
-              <button key={r} disabled={busy} onClick={() => run(() => api.settleTracked(bet.id, r))} style={chip(false)} className="rounded-xl py-3 text-xs font-semibold">
-                <span style={{ color: tone }}>{l}</span>
+              <button key={r} disabled={busy || (!isOpen && bet.result === r)} onClick={() => run(() => api.settleTracked(bet.id, r))}
+                style={chip(!isOpen && bet.result === r)} className="rounded-xl py-3 text-xs font-semibold">
+                <span style={{ color: tone }}>{l}{!isOpen && bet.result === r ? " ✓" : ""}</span>
               </button>
             ))}
           </div>
         </>
       )}
 
-      {isOpen && !racing && (
+      {!isOpen && bet.result !== "traded" && (
+        <button disabled={busy} onClick={() => run(() => api.reopenTracked(bet.id))} style={{ color: c.textSecondary, border: "1px solid " + c.border }}
+          className="w-full rounded-xl py-3 text-sm font-semibold mb-3">
+          Reopen bet (undo settlement)
+        </button>
+      )}
+
+      {!racing && bet.result !== "traded" && (
         <>
-          <SectionLabel>Settle manually</SectionLabel>
+          <SectionLabel>{isOpen ? "Settle manually" : "Change result"}</SectionLabel>
           <div className="grid grid-cols-2 gap-2 mb-6">
-            <button disabled={busy} onClick={() => run(() => api.settleTracked(bet.id, "fta"))} style={chip(false)} className="rounded-xl py-3 text-xs font-semibold">
+            <button disabled={busy || bet.result === "fta"} onClick={() => run(() => api.settleTracked(bet.id, "fta"))} style={chip(!isOpen && bet.result === "fta")} className="rounded-xl py-3 text-xs font-semibold">
               <span style={{ color: c.green }}>Went 2 up, no win</span>
             </button>
-            <button disabled={busy} onClick={() => run(() => api.settleTracked(bet.id, "no_fta"))} style={chip(false)} className="rounded-xl py-3 text-xs font-semibold">
+            <button disabled={busy || bet.result === "no_fta"} onClick={() => run(() => api.settleTracked(bet.id, "no_fta"))} style={chip(!isOpen && bet.result === "no_fta")} className="rounded-xl py-3 text-xs font-semibold">
               Any other result
             </button>
           </div>

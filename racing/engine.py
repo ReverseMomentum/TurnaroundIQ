@@ -99,6 +99,11 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
     market_thin = source in ("exchange", "partial") and diag["formed_share"] < market.FORMED_SHARE
     # what a bookmaker would likely offer (exchange fair chances + a typical book), for races with no bookmaker prices
     est_book = market.estimated_book_odds(p_win, calibration.get("book_overround"))
+    # and no bigger than Betfair's own back price: an estimate shouldn't beat the exchange
+    for i, r in enumerate(runners):
+        back = (r.get("exchange") or {}).get("back")
+        if back and est_book[i] and est_book[i] > back:
+            est_book[i] = market.uk_price_at_most(back)
     blend = calibration.get("blend")
     if blend and blend.get("fitted") and blend.get("kind") == "exploded":
         p_win = learn.apply(p_win, runners, blend)          # learned ranking model (racing/learn.py)
@@ -200,6 +205,8 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
                                                      stakes["quarter"]["each_way_pct"], bool(n_cal)),
                                     float(odds), market_thin or not diag["formed"][i]),
             })
+            if price_source == "estimated" and ev["grade"] == "A":
+                ev["grade"] = "B"      # an A needs a real price: the estimate is the best price, not a quote
             if ev["grade"] not in ("A", "B"):
                 # Kelly only for A/B: a C (thin or uncertain edge, unformed market, 33/1+) or D gets no stake
                 ev["stakes"] = {k: {kk: 0.0 for kk in v} for k, v in stakes.items()}

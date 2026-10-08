@@ -1235,6 +1235,14 @@ def test_estimated_bookmaker_prices():
     q = m.early_book_from_fair(p, 1.22)
     cut = 1 - (1 / q - 1) / (1 / p - 1)
     assert abs(q.sum() - 1.22) < 1e-6 and cut[-1] - cut[0] < 0.08            # ...but not SP-harsh
+    assert m.best_price_overround(14) == pytest.approx(1.084) and m.best_price_overround(40) == 1.15
+    # graded on an estimated price: never an A (that needs a real price)
+    race = {"handicap": True, "terms": [{"bookmaker": "B", "places": 5, "fraction": "1/5"}],
+            "runners": [{"name": f"E{i}", "exchange": {"back": o, "lay": round(o * 1.03, 2), "volume": 5000}}
+                        for i, o in enumerate([5, 7.2, 8.6, 10, 11.4, 12.9, 15.7, 18.6, 21.5, 24.3, 30, 37, 49, 73])]}
+    offers = [o for r in price_race(race, {"fitted": True, "n_races": 5000}, n_sims=4000)["runners"] for o in r["offers"]]
+    assert all(o["price_source"] == "estimated" and o["grade"] != "A" for o in offers)
+    assert any(o["grade"] == "B" for o in offers)
     q = m.book_from_fair(p, 1.25)
     assert abs(q.sum() - 1.25) < 1e-6
     assert m.typical_overround(12, {"8": 1.15, "12": 1.24, "16": 1.31}) == 1.24

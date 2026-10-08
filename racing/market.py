@@ -213,6 +213,17 @@ def early_book_from_fair(p_fair: Sequence[float], overround: float) -> np.ndarra
     return 0.5 * book_from_fair(p, overround) + 0.5 * p * max(1.0, overround)
 
 
+def best_price_overround(n: int) -> float:
+    """Book of the BEST price across the firms offering the extra place (the price a bettor
+    shopping around takes): close to the exchange, ~100% + 0.6% a runner, not a single firm's SP book."""
+    return min(1.15, max(1.03, 1.0 + 0.006 * n))
+
+
 def estimated_book_odds(p_fair: Sequence[float], table: Optional[dict] = None) -> list:
-    q = early_book_from_fair(p_fair, typical_overround(len(p_fair), table))
-    return [uk_price_nearest(1.0 / x) for x in q]
+    """Estimated best bookmaker price per runner. `table` (fitted single-firm SP books) is kept
+    for reference but not used: the bettor takes the best price, not a typical firm's."""
+    p = np.clip(np.asarray(p_fair, float), 1e-6, 1.0)
+    q = early_book_from_fair(p, best_price_overround(len(p)))
+    # nearest UK price, but never at or above the fair price (that would be no margin at all)
+    return [n if n < 1.0 / f else uk_price_at_most(1.0 / x)
+            for n, x, f in ((uk_price_nearest(1.0 / x), x, f) for x, f in zip(q, p))]

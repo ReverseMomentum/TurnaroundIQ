@@ -110,7 +110,7 @@ function OpportunityCard({ ui, o, highlight, onStake }) {
           <p style={{ color: c.text }} className="text-base font-semibold truncate">{o.horse}</p>
           <p style={{ color: c.textSecondary }} className="text-sm">
             <span className="num">{o.price_source === "estimated" ? ukPriceAtLeast(o.win_odds) : Number(o.win_odds).toFixed(2)}</span>
-            {o.price_source === "estimated" ? " est. bookmaker" : " win"} · place pays <span className="num">{Number(o.place_odds).toFixed(2)}</span>
+            {o.price_source === "estimated" ? " est. best price" : " win"} · place pays <span className="num">{Number(o.place_odds).toFixed(2)}</span>
           </p>
           <p style={{ color: c.textMuted }} className="text-xs mt-0.5">
             {o.standard_places} places as standard, {o.places_paid - o.standard_places} extra
@@ -372,7 +372,7 @@ function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen, defaultOpen = f
               {offers.length
                 ? "Value from: the smallest price worth taking each-way with each bookmaker's offer above."
                 : `Value from: the smallest bookmaker price worth taking each-way at ${race.standard_terms.places + extra} places, ${fractionLabel(race.standard_terms.fraction)} odds.`}{" "}
-              Green where the estimated bookmaker price (the exchange with a typical bookmaker margin) is already that big. No value calls on runners at 33/1 or bigger: in past races the model overrated them.
+              Green where the estimated best bookmaker price (the exchange with a small margin, as the best of several firms usually is) is already that big. No value calls on runners at 33/1 or bigger: in past races the model overrated them.
             </p>
           )}
         </div>
@@ -498,7 +498,7 @@ function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
     <>
       <SectionLabel>Worth checking · {strong.length}</SectionLabel>
       <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-3 leading-snug">
-        The estimated bookmaker price (the exchange's chances with a typical bookmaker margin, rounded down) is at
+        The estimated best bookmaker price (the exchange's chances with the small margin the best of several firms usually has) is at
         least {Math.round(SHORTLIST_MARGIN * 100)}% over the value line, in a properly traded market (back/lay gap under
         {" "}{Math.round(SHORTLIST_SPREAD * 100)}%, £{SHORTLIST_VOLUME}+ matched). Check the real price: at or above "value from"
         on those terms, the model rates it value. Races with entered
@@ -1075,7 +1075,7 @@ function BetGrade({ ui, q, typed, exchange }) {
           </p>
         )}
         <p style={{ color: c.textMuted }} className="text-[10px]">
-          {typed ? "At your price and terms." : `At an estimated bookmaker price${q.win_odds ? ` (${ukPriceAtLeast(q.win_odds)})` : ""}, not the exchange: type your bookmaker's real price for its own grade.`}
+          {typed ? "At your price and terms." : `At an estimated best bookmaker price${q.win_odds ? ` (${ukPriceAtLeast(q.win_odds)})` : ""}, not the exchange. Grade A needs a real price: type your bookmaker's price for its own grade.`}
           {q.beyond_value_range ? " 33/1 or bigger: capped at C." : ""}
         </p>
       </div>

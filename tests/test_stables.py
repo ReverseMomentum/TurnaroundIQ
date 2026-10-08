@@ -1312,3 +1312,23 @@ def test_kelly_caps_longshots_and_skips_c_d_grades():
     for o in (o for r in out["runners"] for o in r["offers"]):
         if o["grade"] in "CD":
             assert o["recommended_stake_pct"] == 0 and o["stakes"]["quarter"]["each_way_pct"] == 0
+
+
+def test_bet_sp_from_bsp_files_and_bookmaker_spellings(monkeypatch):
+    from datetime import date, timedelta
+    from racing import bets as racing_bets, bsp_files
+
+    day = (date.today() - timedelta(days=2)).isoformat()
+    store.import_card({**CARD, "races": [{**CARD["races"][0], "id": "bf:9.71", "date": day}]})
+    race = next(r for r in store.races_on(day) if r["course"] == "Testcourse")
+    racing_bets.track("u_sp", race["race_id"], "Horse 3", "Sky Bet", 11.0, 10, 4, "1/5")
+    racing_bets.track("u_sp", race["race_id"], "Horse 4", "sky  bet", 13.0, 10, 4, "1/5")
+    csv_text = ("EVENT_ID,MENU_HINT,EVENT_NAME,EVENT_DT,SELECTION_ID,SELECTION_NAME,WIN_LOSE,BSP\n"
+                "1,UK / Test 1st Oct,1m Hcap,01-10-2026 14:00,11,Horse 3,0,10.0\n"
+                "1,UK / Test 1st Oct,1m Hcap,01-10-2026 14:00,12,Horse 4 (IRE),0,12.5\n")
+    monkeypatch.setattr(bsp_files, "fetch", lambda region, market, d, pause=0.3: csv_text if region == "uk" else "")
+    assert bsp_files.fill_bet_sp() == 2
+    assert bsp_files.fill_bet_sp() == 0                       # already filled: nothing fetched again
+    rep = racing_bets.report("u_sp")
+    assert rep["all"]["avg_clv"] == pytest.approx(((11 / 10 - 1) + (13 / 12.5 - 1)) / 2, abs=1e-3)
+    assert list(rep["by_bookmaker"]) == ["Sky Bet"] and rep["by_bookmaker"]["Sky Bet"]["bets"] == 2

@@ -422,6 +422,9 @@ def collect(hours: float = 12, client: Client | None = None) -> dict:
         from racing import bets as racing_bets
 
         results["bets_settled"] = racing_bets.auto_settle()
+        from racing import bsp_files   # SP for the tracker's CLV when the closed market gave none
+
+        results["bet_sp_filled"] = bsp_files.fill_bet_sp()
     except Exception as e:
         results["results_error"] = str(e)[:200]
     return {**summary, "fully_priced": priced, **results, "at": ts}

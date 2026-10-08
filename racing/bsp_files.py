@@ -164,3 +164,62 @@ def history_rows(win_text: str, place_text: str) -> list[dict]:
                         "exp_win": float(p[i]) if p is not None else None,
                         "exp_place": float(top3[i]) if top3 is not None else None})
     return [r for r in out if r["horse_key"]]
+
+
+def fill_bet_sp(days: int = 10, conn=None) -> int:
+    """
+    Betfair SP for tracked bets that have none yet (for the tracker's CLV), from the
+    daily BSP files: the collector's own SP read after the off can come back empty.
+    Matched on race date + horse name; only past days (the files land the next morning).
+    """
+    from database import get_db
+    from racing import store
+    from racing.live_features import horse_key
+
+    own = conn is None
+    conn = conn or get_db()
+    store.ensure_tables(conn)
+    today = date.today().isoformat()
+    rows = conn.execute(
+        "SELECT DISTINCT b.race_id, b.horse_id, b.horse, r.date FROM rac_bets b "
+        "JOIN rac_races r ON r.id = b.race_id "
+        "LEFT JOIN rac_results x ON x.race_id = b.race_id AND x.horse_id = b.horse_id "
+        "WHERE x.exchange_sp IS NULL AND r.date < ? AND r.date >= date(?, ?)",
+        (today, today, f"-{int(days)} day")).fetchall()
+    by_day = defaultdict(list)
+    for race_id, horse_id, horse, d in rows:
+        by_day[str(d)[:10]].append((race_id, horse_id, horse_key(horse)))
+    filled = 0
+    for d, bets in by_day.items():
+        sp = {}
+        for region in ("uk", "ire"):
+            for r in _rows_of(fetch(region, "win", date.fromisoformat(d))):
+                v = _num(r.get("BSP"))
+                if v and 1 < v < 10000:
+                    sp[horse_key(r.get("SELECTION_NAME"))] = v
+        for race_id, horse_id, key in bets:
+            v = sp.get(key)
+            if not v:
+                continue
+            cur = conn.execute("UPDATE rac_results SET exchange_sp = ? WHERE race_id = ? AND horse_id = ? "
+                               "AND exchange_sp IS NULL", (v, race_id, horse_id))
+            if not cur.rowcount:
+                conn.execute("INSERT OR IGNORE INTO rac_results (race_id, horse_id, exchange_sp) VALUES (?,?,?)",
+                             (race_id, horse_id, v))
+            filled += 1
+    conn.commit()
+    if own:
+        conn.close()
+    return filled
+
+
+def _rows_of(text: str) -> list:
+    from racing.backtest import _rows
+
+    return _rows(text) if text else []
+
+
+def _num(v) -> Optional[float]:
+    from racing.backtest import _f
+
+    return _f(v)

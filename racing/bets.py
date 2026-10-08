@@ -285,6 +285,10 @@ def report(app_user_id: str, paper: Optional[bool] = None) -> dict:
             "race_type": (snap.get("race") or {}).get("race_type") or "flat",
             "bookmaker": b["bookmaker"], "places": f"{b['places']} places",
         })
+    # one row per bookmaker however it was typed ("Sky Bet" / "Sky bet"): the first spelling seen
+    spelling = {}
+    for r in rows:
+        r["bookmaker"] = spelling.setdefault(" ".join(str(r["bookmaker"] or "?").lower().split()), r["bookmaker"])
     band_order = {band_label(lo, hi): i for i, (lo, hi) in enumerate(ODDS_BANDS)}
     order = lambda k: (band_order.get(k, 99), str(k))  # noqa: E731  odds brackets in price order
     split = lambda key: {k: _summ([r for r in rows if r[key] == k])  # noqa: E731

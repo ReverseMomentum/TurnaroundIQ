@@ -1048,6 +1048,18 @@ function BetGrade({ ui, q, typed, exchange }) {
           {" · "}place chance {pct(q.model_probability)} vs {pct(q.market_probability)} in the terms
           {q.confidence != null ? ` · confidence ${q.confidence}` : ""}
         </p>
+        {typed && q.exchange_back && exchange && Math.abs(q.exchange_back / exchange - 1) > 0.15 && (
+          <p style={{ color: c.orange }} className="text-[11px] font-semibold">
+            Betfair has moved: {Number(exchange).toFixed(2)} on this card, {Number(q.exchange_back).toFixed(2)} now. The grade uses the
+            latest price; tap Refresh for an up-to-date card.
+          </p>
+        )}
+        {typed && q.win_probability != null && (
+          <p style={{ color: c.textMuted }} className="text-[10px] num">
+            Model now: win {pct(q.win_probability)}{q.exchange_back ? ` (Betfair ${Number(q.exchange_back).toFixed(2)})` : ""}
+            {q.value_from ? ` · value from ${ukPriceAtLeast(q.value_from)}` : ""}
+          </p>
+        )}
         <p style={{ color: c.textMuted }} className="text-[10px]">
           {typed ? "At your price and terms." : `At an estimated bookmaker price${q.win_odds ? ` (${ukPriceAtLeast(q.win_odds)})` : ""}, not the exchange: type your bookmaker's real price for its own grade.`}
           {q.beyond_value_range ? " 33/1 or bigger: capped at C." : ""}

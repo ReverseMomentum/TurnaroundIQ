@@ -88,6 +88,10 @@ def quote(race_id: int, horse: str, bookmaker: str, odds: float, places: int, fr
     q = _price_bet(race_id, horse, bookmaker, odds, places, frac)
     out = {k: q["offer"].get(k) for k in QUOTE_KEYS}
     out["value_from"] = q["row"]["offer_value_from"].get(q["book"])
+    # what the grade is built on right now (the race card in the app can be minutes old)
+    out["exchange_back"] = q["row"].get("exchange_back")
+    out["win_probability"] = q["row"].get("win_probability")
+    out["est_book_odds"] = q["row"].get("est_book_odds")
     out["beyond_value_range"] = q["row"].get("beyond_value_range")
     return out
 

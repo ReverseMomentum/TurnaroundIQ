@@ -1255,3 +1255,12 @@ def test_settled_bet_result_can_be_corrected_or_reopened():
     back = tracked.reopen_tracked("u_fix", bet["id"])
     assert back["status"] == "open" and back["result"] is None and back["actual_profit"] is None
     assert tracked.reopen_tracked("someone_else", bet["id"]) is None
+
+
+def test_quote_reports_the_prices_it_used():
+    from racing import bets as racing_bets
+
+    store.import_card({**CARD, "races": [{**CARD["races"][0], "id": "bf:9.15", "date": "2026-10-13"}]})
+    race = next(r for r in store.races_on("2026-10-13") if r["course"] == "Testcourse")
+    q = racing_bets.quote(race["race_id"], "Horse 6", "Book Z", 26.0, 5, "1/5")
+    assert 0 < q["win_probability"] < 1 and "exchange_back" in q and "est_book_odds" in q

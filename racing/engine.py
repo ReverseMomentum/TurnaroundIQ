@@ -200,6 +200,10 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
                                                      stakes["quarter"]["each_way_pct"], bool(n_cal)),
                                     float(odds), market_thin or not diag["formed"][i]),
             })
+            if ev["grade"] not in ("A", "B"):
+                # Kelly only for A/B: a C (thin or uncertain edge, unformed market, 33/1+) or D gets no stake
+                ev["stakes"] = {k: {kk: 0.0 for kk in v} for k, v in stakes.items()}
+                ev["recommended_stake_pct"] = 0.0
             row["offers"].append(ev)
             # An each-way bet includes the win part, so that is what must pay.
             if ev["edge"] > 0 and ev["each_way_ev"] > 0:

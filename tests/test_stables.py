@@ -1281,3 +1281,17 @@ def test_unformed_betfair_market_is_not_trusted():
     firm = {**thin, "runners": [{"name": f"T{i}", "exchange": {"back": o, "lay": round(o * 1.04, 2)}}
                                 for i, o in enumerate([3, 5, 7, 9, 12, 15, 21, 26])]}
     assert not price_race(firm, n_sims=2000)["market_thin"]
+
+
+def test_kelly_caps_longshots_and_skips_c_d_grades():
+    from racing import kelly as K
+
+    assert K.stake_cap(4.0) == 0.05 and K.stake_cap(9.0) == 0.05
+    assert K.stake_cap(26.0) == pytest.approx(0.45 / 26) and K.stake_cap(51.0) < 0.01
+    big = K.robust_stakes(0.15, 0.6, 0.0, 0.0, 26.0, 6.0)         # a big (too good) edge at 25/1
+    assert big["full"]["each_way_pct"] <= 100 * 0.45 / 26 + 1e-9
+    out = price_race({"handicap": True, "terms": [{"bookmaker": "B", "places": 4, "fraction": "1/5"}],
+                      "runners": [{"name": f"K{i}", "win_odds": o} for i, o in enumerate(ODDS)]}, n_sims=2000)
+    for o in (o for r in out["runners"] for o in r["offers"]):
+        if o["grade"] in "CD":
+            assert o["recommended_stake_pct"] == 0 and o["stakes"]["quarter"]["each_way_pct"] == 0

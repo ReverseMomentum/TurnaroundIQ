@@ -1111,8 +1111,8 @@ function KellyStake({ ui, q, setStakeEach, laid }) {
       </div>
       <p style={{ color: c.textMuted }} className="text-[10px] mt-1 leading-snug">
         {!(options[0][1] > 0)
-          ? "Kelly suggests no stake at this price: the edge doesn't survive the model's uncertainty."
-          : `¼ Kelly = ${options[0][1].toFixed(2)}% of bankroll in total (${(options[0][1] / 2).toFixed(2)}% each way), capped at 5%.`}
+          ? "No Kelly stake: Kelly is only given for A and B grades (a C or D edge is too thin or too uncertain to size up)."
+          : `¼ Kelly = ${options[0][1].toFixed(2)}% of bankroll in total (${(options[0][1] / 2).toFixed(2)}% each way). Capped at 5%, less on longer prices (about 2.5% at 16/1, 1.3% at 33/1).`}
         {laid ? " Kelly here is for the bet without a lay: with a lay, keep the worst case in the table below within this stake." : ""}
         {b > 0 && savedBank !== b ? " Bankroll is saved to Settings when you tap a Kelly stake." : ""}
       </p>

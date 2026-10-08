@@ -97,6 +97,15 @@ def best_price(book_odds: dict) -> Optional[float]:
     return max(vals) if vals else None
 
 
+def _formed_share(ex: Sequence[Optional[float]], is_formed: Sequence[bool]) -> float:
+    """Share of the field's win chance sitting on runners with a formed Betfair market."""
+    w = [float(x or 0.0) for x in ex]
+    total = sum(w)
+    if total <= 0:
+        return sum(is_formed) / max(1, len(is_formed))
+    return sum(x for x, f in zip(w, is_formed) if f) / total
+
+
 def fair_win_probs(runners: Sequence[dict]) -> tuple[np.ndarray, str, dict]:
     """
     runners: dicts with any of
@@ -128,7 +137,8 @@ def fair_win_probs(runners: Sequence[dict]) -> tuple[np.ndarray, str, dict]:
         "p_book": p_book,
         "p_exchange": p_ex,
         "formed": is_formed,
-        "formed_share": sum(is_formed) / max(1, n),
+        # weighted by chance: a few unformed 100/1 shots shouldn't mark a whole race as thin
+        "formed_share": _formed_share(ex, is_formed),
     }
     if p_ex is not None:
         return p_ex, "exchange", diag

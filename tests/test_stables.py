@@ -1281,6 +1281,12 @@ def test_unformed_betfair_market_is_not_trusted():
     firm = {**thin, "runners": [{"name": f"T{i}", "exchange": {"back": o, "lay": round(o * 1.04, 2)}}
                                 for i, o in enumerate([3, 5, 7, 9, 12, 15, 21, 26])]}
     assert not price_race(firm, n_sims=2000)["market_thin"]
+    # a race formed at the front with only its 50/1+ shots on empty books is not thin
+    odds = [3, 5, 7, 9, 12, 15, 21, 26, 51, 67, 101]
+    tail = {**thin, "runners": [{"name": f"T{i}", "exchange": {"back": o, "lay": round(o * 1.04, 2) if o < 50 else 600.0}}
+                                for i, o in enumerate(odds)]}
+    out = price_race(tail, n_sims=2000)
+    assert not out["market_thin"] and out["market_formed_share"] >= 0.9
 
 
 def test_kelly_caps_longshots_and_skips_c_d_grades():

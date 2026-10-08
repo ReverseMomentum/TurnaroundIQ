@@ -349,6 +349,12 @@ function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen, defaultOpen = f
           )}
         </div>
       )}
+      {race.market_thin && (
+        <p style={{ color: c.orange }} className="text-[11px] mt-2 leading-snug">
+          Betfair market not formed yet: most runners have no real lay price, so the chances here are rough and no
+          A/B grades are given. It firms up nearer the off; tap Refresh then.
+        </p>
+      )}
       {open && (
         <div className="mt-3">
           {race.runners?.length > 1 && (
@@ -1048,6 +1054,12 @@ function BetGrade({ ui, q, typed, exchange }) {
           {" · "}place chance {pct(q.model_probability)} vs {pct(q.market_probability)} in the terms
           {q.confidence != null ? ` · confidence ${q.confidence}` : ""}
         </p>
+        {(q.market_thin || q.market_formed === false) && (
+          <p style={{ color: c.orange }} className="text-[11px] font-semibold">
+            {q.market_thin ? "This race's Betfair market hasn't formed yet" : "This horse has no real Betfair lay price yet"}:
+            its chance is rough, so the grade is capped at C until prices firm up.
+          </p>
+        )}
         {typed && q.exchange_back && exchange && Math.abs(q.exchange_back / exchange - 1) > 0.15 && (
           <p style={{ color: c.orange }} className="text-[11px] font-semibold">
             Betfair has moved: {Number(exchange).toFixed(2)} on this card, {Number(q.exchange_back).toFixed(2)} now. The grade uses the

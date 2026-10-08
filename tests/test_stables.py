@@ -1264,3 +1264,20 @@ def test_quote_reports_the_prices_it_used():
     race = next(r for r in store.races_on("2026-10-13") if r["course"] == "Testcourse")
     q = racing_bets.quote(race["race_id"], "Horse 6", "Book Z", 26.0, 5, "1/5")
     assert 0 < q["win_probability"] < 1 and "exchange_back" in q and "est_book_odds" in q
+
+
+def test_unformed_betfair_market_is_not_trusted():
+    from racing import market as m
+
+    # 5.1 back against an empty lay book (600) is not a 10/1 shot: use the back price, not the midpoint
+    assert not m.formed(5.1, 600) and m.formed(5.0, 5.2)
+    assert m.exchange_price_prob(5.1, 600) == pytest.approx(1 / 5.1)
+    assert m.exchange_price_prob(5.0, 5.2) == pytest.approx(0.5 * (1 / 5.0 + 1 / 5.2))
+    thin = {"handicap": True, "terms": [{"bookmaker": "B", "places": 4, "fraction": "1/5"}],
+            "runners": [{"name": f"T{i}", "exchange": {"back": o, "lay": 600.0}} for i, o in enumerate([3, 5, 7, 9, 12, 15, 21, 26])]}
+    out = price_race(thin, {"fitted": True, "n_races": 1000}, n_sims=2000)
+    assert out["market_thin"] and all(o["grade"] not in "AB" for r in out["runners"] for o in r["offers"])
+    assert all(r["market_formed"] is False for r in out["runners"])
+    firm = {**thin, "runners": [{"name": f"T{i}", "exchange": {"back": o, "lay": round(o * 1.04, 2)}}
+                                for i, o in enumerate([3, 5, 7, 9, 12, 15, 21, 26])]}
+    assert not price_race(firm, n_sims=2000)["market_thin"]

@@ -73,6 +73,25 @@ def exchange_mid(back: Optional[float], lay: Optional[float]) -> Optional[float]
     return pb or pl
 
 
+# A back/lay gap wider than this means the market has not formed: early in the day
+# Betfair often shows a stray back offer against no real lay (e.g. 5.1 / 600), and
+# the midpoint of that is meaningless.
+MAX_SPREAD = 0.25
+FORMED_SHARE = 0.8   # a race's market counts as formed when this share of runners are
+
+
+def formed(back: Optional[float], lay: Optional[float]) -> bool:
+    return bool(back and lay and back > 1 and lay >= back and lay / back - 1 <= MAX_SPREAD)
+
+
+def exchange_price_prob(back: Optional[float], lay: Optional[float]) -> Optional[float]:
+    """Midpoint when the market is formed; the back price alone when it is not (the lay side is
+    an empty book, so it says nothing)."""
+    if formed(back, lay):
+        return exchange_mid(back, lay)
+    return implied(back)
+
+
 def best_price(book_odds: dict) -> Optional[float]:
     vals = [float(v) for v in (book_odds or {}).values() if implied(v)]
     return max(vals) if vals else None
@@ -90,7 +109,9 @@ def fair_win_probs(runners: Sequence[dict]) -> tuple[np.ndarray, str, dict]:
     confidence engine can measure how far the two markets agree.
     """
     n = len(runners)
-    ex = [exchange_mid((r.get("exchange") or {}).get("back"), (r.get("exchange") or {}).get("lay")) for r in runners]
+    ex = [exchange_price_prob((r.get("exchange") or {}).get("back"), (r.get("exchange") or {}).get("lay"))
+          for r in runners]
+    is_formed = [formed((r.get("exchange") or {}).get("back"), (r.get("exchange") or {}).get("lay")) for r in runners]
     book = [r.get("win_odds") or best_price(r.get("odds") or {}) for r in runners]
 
     p_book = None
@@ -106,6 +127,8 @@ def fair_win_probs(runners: Sequence[dict]) -> tuple[np.ndarray, str, dict]:
         "exchange_overround": float(sum(ex)) if p_ex is not None else None,
         "p_book": p_book,
         "p_exchange": p_ex,
+        "formed": is_formed,
+        "formed_share": sum(is_formed) / max(1, n),
     }
     if p_ex is not None:
         return p_ex, "exchange", diag

@@ -92,6 +92,8 @@ def quote(race_id: int, horse: str, bookmaker: str, odds: float, places: int, fr
     out["exchange_back"] = q["row"].get("exchange_back")
     out["win_probability"] = q["row"].get("win_probability")
     out["est_book_odds"] = q["row"].get("est_book_odds")
+    out["market_formed"] = q["row"].get("market_formed")
+    out["market_thin"] = q["priced"].get("market_thin")
     out["beyond_value_range"] = q["row"].get("beyond_value_range")
     return out
 

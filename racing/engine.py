@@ -60,8 +60,9 @@ def _within_range(price):
     return price if price is not None and price < MAX_VALUE_ODDS else None
 
 
-def _cap_grade(grade: str, odds: float) -> str:
-    return "C" if odds >= MAX_VALUE_ODDS and grade in ("A", "B") else grade
+def _cap_grade(grade: str, odds: float, thin: bool = False) -> str:
+    """No A/B at 33/1+ (overrated in backtests) or while the Betfair market is not formed."""
+    return "C" if (odds >= MAX_VALUE_ODDS or thin) and grade in ("A", "B") else grade
 
 
 def _offers(race: dict, field_size: int) -> list[Terms]:
@@ -94,6 +95,8 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
     inactive = [t for t in all_terms if n < int(t.get("min_runners") or 0)]
 
     p_win, source, diag = market.fair_win_probs(runners)
+    # Betfair market not formed yet (wide back/lay gaps): chances are shaky, so no A/B grades
+    market_thin = source in ("exchange", "partial") and diag["formed_share"] < market.FORMED_SHARE
     # what a bookmaker would likely offer (exchange fair chances + a typical book), for races with no bookmaker prices
     est_book = market.estimated_book_odds(p_win, calibration.get("book_overround"))
     blend = calibration.get("blend")
@@ -138,6 +141,7 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
             "positions": [round(float(x), 5) for x in P[i, :MAX_POSITIONS]],
             "best_win_odds": r.get("win_odds") or market.best_price(r.get("odds") or {}),
             "est_book_odds": est_book[i],
+            "market_formed": bool(diag["formed"][i]),
             "exchange_back": (r.get("exchange") or {}).get("back"),
             "value_from": {} if ref_price[i] >= MAX_VALUE_ODDS else {
                 str(extra): _within_range(min_value_odds(float(p_win[i]), topk(top, i, std_places + extra),
@@ -194,7 +198,7 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
                 "opportunity_score": opportunity_score(ev["edge"], conf, (r.get("exchange") or {}).get("volume"), n),
                 "grade": _cap_grade(confidence.grade(ev["each_way_ev"], robust_edge, conf,
                                                      stakes["quarter"]["each_way_pct"], bool(n_cal)),
-                                    float(odds)),
+                                    float(odds), market_thin or not diag["formed"][i]),
             })
             row["offers"].append(ev)
             # An each-way bet includes the win part, so that is what must pay.
@@ -215,6 +219,8 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
     return {
         **out,
         "probability_source": source,
+        "market_thin": bool(market_thin),
+        "market_formed_share": round(float(diag["formed_share"]), 2),
         "book_overround": diag["book_overround"],
         "standard_terms": {"places": std_places, "fraction": std_frac},
         "offers": [t.__dict__ for t in offers],

@@ -191,12 +191,7 @@ def fill_bet_sp(days: int = 10, conn=None) -> int:
         by_day[str(d)[:10]].append((race_id, horse_id, horse_key(horse)))
     filled = 0
     for d, bets in by_day.items():
-        sp = {}
-        for region in ("uk", "ire"):
-            for r in _rows_of(fetch(region, "win", date.fromisoformat(d))):
-                v = _num(r.get("BSP"))
-                if v and 1 < v < 10000:
-                    sp[horse_key(r.get("SELECTION_NAME"))] = v
+        sp = bsp_by_horse(date.fromisoformat(d))
         for race_id, horse_id, key in bets:
             v = sp.get(key)
             if not v:
@@ -211,6 +206,23 @@ def fill_bet_sp(days: int = 10, conn=None) -> int:
     if own:
         conn.close()
     return filled
+
+
+def bsp_by_horse(day: date) -> dict:
+    """{horse_key: BSP} for one race day. A file is named by the day it is published, which
+    can be the day after the racing (dwbfpricesukwin08102026 held 7 October's races), so
+    both that day's and the next day's files are read and rows kept by their own race date."""
+    from datetime import timedelta
+    from racing.live_features import horse_key
+
+    out = {}
+    for region in ("uk", "ire"):
+        for f_day in (day, day + timedelta(days=1)):
+            for r in _rows_of(fetch(region, "win", f_day)):
+                v = _num(r.get("BSP"))
+                if v and 1 < v < 10000 and _date(r.get("EVENT_DT")) == day.isoformat():
+                    out[horse_key(r.get("SELECTION_NAME"))] = v
+    return out
 
 
 def _rows_of(text: str) -> list:

@@ -1323,10 +1323,15 @@ def test_bet_sp_from_bsp_files_and_bookmaker_spellings(monkeypatch):
     race = next(r for r in store.races_on(day) if r["course"] == "Testcourse")
     racing_bets.track("u_sp", race["race_id"], "Horse 3", "Sky Bet", 11.0, 10, 4, "1/5")
     racing_bets.track("u_sp", race["race_id"], "Horse 4", "sky  bet", 13.0, 10, 4, "1/5")
+    dt = date.fromisoformat(day).strftime("%d-%m-%Y")
     csv_text = ("EVENT_ID,MENU_HINT,EVENT_NAME,EVENT_DT,SELECTION_ID,SELECTION_NAME,WIN_LOSE,BSP\n"
-                "1,UK / Test 1st Oct,1m Hcap,01-10-2026 14:00,11,Horse 3,0,10.0\n"
-                "1,UK / Test 1st Oct,1m Hcap,01-10-2026 14:00,12,Horse 4 (IRE),0,12.5\n")
-    monkeypatch.setattr(bsp_files, "fetch", lambda region, market, d, pause=0.3: csv_text if region == "uk" else "")
+                f"1,UK / Test,1m Hcap,{dt} 14:00,11,Horse 3,0,10.0\n"
+                f"1,UK / Test,1m Hcap,{dt} 14:00,12,Horse 4 (IRE),0,12.5\n"
+                "2,UK / Test,1m Hcap,01-01-2020 14:00,13,Horse 5,0,99.0\n")      # another day's race: ignored
+    nxt = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+    # the file named the day AFTER the racing holds it (as Betfair's do)
+    monkeypatch.setattr(bsp_files, "fetch", lambda region, market, d, pause=0.3:
+                        csv_text if region == "uk" and d.isoformat() == nxt else "")
     assert bsp_files.fill_bet_sp() == 2
     assert bsp_files.fill_bet_sp() == 0                       # already filled: nothing fetched again
     rep = racing_bets.report("u_sp")

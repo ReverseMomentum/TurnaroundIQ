@@ -35,15 +35,8 @@ def main():
             print(f"  {d} {horse}: SP {sp}")
             continue
         if d not in names:
-            names[d] = {}
-            for region in ("uk", "ire"):
-                text = bsp_files.fetch(region, "win", date.fromisoformat(d))
-                print(f"  [{d} {region} file: {'%d rows' % text.count(chr(10)) if text else 'not available'}]")
-                if text:
-                    print("    header:", text.splitlines()[0][:160])
-                    print("    first row:", (text.splitlines()[1:2] or [""])[0][:160])
-                for r in bsp_files._rows_of(text):
-                    names[d][horse_key(r.get("SELECTION_NAME"))] = r.get("BSP")
+            names[d] = bsp_files.bsp_by_horse(date.fromisoformat(d))
+            print(f"  [{d}: {len(names[d])} runners with a BSP in the files]")
         hit = names[d].get(horse_key(horse))
         if hit is None and names[d]:
             import difflib
@@ -51,7 +44,7 @@ def main():
             close = difflib.get_close_matches(horse_key(horse), list(names[d]), n=2, cutoff=0.6)
             print(f"    looking for {horse_key(horse)!r}; closest in file: {close}; "
                   f"sample names: {list(names[d])[:3]}")
-        why = "today: file comes tomorrow" if d >= date.today().isoformat() else \
+        why = "Betfair's file for that day isn't out yet (usually the next morning)" if not names[d] else \
             (f"in file, BSP {hit!r}" if hit is not None else "not found in the file by name")
         print(f"  {d} {horse}: no SP ({why})")
     for f in bsp_files.failures[-5:]:

@@ -1232,6 +1232,9 @@ def test_estimated_bookmaker_prices():
     assert all(e < f for e, f in zip(est, fair))                          # always shorter than fair
     assert all(e in m.UK_PRICES for e in est)                             # real UK prices
     assert (fair[-1] / est[-1]) > (fair[0] / est[0])                       # outsiders cut more (longshot bias)
+    q = m.early_book_from_fair(p, 1.22)
+    cut = 1 - (1 / q - 1) / (1 / p - 1)
+    assert abs(q.sum() - 1.22) < 1e-6 and cut[-1] - cut[0] < 0.08            # ...but not SP-harsh
     q = m.book_from_fair(p, 1.25)
     assert abs(q.sum() - 1.25) < 1e-6
     assert m.typical_overround(12, {"8": 1.15, "12": 1.24, "16": 1.31}) == 1.24

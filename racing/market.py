@@ -176,6 +176,12 @@ def uk_price_at_most(d: float) -> Optional[float]:
     return below[-1] if below else None
 
 
+def uk_price_nearest(d: float) -> float:
+    """Nearest standard UK price (by ratio): the estimate's margin is already taken off, so
+    rounding down too would cut outsiders twice (19.9 -> 15.0 instead of 21.0)."""
+    return min(UK_PRICES, key=lambda x: abs(np.log(x) - np.log(max(d, 1.01))))
+
+
 def typical_overround(n: int, table: Optional[dict] = None) -> float:
     """Typical bookmaker book for an n-runner race: fitted from SP (calibration) if given, else ~1 + 1.8% a runner."""
     if table:
@@ -200,6 +206,13 @@ def book_from_fair(p_fair: Sequence[float], overround: float) -> np.ndarray:
     return np.power(p, 0.5 * (lo + hi))
 
 
+def early_book_from_fair(p_fair: Sequence[float], overround: float) -> np.ndarray:
+    """Early-price book: half SP-style longshot squeeze (power), half an even cut. SP squeezes
+    outsiders hard (~30% off a 25/1 shot); early extra-place prices are flatter (~20-25%)."""
+    p = np.clip(np.asarray(p_fair, float), 1e-6, 1.0)
+    return 0.5 * book_from_fair(p, overround) + 0.5 * p * max(1.0, overround)
+
+
 def estimated_book_odds(p_fair: Sequence[float], table: Optional[dict] = None) -> list:
-    q = book_from_fair(p_fair, typical_overround(len(p_fair), table))
-    return [uk_price_at_most(1.0 / x) for x in q]
+    q = early_book_from_fair(p_fair, typical_overround(len(p_fair), table))
+    return [uk_price_nearest(1.0 / x) for x in q]

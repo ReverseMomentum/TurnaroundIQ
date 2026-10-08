@@ -868,7 +868,9 @@ function RunnerSheet({ ui, race, runner, extra, onClose, initial }) {
   // Betfair's place market at the standard places (the one a full lay uses), filled in when collected
   const stdLay = runner.place_exchange?.[String(std.fraction > 0 ? std.places : 0)]?.lay;
   const [placeLayText, setPlaceLayText] = useState(stdLay ? String(stdLay) : "");
-  const [layText, setLayText] = useState(runner.exchange?.lay ? String(runner.exchange.lay) : "");
+  // Only pre-fill a real lay price: a lay of 600 against a back of 5.1 is an empty book, not an offer.
+  const realLay = runner.exchange?.lay && runner.market_formed !== false ? runner.exchange.lay : null;
+  const [layText, setLayText] = useState(realLay ? String(realLay) : "");
   const [commission, setCommission] = useState(String(ui.defaultCommission ?? 2));
   const odds = parseOdds(oddsText);
   const layOdds = parseFloat(layText) || null;
@@ -1003,7 +1005,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose, initial }) {
         <LayChooser ui={ui} mode={layMode} setMode={setLayMode} placeLayText={placeLayText} setPlaceLayText={setPlaceLayText}
           stdPlaces={stdPlaces} places={places}
           layText={layText} setLayText={setLayText} commission={commission} setCommission={setCommission}
-          outcomes={odds && Number(stake) > 0 ? outcomes : null} label={label} />
+          outcomes={odds && Number(stake) > 0 ? outcomes : null} label={label} backOdds={odds} noRealLay={!realLay && Boolean(runner.exchange)} />
         <div className="flex gap-2">
           <button onClick={() => setPaper(true)} style={chip(paper)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">Paper</button>
           <button onClick={() => setPaper(false)} style={chip(!paper)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">Real bet</button>
@@ -1120,7 +1122,7 @@ function KellyStake({ ui, q, setStakeEach, laid }) {
 
 // Lay on the exchange (picked with the switch at the top of the bet form): what each option returns.
 function LayChooser({ ui, mode, setMode, placeLayText, setPlaceLayText, stdPlaces, places, layText, setLayText,
-  commission, setCommission, outcomes, label }) {
+  commission, setCommission, outcomes, label, backOdds, noRealLay }) {
   const { c } = ui;
   const modes = [["none", "No lay"], ["part", "Part lay"], ["full", "Full lay"]];
   const gbp = (v) => (v < 0 ? "−£" : "£") + Math.abs(v).toFixed(2);
@@ -1162,6 +1164,19 @@ function LayChooser({ ui, mode, setMode, placeLayText, setPlaceLayText, stdPlace
       )}
       {rows.some(([k, o]) => k === "full" && !o) && stdPlaces > 0 && (
         <p style={{ color: c.textMuted }} className="text-[11px] mb-2">Full lay figures need the place lay price ({stdPlaces} places on Betfair).</p>
+      )}
+      {mode !== "none" && noRealLay && !layText && (
+        <p style={{ color: c.orange }} className="text-[11px] mb-2 leading-snug">
+          No real lay price on Betfair yet (its lay side is empty), so nothing is filled in. Check Betfair and type the
+          lay price you can actually get, or wait until nearer the off.
+        </p>
+      )}
+      {mode !== "none" && parseFloat(layText) > 1 && backOdds > 1 && parseFloat(layText) > backOdds * 1.25 && (
+        <p style={{ color: c.orange }} className="text-[11px] mb-2 leading-snug">
+          Lay {parseFloat(layText)} is far above your {Number(backOdds).toFixed(2)}: laying there costs a big liability for a
+          tiny stake and gives away most of the value. A lay only makes sense close to your own price; otherwise stick
+          with No lay.
+        </p>
       )}
       {mode === "full" && !stdPlaces && (
         <p style={{ color: c.orange }} className="text-[11px] mb-2">This race has no standard place market (win only), so a full lay isn't possible.</p>

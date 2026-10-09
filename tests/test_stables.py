@@ -1243,12 +1243,13 @@ def test_estimated_bookmaker_prices():
     q = m.early_book_from_fair(p, 1.22)
     cut = 1 - (1 / q - 1) / (1 / p - 1)
     assert abs(q.sum() - 1.22) < 1e-6 and cut[-1] - cut[0] < 0.08            # ...but not SP-harsh
-    assert m.best_price_overround(14) == pytest.approx(1.14) and m.best_price_overround(40) == 1.20
+    assert m.best_price_overround(14) == pytest.approx(1.21) and m.best_price_overround(40) == 1.35
+    assert m.best_price_overround(14, 0.01) == pytest.approx(1.14)
     # graded on an estimated price: never an A (that needs a real price)
     race = {"handicap": True, "terms": [{"bookmaker": "B", "places": 5, "fraction": "1/5"}],
             "runners": [{"name": f"E{i}", "exchange": {"back": o, "lay": round(o * 1.03, 2), "volume": 5000}}
                         for i, o in enumerate([5, 7.2, 8.6, 10, 11.4, 12.9, 15.7, 18.6, 21.5, 24.3, 30, 37, 49, 73])]}
-    offers = [o for r in price_race(race, {"fitted": True, "n_races": 5000}, n_sims=4000)["runners"] for o in r["offers"]]
+    offers = [o for r in price_race(race, {"fitted": True, "n_races": 5000, "best_price_rate": 0.006}, n_sims=4000)["runners"] for o in r["offers"]]
     assert all(o["price_source"] == "estimated" and o["grade"] != "A" for o in offers)
     assert any(o["grade"] == "B" for o in offers)
     q = m.book_from_fair(p, 1.25)
@@ -1347,3 +1348,28 @@ def test_bet_sp_from_bsp_files_and_bookmaker_spellings(monkeypatch):
     hid = {r["name"]: r["horse_id"] for r in race["runners"]}
     assert sps[hid["Horse 3"]] == 10.0 and sps[hid["Horse 4"]] == 12.5
     assert list(rep["by_bookmaker"]) == ["Sky Bet"] and rep["by_bookmaker"]["Sky Bet"]["bets"] == 2
+
+
+def test_estimate_learns_from_prices_taken(monkeypatch):
+    from datetime import date, timedelta
+    from racing import bets as racing_bets
+
+    day = (date.today() + timedelta(days=3)).isoformat()
+    store.import_card({"timestamp": f"{day}T08:00:00Z", "races": [{
+        "id": "bf:9.81", "date": day, "time": "15:00", "course": "Learnford", "handicap": True,
+        "runners": [{"horse": f"L{i}", "exchange": {"back": o, "lay": round(o * 1.03, 2), "volume": 900}}
+                    for i, o in enumerate([4, 6, 8, 10, 13, 17, 21, 26, 34, 51])]}]})
+    race = next(r for r in store.races_on(day) if r["course"] == "Learnford")
+    conn = store.get_db()
+    conn.execute("DELETE FROM rac_bets")
+    conn.commit()
+    assert store.learned_price_rate(conn) is None
+    snaps = []
+    for i in range(store.MIN_PRICE_BETS):
+        b = racing_bets.track("u_learn", race["race_id"], f"L{i % 5}", "Book Q", 7.0, 10, 4, "1/5")
+        snaps.append(b["snapshot"]["runner"])
+    assert all(s.get("est_book_odds") and s.get("est_overround") for s in snaps)
+    rate = store.learned_price_rate(conn)
+    conn.close()
+    assert rate is not None and 0.005 <= rate <= 0.035
+    assert store.latest_calibration().get("best_price_rate") == rate

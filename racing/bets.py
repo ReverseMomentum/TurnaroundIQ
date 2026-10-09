@@ -34,7 +34,7 @@ UK = ZoneInfo("Europe/London")
 SNAPSHOT_RUNNER_KEYS = ("number", "draw", "jockey", "trainer", "age", "weight", "official_rating", "form",
                         "win_probability", "top3_probability", "top4_probability", "top5_probability",
                         "top6_probability", "positions", "exchange", "place_exchange", "value_from",
-                        "offer_value_from")
+                        "offer_value_from", "est_book_odds", "est_overround")
 SNAPSHOT_RACE_KEYS = ("date", "time", "course", "name", "distance", "race_class", "going", "handicap",
                       "race_type", "surface", "field_size", "standard_terms", "probability_source",
                       "book_overround", "discounts", "calibrated", "recalibrated", "n_sims")

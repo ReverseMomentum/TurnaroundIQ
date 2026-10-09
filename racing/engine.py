@@ -98,7 +98,9 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
     # Betfair market not formed yet (wide back/lay gaps): chances are shaky, so no A/B grades
     market_thin = source in ("exchange", "partial") and diag["formed_share"] < market.FORMED_SHARE
     # what a bookmaker would likely offer (exchange fair chances + a typical book), for races with no bookmaker prices
-    est_book = market.estimated_book_odds(p_win, calibration.get("book_overround"))
+    est_rate = calibration.get("best_price_rate")         # learned from the bettor's own prices, if enough
+    est_book = market.estimated_book_odds(p_win, calibration.get("book_overround"), est_rate)
+    est_overround = market.best_price_overround(n, est_rate)
     # and no bigger than Betfair's own back price: an estimate shouldn't beat the exchange
     for i, r in enumerate(runners):
         back = (r.get("exchange") or {}).get("back")
@@ -146,6 +148,7 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
             "positions": [round(float(x), 5) for x in P[i, :MAX_POSITIONS]],
             "best_win_odds": r.get("win_odds") or market.best_price(r.get("odds") or {}),
             "est_book_odds": est_book[i],
+            "est_overround": est_overround,
             "market_formed": bool(diag["formed"][i]),
             "exchange_back": (r.get("exchange") or {}).get("back"),
             "value_from": {} if ref_price[i] >= MAX_VALUE_ODDS else {

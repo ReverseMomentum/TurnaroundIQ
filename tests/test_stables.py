@@ -1475,3 +1475,22 @@ def test_results_when_closed_markets_left_the_catalogue(monkeypatch, tmp_path):
     conn.close()
     assert got["C2"] == "1|3" and got["C3"] == "0|3" and got["C1"] == "0|"
     assert live_features.history_from_results([rid]) == 6       # feeds the jockey / trainer records
+
+
+def test_settle_finished_button_settles_racing_bets(monkeypatch):
+    from racing import bets as racing_bets
+
+    store.import_card({**CARD, "races": [{**CARD["races"][0], "id": "bf:9.95", "date": "2026-10-03", "course": "Settleford"}]})
+    race = next(r for r in store.races_on("2026-10-03") if r["course"] == "Settleford")
+    bet = racing_bets.track("u_settle", race["race_id"], "Horse 2", "Book Z", 9.0, 2, 5, "1/5")
+    bet5 = racing_bets.track("u_settle", race["race_id"], "Horse 5", "Book Z", 15.0, 2, 5, "1/5")
+    hid = {r["name"]: r["horse_id"] for r in race["runners"]}
+    store.save_results(race["race_id"], [
+        {"horse_id": hid["Horse 2"], "won": True, "placed_within": 3},
+        {"horse_id": hid["Horse 5"], "won": False, "outside_within": 4}])     # 5th? Betfair can't say
+    monkeypatch.setattr(app_module, "require_pro", lambda a: "u_settle")
+    with TestClient(app_module.app) as client:
+        r = client.post("/paper/auto-settle").json()
+    assert r["settled"] >= 1 and r["racing_waiting"] == 1
+    got = {b["id"]: b for b in tracked_store_list("u_settle")}
+    assert got[bet["id"]]["result"] == "won" and got[bet5["id"]]["status"] == "open"

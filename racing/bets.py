@@ -226,10 +226,10 @@ def _non_runner(race_id: int, horse_id) -> bool:
         conn.close()
 
 
-def auto_settle() -> int:
+def auto_settle(app_user_id: Optional[str] = None) -> int:
     open_ids = _open_ids()
     n = 0
-    for b in store.bets_with_results():
+    for b in store.bets_with_results(app_user_id):
         if b["tracked_bet_id"] not in open_ids:
             continue
         result = "void" if _non_runner(b["race_id"], b["horse_id"]) else b["ew_result"]
@@ -242,6 +242,15 @@ def auto_settle() -> int:
             tracked_store.settle_tracked(b["app_user_id"], b["tracked_bet_id"], result)
             n += 1
     return n
+
+
+def waiting(app_user_id: str) -> int:
+    """Open racing bets on races that have finished but whose result Betfair can't settle
+    (e.g. a 5-place bet on a horse outside Betfair's place markets): these need a manual result."""
+    open_ids = _open_ids()
+    return sum(1 for b in store.bets_with_results(app_user_id)
+               if b["tracked_bet_id"] in open_ids and b["ew_result"] is None
+               and (b["finish_position"] or b["placed_within"] or b["outside_within"]))
 
 
 def _band(odds: float) -> str:

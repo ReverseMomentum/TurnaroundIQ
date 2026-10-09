@@ -996,10 +996,18 @@ def paper_settings(
 
 @app.post("/paper/auto-settle")
 def paper_auto_settle(authorization: str | None = Header(default=None)):
-    """Settle open paper bets using match_results 2UP/FTA flags."""
+    """Settle open paper bets: football from match_results, racing from Betfair's results."""
     user_id = require_pro(authorization)
     n = tracked_store.auto_settle_from_results(user_id)
-    return {"settled": n, "summary": tracked_store.summary(user_id)}
+    waiting = 0
+    try:     # racing bets: from Betfair's results (the collector also does this every 15 minutes)
+        from racing import bets as racing_bets
+
+        n += racing_bets.auto_settle(user_id)
+        waiting = racing_bets.waiting(user_id)
+    except Exception:  # noqa: BLE001  never fail the football settle over racing
+        pass
+    return {"settled": n, "racing_waiting": waiting, "summary": tracked_store.summary(user_id)}
 
 
 def _feature_pairs(limit, hours):

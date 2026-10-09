@@ -1771,10 +1771,14 @@ function MyBetsPage({ nav, entitled, onPurchased, reloadMe }) {
       });
   }, [settled]);
 
+  const [settleNote, setSettleNote] = useState(null);
   const settleNow = async () => {
     setSettling(true);
     try {
-      await api.autoSettle();
+      const r = await api.autoSettle();
+      setSettleNote(`Settled ${r?.settled || 0}` + (r?.racing_waiting
+        ? ` · ${r.racing_waiting} racing bet${r.racing_waiting > 1 ? "s" : ""} need your result (Betfair doesn't show every placing past its own place markets)`
+        : "") + ". Races settle once Betfair's results are in, usually 10-20 minutes after the off.");
       await q.reload();
       reloadMe();
     } finally {
@@ -1792,6 +1796,7 @@ function MyBetsPage({ nav, entitled, onPurchased, reloadMe }) {
           </button>
         )}
       </div>
+      {settleNote && <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-3 leading-snug">{settleNote}</p>}
       {q.needsPro && <Paywall title="Paper tracking is a Pro feature" onPurchased={onPurchased} />}
       {q.loading && <Loading />}
       {q.error && <ErrorBox error={q.error} onRetry={q.reload} />}

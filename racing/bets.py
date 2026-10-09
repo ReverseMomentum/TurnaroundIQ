@@ -24,9 +24,11 @@ from zoneinfo import ZoneInfo
 
 from api import tracked as tracked_store
 from database import get_db
-from racing import store
+import numpy as np
+
+from racing import market, store
 from racing.engine import price_race
-from racing.extra_place import ODDS_BANDS, band_label, odds_band, parse_fraction
+from racing.extra_place import ODDS_BANDS, Terms, band_label, evaluate, odds_band, parse_fraction
 
 UK = ZoneInfo("Europe/London")
 SNAPSHOT_RUNNER_KEYS = ("number", "draw", "jockey", "trainer", "age", "weight", "official_rating", "form",
@@ -266,9 +268,41 @@ def _summ(rows: list[dict]) -> dict:
     }
 
 
+def value_at_sp(b: dict, snap: dict, cal: dict, cache: dict) -> Optional[float]:
+    """
+    Each-way EV of the bet (its odds and terms) judged by the closing market: win chances
+    from the whole race's Betfair SPs (de-margined), place chances from the same position
+    model the grades use. Comparing the win price alone with SP misses the point of an
+    extra-place bet, where the value is in the place half. None until every runner has an SP.
+    """
+    from racing import calibrate, nonfinish, positions
+
+    rid = b["race_id"]
+    if rid not in cache:
+        sps = store.race_sps(rid)
+        cache[rid] = None
+        if len(sps) >= 2 and all(sps.values()):
+            ids = list(sps)
+            p = np.asarray(market.devig_multiplicative([float(sps[h]) for h in ids]), float)
+            race = snap.get("race") or {}
+            disc = calibrate.discounts_for(cal or {}, nonfinish.race_type(race.get("race_type"), race.get("name")),
+                                           len(ids))
+            top = positions.simulate(p, n_sims=4000, discounts=disc, seed=11)["top"]
+            cache[rid] = {h: (float(p[i]), list(top[i])) for i, h in enumerate(ids)}
+    hit = (cache[rid] or {}).get(b["horse_id"])
+    if not hit or not b["odds"]:
+        return None
+    offer = snap.get("offer") or {}
+    terms = Terms(b["bookmaker"] or "", int(b["places"] or 0), float(b["fraction"] or 0),
+                  int(offer.get("standard_places") or b["places"] or 0))
+    return float(evaluate(hit[0], hit[1], float(b["odds"]), terms)["each_way_ev"])
+
+
 def report(app_user_id: str, paper: Optional[bool] = None) -> dict:
     tracked = {b["id"]: b for b in tracked_store.list_tracked(app_user_id, limit=5000) if b["product"] == "stables"}
     rows = []
+    close_cache: dict = {}
+    cal = store.latest_calibration()
     for b in store.bets_with_results(app_user_id):
         t = tracked.get(b["tracked_bet_id"])
         if t is None or (paper is not None and t["paper"] != paper):
@@ -279,7 +313,8 @@ def report(app_user_id: str, paper: Optional[bool] = None) -> dict:
             "status": t["status"], "result": t["result"], "stake": float(t["stake"] or 0),
             "profit": float(t["actual_profit"] or 0), "expected": t["expected_profit"],
             "odds": b["odds"], "bsp": b["bsp"],
-            "clv": (b["odds"] / b["bsp"] - 1) if b["bsp"] else None,
+            # CLV for an each-way bet: its EV with the chances Betfair SP gave the whole race
+            "clv": value_at_sp(b, snap, cal, close_cache),
             "p_place": offer.get("model_probability") or 0,
             "grade": offer.get("grade") or "?", "band": _band(b["odds"]),
             "race_type": (snap.get("race") or {}).get("race_type") or "flat",

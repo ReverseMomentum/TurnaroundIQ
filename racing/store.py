@@ -459,6 +459,20 @@ def record_bet(tracked_bet_id: int, app_user_id: str, race_id: int, horse_id, ho
         conn.close()
 
 
+def race_sps(race_id: int, conn=None) -> dict:
+    """{horse_id: Betfair SP} for a race's runners (None where not known)."""
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    rows = conn.execute(
+        "SELECT ru.horse_id, x.exchange_sp FROM rac_runners ru LEFT JOIN rac_results x "
+        "ON x.race_id = ru.race_id AND x.horse_id = ru.horse_id "
+        "WHERE ru.race_id = ? AND COALESCE(ru.non_runner, 0) = 0", (race_id,)).fetchall()
+    if own:
+        conn.close()
+    return {h: sp for h, sp in rows}
+
+
 def bets_with_results(app_user_id: Optional[str] = None, conn=None) -> list[dict]:
     """Tracked racing bets joined to their result and Betfair SP (for settling and the tracker)."""
     own = conn is None

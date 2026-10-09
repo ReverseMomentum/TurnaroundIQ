@@ -636,8 +636,16 @@ def test_track_settle_and_report(monkeypatch):
     settled = next(b for b in tracked_store_list("u_t") if b["id"] == bet["id"])
     assert settled["result"] == "placed" and settled["actual_profit"] == pytest.approx(-5 + 5 * 3.0)
     rep = racing_bets.report("u_t")
-    assert rep["all"]["settled"] >= 1 and rep["all"]["avg_clv"] == pytest.approx(16 / 14 - 1, abs=1e-3)
+    assert rep["all"]["settled"] >= 1 and rep["all"]["avg_clv"] is None     # not every runner has an SP yet
     assert "Book Z" in rep["by_bookmaker"]
+    # every runner's SP known: CLV = the bet's each-way EV at the chances SP gave the race
+    store.save_results(race["race_id"], [{"horse_id": hid[n], "exchange_sp": o} for n, o in
+                                         zip([f"Horse {i}" for i in range(len(ODDS))], ODDS) if n not in ("Horse 0", "Horse 6")])
+    clv = racing_bets.report("u_t")["all"]["avg_clv"]
+    sps = store.race_sps(race["race_id"])
+    p6 = (1 / sps[hid["Horse 6"]]) / sum(1 / v for v in sps.values())
+    assert clv is not None and -0.6 < clv < 0.6
+    assert clv > 0.5 * (p6 * 16 - 1) - 0.01      # at least the win half; the place half is the extra-place edge
 
 
 def tracked_store_list(uid):
@@ -1332,8 +1340,10 @@ def test_bet_sp_from_bsp_files_and_bookmaker_spellings(monkeypatch):
     # the file named the day AFTER the racing holds it (as Betfair's do)
     monkeypatch.setattr(bsp_files, "fetch", lambda region, market, d, pause=0.3:
                         csv_text if region == "uk" and d.isoformat() == nxt else "")
-    assert bsp_files.fill_bet_sp() == 2
-    assert bsp_files.fill_bet_sp() == 0                       # already filled: nothing fetched again
+    assert bsp_files.fill_bet_sp() >= 2
+    assert bsp_files.fill_bet_sp() == 0                       # already filled
     rep = racing_bets.report("u_sp")
-    assert rep["all"]["avg_clv"] == pytest.approx(((11 / 10 - 1) + (13 / 12.5 - 1)) / 2, abs=1e-3)
+    sps = store.race_sps(race["race_id"])
+    hid = {r["name"]: r["horse_id"] for r in race["runners"]}
+    assert sps[hid["Horse 3"]] == 10.0 and sps[hid["Horse 4"]] == 12.5
     assert list(rep["by_bookmaker"]) == ["Sky Bet"] and rep["by_bookmaker"]["Sky Bet"]["bets"] == 2

@@ -1270,10 +1270,10 @@ function TrackerTab({ ui, entitled }) {
           <div className="grid grid-cols-3 gap-3 mb-5">
             <div style={card} className="rounded-xl p-3"><Metric ui={ui} label="Profit" value={money(a.profit)} tone={a.profit >= 0 ? c.green : c.red} sub={`${a.settled} settled / ${a.bets}`} /></div>
             <div style={card} className="rounded-xl p-3"><Metric ui={ui} label="Return" value={pctOrDash(a.roi)} tone={(a.roi || 0) >= 0 ? c.green : c.red} sub={`model said ${pctOrDash(a.expected_roi)}`} /></div>
-            <div style={card} className="rounded-xl p-3"><Metric ui={ui} label="CLV" value={pctOrDash(a.avg_clv)} tone={(a.avg_clv || 0) >= 0 ? c.green : c.orange} sub={a.beat_sp == null ? "vs Betfair SP" : `beat SP ${pct(a.beat_sp, 0)}`} /></div>
+            <div style={card} className="rounded-xl p-3"><Metric ui={ui} label="CLV" value={pctOrDash(a.avg_clv)} tone={(a.avg_clv || 0) >= 0 ? c.green : c.orange} sub={a.beat_sp == null ? "each-way value at SP" : `value at SP on ${pct(a.beat_sp, 0)}`} /></div>
           </div>
           <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-5 leading-snug">
-            Return vs model: did the edge the model showed turn up? CLV: your odds against Betfair SP. Steadily positive CLV is the
+            Return vs model: did the edge the model showed turn up? CLV: each bet's each-way value (your price and terms) judged by the chances Betfair SP gave the whole race, so the extra place counts, not just the win price; shown once every runner's SP is in (the morning after). Steadily positive CLV is the
             earliest sign of a real edge; returns take hundreds of bets to settle down. Placed vs model checks the place chances.
           </p>
           {table("By grade", d.by_grade)}

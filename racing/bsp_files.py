@@ -170,7 +170,8 @@ def fill_bet_sp(days: int = 10, conn=None) -> int:
     """
     Betfair SP for tracked bets that have none yet (for the tracker's CLV), from the
     daily BSP files: the collector's own SP read after the off can come back empty.
-    Matched on race date + horse name; only past days (the files land the next morning).
+    Fills every runner of a race bet on (for the value-at-SP check), matched on race date +
+    horse name; only past days (the files land the next morning).
     """
     from database import get_db
     from racing import store
@@ -180,11 +181,13 @@ def fill_bet_sp(days: int = 10, conn=None) -> int:
     conn = conn or get_db()
     store.ensure_tables(conn)
     today = date.today().isoformat()
+    # every runner of each race bet on: the whole race's SPs give the closing chances
     rows = conn.execute(
-        "SELECT DISTINCT b.race_id, b.horse_id, b.horse, r.date FROM rac_bets b "
-        "JOIN rac_races r ON r.id = b.race_id "
-        "LEFT JOIN rac_results x ON x.race_id = b.race_id AND x.horse_id = b.horse_id "
-        "WHERE x.exchange_sp IS NULL AND r.date < ? AND r.date >= date(?, ?)",
+        "SELECT DISTINCT ru.race_id, ru.horse_id, h.name, r.date FROM rac_runners ru "
+        "JOIN rac_horses h ON h.id = ru.horse_id JOIN rac_races r ON r.id = ru.race_id "
+        "LEFT JOIN rac_results x ON x.race_id = ru.race_id AND x.horse_id = ru.horse_id "
+        "WHERE ru.race_id IN (SELECT race_id FROM rac_bets) AND COALESCE(ru.non_runner, 0) = 0 "
+        "AND x.exchange_sp IS NULL AND r.date < ? AND r.date >= date(?, ?)",
         (today, today, f"-{int(days)} day")).fetchall()
     by_day = defaultdict(list)
     for race_id, horse_id, horse, d in rows:

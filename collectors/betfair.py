@@ -206,13 +206,9 @@ def books(client: Client, market_ids: list[str]) -> dict:
     return out
 
 
-def place_prices(client: Client, markets: list[dict]) -> dict:
-    """
-    Live Betfair place markets for these WIN markets: {win marketId: {selectionId:
-    {places: {back, lay, volume}}}}. "To Be Placed" (PLACE) pays the standard
-    places; OTHER_PLACE markets pay 2-6. The same horse keeps its selectionId
-    across a race's markets.
-    """
+def place_markets(client: Client, markets: list[dict]) -> dict:
+    """{place marketId: (win marketId, places paid)} for these WIN markets, found while they are open
+    (Betfair's catalogue stops listing a market once it closes, so results need these saved)."""
     by_key = {((m.get("event") or {}).get("id"), m.get("marketStartTime")): m["marketId"] for m in markets}
     event_ids = sorted({k[0] for k in by_key} - {None})
     cats = []
@@ -227,6 +223,17 @@ def place_prices(client: Client, markets: list[dict]) -> dict:
         win_id = by_key.get(((c.get("event") or {}).get("id"), c.get("marketStartTime")))
         if k and win_id:
             places[c["marketId"]] = (win_id, int(k))
+    return places
+
+
+def place_prices(client: Client, markets: list[dict], places: dict | None = None) -> dict:
+    """
+    Live Betfair place markets for these WIN markets: {win marketId: {selectionId:
+    {places: {back, lay, volume}}}}. "To Be Placed" (PLACE) pays the standard
+    places; OTHER_PLACE markets pay 2-6. The same horse keeps its selectionId
+    across a race's markets.
+    """
+    places = place_markets(client, markets) if places is None else places
     out: dict = {}
     for mid, b in books(client, list(places)).items():
         win_id, k = places[mid]
@@ -264,7 +271,8 @@ def _race_type(market: dict) -> str:
     return "flat"
 
 
-def to_card(markets: list[dict], book_by_id: dict, timestamp: str, place_by_id: dict | None = None) -> dict:
+def to_card(markets: list[dict], book_by_id: dict, timestamp: str, place_by_id: dict | None = None,
+            place_ids: dict | None = None) -> dict:
     """Betfair catalogue + books (+ place-market prices) -> the card format racing/store.import_card reads."""
     races = []
     for m in markets:
@@ -285,6 +293,7 @@ def to_card(markets: list[dict], book_by_id: dict, timestamp: str, place_by_id: 
                 else r.get("runnerName")
             runners.append({
                 "horse": horse,
+                "selection_id": r.get("selectionId"),
                 "number": _int(md.get("CLOTH_NUMBER")),
                 "draw": _int(md.get("STALL_DRAW")),
                 "jockey": md.get("JOCKEY_NAME"),
@@ -309,6 +318,7 @@ def to_card(markets: list[dict], book_by_id: dict, timestamp: str, place_by_id: 
             "handicap": "hcap" in name.lower() or "handicap" in name.lower(),
             "race_type": _race_type(m),
             "runners": runners,
+            "place_markets": {pid: k for pid, (wid, k) in (place_ids or {}).items() if wid == m["marketId"]},
         })
     return {"timestamp": timestamp, "races": races}
 
@@ -352,7 +362,8 @@ def collect_results(client: Client, hours: float = 36) -> dict:
         for b in client.call("listMarketBook", {"marketIds": mids[i:i + RESULT_BOOK_PAGE],
                                                 "priceProjection": {"priceData": ["SP_TRADED"]}}):
             win_books[b["marketId"]] = b
-    place_ids = [c["marketId"] for c in place_cats]
+    place_ids = sorted({c["marketId"] for c in place_cats} |
+                       {pid for p in pending.values() for pid in (p.get("place_markets") or {})})
     place_books = {}
     for i in range(0, len(place_ids), 100):
         for b in client.call("listMarketBook", {"marketIds": place_ids[i:i + 100]}):
@@ -362,23 +373,23 @@ def collect_results(client: Client, hours: float = 36) -> dict:
     saved_ids = []
     for mid, race in pending.items():
         wb, wc = win_books.get(mid), win_cat.get(mid)
-        if not wb or not wc or wb.get("status") != "CLOSED":
+        if not wb or wb.get("status") != "CLOSED" or not (wc or race.get("selections")):
             continue
-        names = {r["selectionId"]: _clean_name(r.get("runnerName")) for r in wc.get("runners") or []}
+        names = {r["selectionId"]: _clean_name(r.get("runnerName")) for r in (wc or {}).get("runners") or []}
         rows = {}
         for r in wb.get("runners") or []:
-            hid = race["horses"].get(names.get(r["selectionId"]))
+            hid = race["horses"].get(names.get(r["selectionId"])) or (race.get("selections") or {}).get(r["selectionId"])
             if hid is None or r.get("status") == "REMOVED":
                 continue
             sp = (r.get("sp") or {}).get("actualSP")
             rows[r["selectionId"]] = {"horse_id": hid, "won": r.get("status") == "WINNER",
                                       "exchange_sp": sp if isinstance(sp, (int, float)) and 1 < sp < 10000 else None}
-        key = ((wc.get("event") or {}).get("id"), wc.get("marketStartTime"))
-        for pc in place_cats:
-            if ((pc.get("event") or {}).get("id"), pc.get("marketStartTime")) != key:
-                continue
-            k = (pc.get("description") or {}).get("numberOfWinners")
-            pb = place_books.get(pc["marketId"])
+        key = ((wc.get("event") or {}).get("id"), wc.get("marketStartTime")) if wc else None
+        race_places = {pc["marketId"]: (pc.get("description") or {}).get("numberOfWinners") for pc in place_cats
+                       if key and ((pc.get("event") or {}).get("id"), pc.get("marketStartTime")) == key}
+        race_places.update({pid: k for pid, k in (race.get("place_markets") or {}).items() if pid not in race_places})
+        for pid, k in race_places.items():
+            pb = place_books.get(pid)
             if not k or not pb or pb.get("status") != "CLOSED":
                 continue
             for r in pb.get("runners") or []:
@@ -403,10 +414,11 @@ def collect(hours: float = 12, client: Client | None = None) -> dict:
     markets = win_markets(client, hours)
     book_by_id = books(client, [m["marketId"] for m in markets])
     try:     # place markets are extra: never stop the win cards over them
-        place_by_id = place_prices(client, markets)
+        place_ids = place_markets(client, markets)
+        place_by_id = place_prices(client, markets, place_ids)
     except BetfairError:
-        place_by_id = {}
-    card = to_card(markets, book_by_id, ts, place_by_id)
+        place_ids, place_by_id = {}, {}
+    card = to_card(markets, book_by_id, ts, place_by_id, place_ids)
     summary = store.import_card(card) if card["races"] else {"races": 0, "runners": 0, "results": 0}
     store.prune_snapshots()
     priced = sum(1 for r in card["races"] if r["runners"] and all(x["exchange"] for x in r["runners"]

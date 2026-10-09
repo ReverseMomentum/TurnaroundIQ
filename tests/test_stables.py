@@ -1431,3 +1431,47 @@ def test_recal_from_bsp_files_rows_and_fit():
     assert len(rows["place_y"]) == 3200 and rows["place_y"].sum() == 1200
     new = rb.recalibrate.fit(rows)
     assert new["fitted"] and rb.log_loss(rb.scored(rows, new), rows["place_y"]) <= rb.log_loss(rows["place_p"], rows["place_y"]) + 1e-3
+
+
+def test_results_when_closed_markets_left_the_catalogue(monkeypatch, tmp_path):
+    # Betfair's catalogue drops closed markets: results come from what the card saved before the off
+    _DAY = __import__("datetime").datetime.now(__import__("zoneinfo").ZoneInfo("Europe/London")).date().isoformat()
+    from collectors import betfair
+
+    for k, v in {"BETFAIR_APP_KEY": "k", "BETFAIR_USERNAME": "u", "BETFAIR_PASSWORD": "p"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(betfair, "SESSION_FILE", tmp_path / "s.json")
+    store.import_card({"timestamp": f"{_DAY}T00:00:00Z", "races": [{
+        "id": "bf:1.877", "date": _DAY, "time": "00:02", "course": "Closedford", "handicap": True,
+        "place_markets": {"1.878": 3},
+        "runners": [{"horse": f"C{i}", "selection_id": 50 + i, "jockey": "A Rider",
+                     "exchange": {"back": o, "lay": o + 0.1}} for i, o in enumerate([3, 5, 8, 12, 20, 30])]}]})
+
+    class Fake(_FakeBetfair):
+        def post(self, url, data=None, json=None, headers=None, timeout=None):
+            if "login" in url:
+                return _Resp({"token": "t", "status": "SUCCESS"})
+            m, prm = json["method"].split("/")[-1], json["params"]
+            if m == "listMarketCatalogue":
+                return _Resp({"result": []})            # closed: no longer listed
+            if m == "listMarketBook" and "1.877" in prm["marketIds"]:
+                return _Resp({"result": [{"marketId": "1.877", "status": "CLOSED", "runners": [
+                    {"selectionId": 50 + i, "status": "WINNER" if i == 2 else "LOSER", "sp": {"actualSP": 4.0 + i}}
+                    for i in range(6)]}]})
+            if m == "listMarketBook" and "1.878" in prm["marketIds"]:
+                return _Resp({"result": [{"marketId": "1.878", "status": "CLOSED", "runners": [
+                    {"selectionId": 50 + i, "status": "WINNER" if i in (0, 2, 3) else "LOSER"} for i in range(6)]}]})
+            return _Resp({"result": []})
+
+    out = betfair.collect_results(betfair.Client(http=Fake()), hours=48)
+    assert out["result_races"] >= 1
+    from racing import live_features
+
+    rid = next(r for r in store.races_on(_DAY) if r["course"] == "Closedford")["race_id"]
+    assert rid in out["race_ids"]
+    conn = __import__("database").get_db()
+    got = dict(conn.execute("SELECT h.name, COALESCE(x.finish_position, 0) || '|' || COALESCE(x.placed_within, '') "
+                            "FROM rac_results x JOIN rac_horses h ON h.id = x.horse_id WHERE x.race_id = ?", (rid,)))
+    conn.close()
+    assert got["C2"] == "1|3" and got["C3"] == "0|3" and got["C1"] == "0|"
+    assert live_features.history_from_results([rid]) == 6       # feeds the jockey / trainer records

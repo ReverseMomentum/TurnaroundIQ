@@ -110,7 +110,8 @@ def _now() -> str:
 
 # Columns added after the first release (ALTER TABLE once).
 MIGRATIONS = {
-    "rac_runners": [("days_since_run", "INTEGER")],
+    "rac_runners": [("days_since_run", "INTEGER"), ("selection_id", "INTEGER")],   # Betfair selectionId
+    "rac_races": [("place_markets", "TEXT")],    # {place marketId: places paid}, saved while the market is open
     "rac_results": [
         ("placed_within", "INTEGER"),   # smallest k of a Betfair place market it placed in
         ("outside_within", "INTEGER"),  # largest k of a place market it did NOT place in
@@ -172,6 +173,8 @@ def import_card(card: dict, conn=None) -> dict:
                     field_size=sum(1 for x in runners if not x.get("non_runner")),
                     handicap=int(bool(r.get("handicap"))), race_type=r.get("race_type"),
                     surface=r.get("surface"))
+        if r.get("place_markets"):
+            vals["place_markets"] = json.dumps(r["place_markets"])
         row = conn.execute("SELECT id FROM rac_races WHERE external_id = ?", (ext,)).fetchone()
         cols = [k.rstrip("_") for k in vals]
         if row:
@@ -207,6 +210,9 @@ def import_card(card: dict, conn=None) -> dict:
                 (race_id, horse_id, jockey_id, trainer_id, x.get("number"), x.get("draw"),
                  x.get("weight"), x.get("official_rating"), x.get("form"), int(bool(x.get("non_runner"))),
                  x.get("days_since_run")))
+            if x.get("selection_id") is not None:
+                conn.execute("UPDATE rac_runners SET selection_id = ? WHERE race_id = ? AND horse_id = ?",
+                             (int(x["selection_id"]), race_id, horse_id))
             n_runners += 1
             for book, odds in (x.get("odds") or {}).items():
                 conn.execute("INSERT INTO rac_markets (race_id, horse_id, bookmaker, win_odds, timestamp) "
@@ -440,10 +446,16 @@ def races_awaiting_results(hours: float = 36, conn=None) -> list[dict]:
         (since, now)).fetchall()
     out = []
     for rid, ext, d, t in rows:
-        horses = {name: hid for hid, name in conn.execute(
-            "SELECT h.id, h.name FROM rac_runners x JOIN rac_horses h ON h.id = x.horse_id WHERE x.race_id = ?",
-            (rid,))}
-        out.append({"race_id": rid, "market_id": ext[3:], "date": d, "time": t, "horses": horses})
+        horses, selections = {}, {}
+        for hid, name, sel in conn.execute(
+                "SELECT h.id, h.name, x.selection_id FROM rac_runners x JOIN rac_horses h ON h.id = x.horse_id "
+                "WHERE x.race_id = ?", (rid,)):
+            horses[name] = hid
+            if sel is not None:
+                selections[int(sel)] = hid
+        pm = conn.execute("SELECT place_markets FROM rac_races WHERE id = ?", (rid,)).fetchone()[0]
+        out.append({"race_id": rid, "market_id": ext[3:], "date": d, "time": t, "horses": horses,
+                    "selections": selections, "place_markets": {k: int(v) for k, v in json.loads(pm or "{}").items()}})
     if own:
         conn.close()
     return out

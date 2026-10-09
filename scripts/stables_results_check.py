@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from database import get_db  # noqa: E402
+from racing import store  # noqa: E402
 
 
 def main():
@@ -23,6 +24,7 @@ def main():
     now = datetime.now(ZoneInfo("Europe/London"))
     upto = (now - timedelta(minutes=20)).strftime("%H:%M")
     c = get_db()
+    store.ensure_tables(c)
     rows = c.execute(
         "SELECT r.time, co.name, r.place_markets IS NOT NULL, "
         "EXISTS(SELECT 1 FROM rac_results x WHERE x.race_id = r.id AND x.finish_position = 1), "

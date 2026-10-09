@@ -70,6 +70,8 @@ UPCOMING_DAYS = int(os.environ.get("UPCOMING_DAYS", "7"))
 # data_confidence 20 + 65*min(1, depth/60): 30 ~ the thinner team has ~9 past matches
 MIN_PICK_CONFIDENCE = float(os.environ.get("MIN_PICK_CONFIDENCE", "0"))  # 0 = show all, labelled
 FIXTURE_CACHE_SECONDS = int(os.environ.get("FIXTURE_CACHE_SECONDS", "1800"))
+OPPS_CACHE_SECONDS = 120      # Picks: ranked games reused this long (rebuilt in the background)
+FEATURE_CACHE_SECONDS = 600   # Chaos / Early Goal: team profiles only change when results land
 # Mismatch Meter is weak in backtests — off unless explicitly enabled.
 FEATURE_MISMATCH = os.environ.get("FEATURE_MISMATCH", "0") == "1"
 # After a failed fixtures fetch, wait this long before calling API-Football again.
@@ -92,6 +94,44 @@ app.add_middleware(
 app.include_router(stables.router)
 
 SLOW_REQUEST_MS = int(os.environ.get("SLOW_REQUEST_MS", "500"))
+
+
+_results: dict = {}          # key -> (built_at, value)
+_results_busy: set = set()
+_results_lock = threading.Lock()
+
+
+def _cached(key, ttl, build):
+    """Stale-while-revalidate for heavy page results: serve the last result at once
+    and rebuild in the background once it is older than ttl. Only a cold key waits."""
+    with _results_lock:
+        hit = _results.get(key)
+    if hit is not None:
+        if time.time() - hit[0] >= ttl:
+            with _results_lock:
+                if key in _results_busy:
+                    return hit[1]
+                _results_busy.add(key)
+
+            def run():
+                try:
+                    value = build()
+                    with _results_lock:
+                        _results[key] = (time.time(), value)
+                except Exception:
+                    log.exception("background rebuild failed: %s", key)
+                finally:
+                    with _results_lock:
+                        _results_busy.discard(key)
+
+            threading.Thread(target=run, daemon=True).start()
+        return hit[1]
+    value = build()
+    with _results_lock:
+        if len(_results) > 200:
+            _results.clear()
+        _results[key] = (time.time(), value)
+    return value
 
 
 @app.middleware("http")
@@ -198,6 +238,13 @@ def _keep_warm():
             scorecard.log_predictions(rank_opportunities(latest_fixtures(limit=20, hours=24)))
         except Exception:
             log.exception("warm: prediction log failed")
+        try:  # Chaos Factor / Early Goal Hunter exactly as the app asks for them
+            _cached(("chaos", 50, 24), FEATURE_CACHE_SECONDS,
+                    lambda: rank_chaos_matches(_feature_pairs(50, 24)))
+            _cached(("early", 50, 24), FEATURE_CACHE_SECONDS,
+                    lambda: rank_early_goal_matches(_feature_pairs(50, 24)))
+        except Exception:
+            log.exception("warm: feature pages failed")
         log.info("warm cycle %.1fs", time.time() - started)
         time.sleep(WARM_INTERVAL_SECONDS)
 
@@ -371,6 +418,11 @@ def _not_kicked_off(pair, now=None):
     if ko.tzinfo is None:
         ko = ko.replace(tzinfo=timezone.utc)
     return ko > now
+
+
+def _still_upcoming(row):
+    """For cached results: drop games that kicked off since they were ranked."""
+    return not row.get("kickoff") or _not_kicked_off(row)
 
 
 def refresh_upcoming(wait=True):
@@ -691,16 +743,23 @@ def opportunities(
     try:
         hours = max(1, min(hours, 168)) if hours else None
         my_books = get_prefs(user_id).get("bookmakers") or None
-        fixtures = latest_fixtures(limit=max(limit, 20), hours=hours, bookmakers=my_books)
-        t_fix = time.time()
-        ranked = rank_opportunities(fixtures)
-        t_rank = time.time()
-        for r in ranked:
-            r["source"] = "auto"
-            if r.get("bookmaker") == "Estimated":
-                r["odds_estimated"] = True
-            if "fta_band" not in r:
-                r["fta_band"] = fta_band(r.get("fta_pct"))
+
+        def build():
+            fx = latest_fixtures(limit=max(limit, 20), hours=hours, bookmakers=my_books)
+            rk = rank_opportunities(fx)
+            for r in rk:
+                r["source"] = "auto"
+                if r.get("bookmaker") == "Estimated":
+                    r["odds_estimated"] = True
+                if "fta_band" not in r:
+                    r["fta_band"] = fta_band(r.get("fta_pct"))
+            return fx, rk
+
+        # same games + prices for everyone with the same bookmakers; a finished odds refresh starts afresh
+        key = ("opps", limit, hours, tuple(sorted(my_books or [])), odds_refresh._state.get("finished_at"))
+        fixtures, ranked = _cached(key, OPPS_CACHE_SECONDS, build)
+        ranked = [dict(r) for r in ranked if _still_upcoming(r)]
+        t_fix = t_rank = time.time()
 
         games_in_window = len({r.get("match_id") or r.get("match") for r in ranked})
         # a team with almost no history (new to the league / renamed) makes the % guesswork
@@ -961,7 +1020,8 @@ def early_goal_feature(
     """hours: only games kicking off in the next N hours; min_score: hide Hunter scores below it."""
     require_pro(authorization)
     limit = max(1, min(limit, 50))
-    ranked = rank_early_goal_matches(_feature_pairs(limit, hours))
+    ranked = [dict(r) for r in _cached(("early", limit, hours), FEATURE_CACHE_SECONDS,
+                                       lambda: rank_early_goal_matches(_feature_pairs(limit, hours))) if _still_upcoming(r)]
     if min_score is not None:
         ranked = [r for r in ranked if (r.get("hunter_score") or 0) >= min_score]
     return {
@@ -982,7 +1042,8 @@ def chaos_feature(
     """hours: only games kicking off in the next N hours; min_score: hide Chaos indexes below it."""
     require_pro(authorization)
     limit = max(1, min(limit, 50))
-    ranked = rank_chaos_matches(_feature_pairs(limit, hours))
+    ranked = [dict(r) for r in _cached(("chaos", limit, hours), FEATURE_CACHE_SECONDS,
+                                       lambda: rank_chaos_matches(_feature_pairs(limit, hours))) if _still_upcoming(r)]
     if min_score is not None:
         ranked = [r for r in ranked if (r.get("chaos_index") or 0) >= min_score]
     for row in ranked:

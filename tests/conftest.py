@@ -22,3 +22,17 @@ if str(ROOT) not in sys.path:
 
 # Legacy scripts in tests/ hit live APIs at import time — not unit tests.
 collect_ignore = ["test_xg.py", "backtest.py", "feature_config.py"]
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _fresh_result_caches():
+    """The API keeps page results in memory (api.app._cached); tests start without them."""
+    try:
+        from api import app as app_module
+        app_module._results.clear()
+    except Exception:
+        pass
+    yield

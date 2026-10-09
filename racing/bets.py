@@ -268,6 +268,9 @@ def _summ(rows: list[dict]) -> dict:
     }
 
 
+_SP_DONE: dict = {}   # (race_id, calibration) -> closing chances, once every runner has an SP
+
+
 def value_at_sp(b: dict, snap: dict, cal: dict, cache: dict) -> Optional[float]:
     """
     Each-way EV of the bet (its odds and terms) judged by the closing market: win chances
@@ -278,6 +281,9 @@ def value_at_sp(b: dict, snap: dict, cal: dict, cache: dict) -> Optional[float]:
     from racing import calibrate, nonfinish, positions
 
     rid = b["race_id"]
+    done_key = (rid, (cal or {}).get("created_at"))
+    if rid not in cache and done_key in _SP_DONE:
+        cache[rid] = _SP_DONE[done_key]
     if rid not in cache:
         sps = store.race_sps(rid)
         cache[rid] = None
@@ -289,6 +295,7 @@ def value_at_sp(b: dict, snap: dict, cal: dict, cache: dict) -> Optional[float]:
                                            len(ids))
             top = positions.simulate(p, n_sims=4000, discounts=disc, seed=11)["top"]
             cache[rid] = {h: (float(p[i]), list(top[i])) for i, h in enumerate(ids)}
+            _SP_DONE[done_key] = cache[rid]   # every SP is in: this race's answer is final
     hit = (cache[rid] or {}).get(b["horse_id"])
     if not hit or not b["odds"]:
         return None

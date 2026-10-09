@@ -7,13 +7,15 @@ The Stables API: extra-place value for horse racing (Pro).
 
 from __future__ import annotations
 
+import json
+import math
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from collectors import betfair
@@ -98,7 +100,63 @@ def stables_races(authorization: str | None = Header(default=None), date: Option
                   refresh: bool = False):
     """refresh=true re-prices the stored races now instead of serving the 5-minute cache."""
     user_id = _require_pro(authorization)
-    return {**_races_body(date, refresh), "can_edit_offers": _is_admin(user_id)}
+    date = _check_date(date)
+    hit = _serve_entry(date, refresh)
+    return Response(_render(hit, _is_admin(user_id)), media_type="application/json")
+
+
+def _compact(x):
+    """Round floats to 5 places (the page shows 1-2): the day's reply is several MB otherwise."""
+    if isinstance(x, float):
+        return round(x, 5) if math.isfinite(x) else None
+    if isinstance(x, dict):
+        return {k: _compact(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_compact(v) for v in x]
+    if hasattr(x, "item"):          # numpy scalar
+        return _compact(x.item())
+    return x
+
+
+def _dumps(x) -> str:
+    return json.dumps(_compact(x), separators=(",", ":"), default=str)
+
+
+_json: dict = {}   # date -> (id of the cached body, pre-serialised parts)
+
+
+def _parts(body: dict) -> dict:
+    """JSON for a pricing, built once per pricing rather than once per request."""
+    key = body.get("date")
+    got = _json.get(key)
+    if got and got[0] == id(body):
+        return got[1]
+    head = {k: v for k, v in body.items() if k not in ("races", "opportunities")}
+    parts = {
+        "head": _dumps(head)[1:-1],
+        "races": [(r, _dumps(r)) for r in body["races"]],
+        "opps": [(o.get("race_id"), _dumps(o)) for o in body["opportunities"]],
+    }
+    _json[key] = (id(body), parts)
+    return parts
+
+
+def _render(body: dict, admin: bool) -> str:
+    """The races reply: cached JSON plus the per-request bits (started flags, refreshing)."""
+    parts = _parts(body)
+    now = datetime.now(UK)
+    races, live = [], set()
+    for r, js in parts["races"]:
+        started = _started(r, now)
+        if not started:
+            live.add(r.get("race_id"))
+        races.append('{"started":' + ("true" if started else "false") + ("," + js[1:] if len(js) > 2 else "}"))
+    opps = [js for rid, js in parts["opps"] if rid in live]
+    return ("{" + parts["head"] + (',' if parts["head"] else '')
+            + '"races":[' + ",".join(races) + '],"opportunities":[' + ",".join(opps) + "]"
+            + ',"started_count":' + str(len(races) - len(live))
+            + ',"refreshing":' + ("true" if body.get("date") in _busy else "false")
+            + ',"can_edit_offers":' + ("true" if admin else "false") + "}")
 
 
 def _price_date(date: str) -> dict:
@@ -118,6 +176,7 @@ def _price_date(date: str) -> dict:
         "races": races,
         "opportunities": opps,
     }
+    _parts(body)
     with _lock:
         _cache[date] = (time.time(), body)
     return body
@@ -160,16 +219,20 @@ def _invalidate() -> None:
             pass
 
 
-def _races_body(date: Optional[str], refresh: bool) -> dict:
-    """Always answers from the last pricing when there is one; stale prices (older than
-    CACHE_SECONDS) and the Refresh button re-price in the background. The reply says
-    "refreshing" while that runs so the page can ask again. Only the very first view
-    of a date waits for the pricing."""
+def _check_date(date: Optional[str]) -> str:
     date = date or datetime.now(UK).date().isoformat()
     try:
         datetime.strptime(date, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(400, "date must be YYYY-MM-DD")
+    return date
+
+
+def _serve_entry(date: str, refresh: bool) -> dict:
+    """Always answers from the last pricing when there is one; stale prices (older than
+    CACHE_SECONDS) and the Refresh button re-price in the background. The reply says
+    "refreshing" while that runs so the page can ask again. Only the very first view
+    of a date waits for the pricing."""
     with _lock:
         hit = _cache.get(date)
     if hit:
@@ -178,10 +241,14 @@ def _races_body(date: Optional[str], refresh: bool) -> dict:
             _reprice_later(date, fetch=True)
         elif age >= CACHE_SECONDS:
             _reprice_later(date)
-        return _with_live_status(hit[1])
+        return hit[1]
     if refresh:
         _fetch_feed()
-    return _with_live_status(_price_date(date))
+    return _price_date(date)
+
+
+def _races_body(date: Optional[str], refresh: bool) -> dict:
+    return _with_live_status(_serve_entry(_check_date(date), refresh))
 
 
 WARM_SECONDS = 240

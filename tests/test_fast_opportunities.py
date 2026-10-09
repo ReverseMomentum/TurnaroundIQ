@@ -80,3 +80,22 @@ def test_model_state_served_while_rebuilding(monkeypatch):
             break
         time.sleep(0.05)
     assert pm._state_cache["teams"] == {"new": 1} and len(builds) == 1
+
+
+def test_cached_serves_stale_and_rebuilds_in_background():
+    builds = []
+
+    def build():
+        builds.append(1)
+        return len(builds)
+
+    key = ("test-swr",)
+    assert app_module._cached(key, 60, build) == 1          # cold: built now
+    assert app_module._cached(key, 60, build) == 1          # fresh: no rebuild
+    app_module._results[key] = (time.time() - 120, 1)        # now stale
+    assert app_module._cached(key, 60, build) == 1          # stale served at once
+    for _ in range(100):
+        if app_module._results[key][1] == 2:
+            break
+        time.sleep(0.02)
+    assert app_module._results[key][1] == 2 and len(builds) == 2

@@ -14,14 +14,10 @@ const pct = (v, dp = 1) => (v == null || isNaN(v) ? "—" : (100 * Number(v)).to
 const signedPct = (v, dp = 1) => (v == null || isNaN(v) ? "—" : (v >= 0 ? "+" : "") + (100 * Number(v)).toFixed(dp) + "%");
 const pts = (v) => (v == null || isNaN(v) ? "—" : (v >= 0 ? "+" : "") + (100 * Number(v)).toFixed(1) + " pts");
 const fractionLabel = (f) => (f ? "1/" + Math.round(1 / f) : "—");
-const UK_FRACTIONS = [[1,5],[2,9],[1,4],[2,7],[3,10],[1,3],[4,11],[2,5],[4,9],[1,2],[8,15],[4,7],[8,13],[4,6],[8,11],[4,5],[5,6],[10,11],[1,1],[11,10],[6,5],[5,4],[11,8],[6,4],[13,8],[7,4],[15,8],[2,1],[9,4],[5,2],[11,4],[3,1],[10,3],[7,2],[4,1],[9,2],[5,1],[11,2],[6,1],[13,2],[7,1],[15,2],[8,1],[17,2],[9,1],[10,1],[11,1],[12,1],[14,1],[16,1],[18,1],[20,1],[22,1],[25,1],[28,1],[33,1],[40,1],[50,1],[66,1],[80,1],[100,1],[125,1],[150,1],[200,1],[250,1],[500,1]];
-/** Smallest standard UK price at or above decimal odds d, e.g. 12.57 -> "12/1". */
-export function ukPriceAtLeast(d) {
-  if (d == null || !isFinite(d)) return null;
-  const f = UK_FRACTIONS.find(([a, b]) => 1 + a / b >= d - 1e-9);
-  if (!f) return null;
-  return f[0] === f[1] ? "evs" : `${f[0]}/${f[1]}`;
-}
+/** Decimal odds for display, e.g. 9.5 -> "9.50". */
+const dec = (d) => (d == null || !isFinite(d) ? null : Number(d).toFixed(2));
+/** A minimum price (value line) in decimal, rounded UP so "12.57+" never under-states it. */
+const decUp = (d) => (d == null || !isFinite(d) ? null : (Math.ceil(Number(d) * 100 - 1e-6) / 100).toFixed(2));
 /** Bookmaker extra-place offers on a race (the engine adds a generic "Best price" one when there are none). */
 const realOffers = (race) => (race.offers || []).filter((t) => t.bookmaker !== "Best price");
 /** Offers grouped by terms: [{ key, places, fraction, books: [names] }], most places first. */
@@ -109,8 +105,9 @@ function OpportunityCard({ ui, o, highlight, onStake }) {
         <div className="min-w-0">
           <p style={{ color: c.text }} className="text-base font-semibold truncate">{o.horse}</p>
           <p style={{ color: c.textSecondary }} className="text-sm">
-            <span className="num">{Number(o.win_odds).toFixed(2)}</span>
-            {o.price_source === "estimated" ? " est. best price" : " win"} · place pays <span className="num">{Number(o.place_odds).toFixed(2)}</span>
+            {o.price_source === "estimated"
+              ? (o.value_from ? <>Value from <span style={{ color: c.green }} className="num font-semibold">{decUp(o.value_from)}+</span></> : "No value line")
+              : <><span className="num">{dec(o.win_odds)}</span> win · place pays <span className="num">{dec(o.place_odds)}</span></>}
           </p>
           <p style={{ color: c.textMuted }} className="text-xs mt-0.5">
             {o.standard_places} places as standard, {o.places_paid - o.standard_places} extra
@@ -215,7 +212,7 @@ function RunnerTable({ ui, race, extra, onOpen }) {
                   const vf = v.get(r);
                   return (
                     <td key={v.key} style={{ color: vf && bookPrice && bookPrice >= vf ? c.green : c.textSecondary }} className="num py-2 px-1 text-right whitespace-nowrap font-semibold">
-                      {vf ? ukPriceAtLeast(vf) : "—"}
+                      {vf ? decUp(vf) : "—"}
                     </td>
                   );
                 })}
@@ -372,7 +369,7 @@ function RaceCard({ ui, race, extra, canEdit, onChanged, onOpen, defaultOpen = f
               {offers.length
                 ? "Value from: the smallest price worth taking each-way with each bookmaker's offer above."
                 : `Value from: the smallest bookmaker price worth taking each-way at ${race.standard_terms.places + extra} places, ${fractionLabel(race.standard_terms.fraction)} odds.`}{" "}
-              Green where the estimated best bookmaker price (the exchange with a small margin, as the best of several firms usually is) is already that big. No value calls on runners at 33/1 or bigger: in past races the model overrated them.
+              Green where the estimated best bookmaker price (the exchange with a small margin, as the best of several firms usually is) is already that big. No value calls on runners at 34.0 or bigger: in past races the model overrated them.
             </p>
           )}
         </div>
@@ -447,10 +444,10 @@ function OpportunityList({ ui, list: raw, onStake }) {
 // Odds filter for the shortlist and value list (decimal prices, lower bound inclusive).
 const ODDS_FILTERS = [
   { key: "all", label: "All", lo: 0, hi: Infinity },
-  { key: "short", label: "Up to 4/1", lo: 0, hi: 5.0 },
-  { key: "mid", label: "4/1–8/1", lo: 5.0, hi: 9.0 },
-  { key: "long", label: "8/1–16/1", lo: 9.0, hi: 17.0 },
-  { key: "big", label: "16/1–33/1", lo: 17.0, hi: 34.0 },
+  { key: "short", label: "Up to 5.0", lo: 0, hi: 5.0 },
+  { key: "mid", label: "5.0–9.0", lo: 5.0, hi: 9.0 },
+  { key: "long", label: "9.0–17.0", lo: 9.0, hi: 17.0 },
+  { key: "big", label: "17.0–34.0", lo: 17.0, hi: 34.0 },
 ];
 const inOdds = (filter, price) => !filter || filter.key === "all" || (price >= filter.lo && price < filter.hi);
 
@@ -515,7 +512,7 @@ function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
               </p>
             </div>
             <div className="text-right flex-shrink-0">
-              <p style={{ color: c.green }} className="num text-sm font-bold">{ukPriceAtLeast(vf)}+</p>
+              <p style={{ color: c.green }} className="num text-sm font-bold">{decUp(vf)}+</p>
               <p style={{ color: c.textMuted }} className="text-[10px]">{r.best_win_odds ? "bookmaker" : "est. best price"} <span className="num">{Number(price).toFixed(2)}</span>
                 {" · "}<span style={{ color: why ? c.orange : c.green }} className="num">+{Math.round((ratio - 1) * 100)}%</span></p>
               {why && <p style={{ color: c.orange }} className="text-[10px]">{why}</p>}
@@ -955,16 +952,16 @@ function RunnerSheet({ ui, race, runner, extra, onClose, initial }) {
           const pick = () => pickOffer({ bookmaker: g.books.includes(book.trim()) ? book.trim() : g.books[0], places: g.places, fraction: g.fraction });
           return (
             <button key={g.key} onClick={pick} style={chip(on)} className="text-xs font-semibold px-3 py-1.5 rounded-lg">
-              {g.books.length === 1 ? g.books[0] : `${g.books.length} bookmakers`} {g.places}pl {fractionLabel(g.fraction)}: <span className="num">{vf ? ukPriceAtLeast(vf) + "+" : "—"}</span>
+              {g.books.length === 1 ? g.books[0] : `${g.books.length} bookmakers`} {g.places}pl {fractionLabel(g.fraction)}: <span className="num">{vf ? decUp(vf) + "+" : "—"}</span>
             </button>
           );
         })}
         {[0, 1, 2, 3].filter((x) => runner.value_from?.[String(x)] !== undefined).map((x) => (
           <span key={x} style={{ border: "1px solid " + c.border, color: c.textSecondary }} className="text-xs px-3 py-1.5 rounded-lg">
-            {(std.places || 0) + x}pl {fractionLabel(std.fraction)}: <span className="num">{runner.value_from[String(x)] ? ukPriceAtLeast(runner.value_from[String(x)]) + "+" : "—"}</span>
+            {(std.places || 0) + x}pl {fractionLabel(std.fraction)}: <span className="num">{runner.value_from[String(x)] ? decUp(runner.value_from[String(x)]) + "+" : "—"}</span>
           </span>
         ))}
-        {runner.beyond_value_range && <span style={{ color: c.textMuted }} className="text-xs">No value call at 33/1 or bigger.</span>}
+        {runner.beyond_value_range && <span style={{ color: c.textMuted }} className="text-xs">No value call at 34.0 or bigger.</span>}
       </div>
 
       <div ref={stakeRef} style={{ scrollMarginTop: 12 }}><SectionLabel>Track this bet</SectionLabel></div>
@@ -1012,7 +1009,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose, initial }) {
         </div>
         {valueLine && odds && (
           <p style={{ color: odds >= valueLine ? c.green : c.orange }} className="text-xs font-semibold">
-            {odds >= valueLine ? "At or above" : "Below"} the value line ({ukPriceAtLeast(valueLine)}) for these terms.
+            {odds >= valueLine ? "At or above" : "Below"} the value line ({decUp(valueLine)}) for these terms.
           </p>
         )}
         <button disabled={!ready || busy} onClick={submit} style={{ ...primaryBtn, opacity: !ready || busy ? 0.5 : 1 }} className="rounded-xl py-3 text-sm font-bold">
@@ -1071,12 +1068,12 @@ function BetGrade({ ui, q, typed, exchange }) {
         {typed && q.win_probability != null && (
           <p style={{ color: c.textMuted }} className="text-[10px] num">
             Model now: win {pct(q.win_probability)}{q.exchange_back ? ` (Betfair ${Number(q.exchange_back).toFixed(2)})` : ""}
-            {q.value_from ? ` · value from ${ukPriceAtLeast(q.value_from)}` : ""}
+            {q.value_from ? ` · value from ${decUp(q.value_from)}` : ""}
           </p>
         )}
         <p style={{ color: c.textMuted }} className="text-[10px]">
           {typed ? "At your price and terms." : `At an estimated best bookmaker price${q.win_odds ? ` (${Number(q.win_odds).toFixed(2)})` : ""}, not the exchange. Grade A needs a real price: type your bookmaker's price for its own grade.`}
-          {q.beyond_value_range ? " 33/1 or bigger: capped at C." : ""}
+          {q.beyond_value_range ? " 34.0 or bigger: capped at C." : ""}
         </p>
       </div>
     </div>
@@ -1112,7 +1109,7 @@ function KellyStake({ ui, q, setStakeEach, laid }) {
       <p style={{ color: c.textMuted }} className="text-[10px] mt-1 leading-snug">
         {!(options[0][1] > 0)
           ? "No Kelly stake: Kelly is only given for A and B grades (a C or D edge is too thin or too uncertain to size up)."
-          : `¼ Kelly = ${options[0][1].toFixed(2)}% of bankroll in total (${(options[0][1] / 2).toFixed(2)}% each way). Capped at 5%, less on longer prices (about 2.5% at 16/1, 1.3% at 33/1).`}
+          : `¼ Kelly = ${options[0][1].toFixed(2)}% of bankroll in total (${(options[0][1] / 2).toFixed(2)}% each way). Capped at 5%, less on longer prices (about 2.6% at 17.0, 1.3% at 34.0).`}
         {laid ? " Kelly here is for the bet without a lay: with a lay, keep the worst case in the table below within this stake." : ""}
         {b > 0 && savedBank !== b ? " Bankroll is saved to Settings when you tap a Kelly stake." : ""}
       </p>

@@ -221,6 +221,7 @@ def price_race(race: dict, calibration: Optional[dict] = None, n_sims: int = pos
                     "p4": row["positions"][3] if n > 3 else 0.0,
                     "p5": row["positions"][4] if n > 4 else 0.0,
                     "p6": row["positions"][5] if n > 5 else 0.0,
+                    "value_from": row["offer_value_from"].get(str(t.bookmaker)),
                     **ev,
                 })
         rows.append(row)

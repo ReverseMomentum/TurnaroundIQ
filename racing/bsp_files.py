@@ -181,12 +181,13 @@ def fill_bet_sp(days: int = 10, conn=None) -> int:
     conn = conn or get_db()
     store.ensure_tables(conn)
     today = date.today().isoformat()
-    # every runner of each race bet on: the whole race's SPs give the closing chances
+    # every runner of each race bet on or shadow-tracked: the whole race's SPs give the closing chances
     rows = conn.execute(
         "SELECT DISTINCT ru.race_id, ru.horse_id, h.name, r.date FROM rac_runners ru "
         "JOIN rac_horses h ON h.id = ru.horse_id JOIN rac_races r ON r.id = ru.race_id "
         "LEFT JOIN rac_results x ON x.race_id = ru.race_id AND x.horse_id = ru.horse_id "
-        "WHERE ru.race_id IN (SELECT race_id FROM rac_bets) AND COALESCE(ru.non_runner, 0) = 0 "
+        "WHERE ru.race_id IN (SELECT race_id FROM rac_bets UNION SELECT race_id FROM rac_shadow) "
+        "AND COALESCE(ru.non_runner, 0) = 0 "
         "AND x.exchange_sp IS NULL AND r.date < ? AND r.date >= date(?, ?)",
         (today, today, f"-{int(days)} day")).fetchall()
     by_day = defaultdict(list)

@@ -397,6 +397,15 @@ def stables_tracker(authorization: str | None = Header(default=None), paper: Opt
     return racing_bets.report(user_id, paper)
 
 
+@router.get("/shadow")
+def stables_shadow(authorization: str | None = Header(default=None), days: int = 60):
+    """Every runner shown in an extra-place race, graded just before the off: what each grade returned."""
+    _require_pro(authorization)
+    from racing import shadow
+
+    return shadow.report(max(1, min(int(days), 365)))
+
+
 class ManualRunner(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     odds: float = Field(gt=1, le=1001)

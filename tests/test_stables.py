@@ -1373,3 +1373,35 @@ def test_estimate_learns_from_prices_taken(monkeypatch):
     conn.close()
     assert rate is not None and 0.005 <= rate <= 0.035
     assert store.latest_calibration().get("best_price_rate") == rate
+
+
+def test_shadow_tracker_records_shown_runners_and_reports_by_grade():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from racing import shadow
+
+    day = datetime.now(ZoneInfo("Europe/London")).date().isoformat()
+    odds = [4, 6, 8, 10, 13, 17, 21, 26, 34, 51]
+    store.import_card({"timestamp": f"{day}T08:00:00Z", "races": [{
+        "id": "bf:9.91", "date": day, "time": "23:59", "course": "Shadowford", "handicap": True,
+        "terms": [{"bookmaker": "Book S", "places": 4, "fraction": "1/5"},
+                  {"bookmaker": "Book T", "places": 4, "fraction": "1/5"},
+                  {"bookmaker": "Book U", "places": 5, "fraction": "1/5"}],
+        "runners": [{"horse": f"S{i}", "exchange": {"back": o, "lay": round(o * 1.03, 2), "volume": 900}}
+                    for i, o in enumerate(odds)]}]})
+    race = next(r for r in store.races_on(day) if r["course"] == "Shadowford")
+    n = shadow.record_today(n_sims=2000)
+    conn = store.get_db()
+    got = conn.execute("SELECT COUNT(*), COUNT(DISTINCT places) FROM rac_shadow WHERE race_id = ?",
+                       (race["race_id"],)).fetchone()
+    conn.close()
+    assert n >= 20 and got == (20, 2)                 # one row per runner per set of terms (S & T share)
+    assert shadow.record_today(n_sims=2000) >= 20     # re-run updates, no duplicates
+    hid = {r["name"]: r["horse_id"] for r in race["runners"]}
+    store.save_results(race["race_id"], [
+        {"horse_id": hid[f"S{i}"], "won": i == 2, "placed_within": 4 if i in (0, 2, 5, 7) else None,
+         "outside_within": 4 if i not in (0, 2, 5, 7) else None, "exchange_sp": float(o)} for i, o in enumerate(odds)])
+    rep = shadow.report()
+    # 4-place rows all settle; 5-place ones only where Betfair says (top 4 = placed, else unknown)
+    assert rep["all"]["settled"] >= 14 and rep["by_grade"] and rep["by_odds"]
+    assert rep["all"]["avg_clv"] is not None          # every runner has an SP: value at SP computed

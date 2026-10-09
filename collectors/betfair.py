@@ -425,6 +425,9 @@ def collect(hours: float = 12, client: Client | None = None) -> dict:
         from racing import bsp_files   # SP for the tracker's CLV when the closed market gave none
 
         results["bet_sp_filled"] = bsp_files.fill_bet_sp()
+        from racing import shadow     # every runner shown in an extra-place race, for "what would each grade return"
+
+        results["shadow_rows"] = shadow.record_today()
     except Exception as e:
         results["results_error"] = str(e)[:200]
     return {**summary, "fully_priced": priced, **results, "at": ts}

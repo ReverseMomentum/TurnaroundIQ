@@ -71,6 +71,11 @@ CREATE TABLE IF NOT EXISTS rac_offers (
   id INTEGER PRIMARY KEY, race_id INTEGER NOT NULL, bookmaker TEXT NOT NULL,
   places INTEGER NOT NULL, fraction REAL, timestamp TEXT NOT NULL,
   UNIQUE(race_id, bookmaker));
+CREATE TABLE IF NOT EXISTS rac_shadow (
+  id INTEGER PRIMARY KEY, race_id INTEGER NOT NULL, horse_id INTEGER NOT NULL, places INTEGER NOT NULL,
+  fraction REAL NOT NULL, standard_places INTEGER, bookmakers TEXT, odds REAL, price_source TEXT,
+  value_from REAL, grade TEXT, each_way_ev REAL, p_win REAL, p_place REAL, field_size INTEGER,
+  race_type TEXT, recorded_at TEXT NOT NULL, UNIQUE(race_id, horse_id, places, fraction));
 CREATE TABLE IF NOT EXISTS rac_bets (
   id INTEGER PRIMARY KEY, tracked_bet_id INTEGER UNIQUE, app_user_id TEXT NOT NULL,
   race_id INTEGER NOT NULL, horse_id INTEGER, horse TEXT, bookmaker TEXT, odds REAL,

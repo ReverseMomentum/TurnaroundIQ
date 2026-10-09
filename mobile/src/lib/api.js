@@ -95,6 +95,7 @@ export const api = {
   },
   stablesPrice: (race) => request("/stables/price", { method: "POST", body: race }),
   stablesTrack: (bet) => request("/stables/track", { method: "POST", body: bet }),
+  stablesShadow: (days = 60) => request(`/stables/shadow?days=${days}`),
   stablesTracker: (paper) => request("/stables/tracker" + (paper == null ? "" : `?paper=${paper}`)),
   stablesAddOffers: (offer) => request("/stables/offers", { method: "POST", body: offer }),
   stablesQuote: (body) => request("/stables/quote", { method: "POST", body }),

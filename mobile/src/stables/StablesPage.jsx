@@ -1251,6 +1251,20 @@ function TrackerTab({ ui, entitled }) {
     );
   };
   const a = d?.all;
+  const sh = useApi(() => api.stablesShadow(), [entitled]).data;
+  const shadowBlock = sh && sh.all && sh.all.settled > 0 && (
+    <div className="mt-2">
+      <SectionLabel>Every horse shown · automatic</SectionLabel>
+      <p style={{ color: c.textMuted }} className="text-[11px] -mt-2 mb-3 leading-snug">
+        Not bets: every runner in a race with extra-place offers, at the grade and price it had just before the off
+        (the estimated best price unless a bookmaker price was loaded), £1 each-way-total on each, over the last {sh.days} days.
+        {" "}{sh.all.settled} settled. If grade C or D returns well and beats SP over a few hundred runners, the grades are too strict.
+        Prices actually on offer can be shorter than the estimate, so the return here can flatter.
+      </p>
+      {table("Shown runners by grade", sh.by_grade)}
+      {table("Shown runners by win odds", sh.by_odds)}
+    </div>
+  );
   return (
     <>
       <div className="flex gap-2 mb-4">
@@ -1279,6 +1293,7 @@ function TrackerTab({ ui, entitled }) {
           {table("By bookmaker", d.by_bookmaker)}
         </>
       )}
+      {shadowBlock}
     </>
   );
 }

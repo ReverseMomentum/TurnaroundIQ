@@ -213,18 +213,24 @@ def early_book_from_fair(p_fair: Sequence[float], overround: float) -> np.ndarra
     return 0.5 * book_from_fair(p, overround) + 0.5 * p * max(1.0, overround)
 
 
-def best_price_overround(n: int) -> float:
-    """Book of the BEST price across the firms offering the extra place (the price a bettor
-    shopping around takes): ~100% + 1% a runner (14 runners: 114%), between the exchange and a
-    single firm's SP book. 0.6% a runner graded too many runners B on estimates alone."""
-    return min(1.20, max(1.04, 1.0 + 0.010 * n))
+# Margin of the best price across firms, per runner. 0.6% gave estimates about a point too big
+# against the prices actually on offer (est 8.0 -> 7.0, 3.75 -> 3.25-3.5, 12 -> 10); learned
+# from tracked bets once there are enough (store.learned_price_rate).
+BEST_PRICE_RATE = 0.015
 
 
-def estimated_book_odds(p_fair: Sequence[float], table: Optional[dict] = None) -> list:
+def best_price_overround(n: int, rate: Optional[float] = None) -> float:
+    """Book of the best price across the firms offering the extra place: ~100% + 1.5% a runner
+    (14 runners: 121%) unless a rate learned from the bettor's own prices is given."""
+    return min(1.35, max(1.05, 1.0 + float(rate or BEST_PRICE_RATE) * n))
+
+
+def estimated_book_odds(p_fair: Sequence[float], table: Optional[dict] = None,
+                        rate: Optional[float] = None) -> list:
     """Estimated best bookmaker price per runner. `table` (fitted single-firm SP books) is kept
-    for reference but not used: the bettor takes the best price, not a typical firm's."""
+    for reference but not used; `rate` is the learned margin per runner."""
     p = np.clip(np.asarray(p_fair, float), 1e-6, 1.0)
-    q = early_book_from_fair(p, best_price_overround(len(p)))
+    q = early_book_from_fair(p, best_price_overround(len(p), rate))
     # nearest UK price, but never at or above the fair price (that would be no margin at all)
     return [n if n < 1.0 / f else uk_price_at_most(1.0 / x)
             for n, x, f in ((uk_price_nearest(1.0 / x), x, f) for x, f in zip(q, p))]

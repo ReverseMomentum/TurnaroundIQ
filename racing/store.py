@@ -591,11 +591,44 @@ def latest_calibration(conn=None) -> dict:
     conn = conn or get_db()
     ensure_tables(conn)
     row = conn.execute("SELECT created_at, payload FROM rac_calibration ORDER BY id DESC LIMIT 1").fetchone()
+    rate = learned_price_rate(conn)
     if own:
         conn.close()
-    if not row:
-        return {}
-    return {**json.loads(row[1]), "created_at": row[0]}
+    cal = {**json.loads(row[1]), "created_at": row[0]} if row else {}
+    if rate is not None:
+        cal["best_price_rate"] = rate
+    return cal
+
+
+MIN_PRICE_BETS = 8
+
+
+def learned_price_rate(conn=None) -> Optional[float]:
+    """
+    Margin per runner of the prices the bettor actually takes, from tracked bets: each bet's
+    estimate (and the book it assumed) against the odds taken gives that race's real book;
+    the median over bets, per runner. None until MIN_PRICE_BETS bets carry an estimate.
+    """
+    own = conn is None
+    conn = conn or get_db()
+    ensure_tables(conn)
+    rates = []
+    for odds, snap in conn.execute("SELECT odds, snapshot FROM rac_bets ORDER BY id DESC LIMIT 400"):
+        try:
+            s = json.loads(snap or "{}")
+        except ValueError:
+            continue
+        ru, n = s.get("runner") or {}, (s.get("race") or {}).get("field_size")
+        est, ov = ru.get("est_book_odds"), ru.get("est_overround")
+        if not (odds and odds > 1 and est and est > 1 and ov and n and n >= 2):
+            continue
+        rates.append((ov * est / odds - 1) / n)     # implied chance taken / estimated chance, scaled
+    if own:
+        conn.close()
+    if len(rates) < MIN_PRICE_BETS:
+        return None
+    rates.sort()
+    return round(min(0.035, max(0.005, rates[len(rates) // 2])), 4)
 
 
 def save_priced(priced: dict, conn=None):

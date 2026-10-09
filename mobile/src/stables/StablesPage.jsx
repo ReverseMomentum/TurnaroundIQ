@@ -105,9 +105,8 @@ function OpportunityCard({ ui, o, highlight, onStake }) {
         <div className="min-w-0">
           <p style={{ color: c.text }} className="text-base font-semibold truncate">{o.horse}</p>
           <p style={{ color: c.textSecondary }} className="text-sm">
-            {o.price_source === "estimated"
-              ? (o.value_from ? <>Value from <span style={{ color: c.green }} className="num font-semibold">{decUp(o.value_from)}+</span></> : "No value line")
-              : <><span className="num">{dec(o.win_odds)}</span> win · place pays <span className="num">{dec(o.place_odds)}</span></>}
+            <span className="num">{dec(o.win_odds)}</span>
+            {o.price_source === "estimated" ? " est. best price" : " win"} · place pays <span className="num">{dec(o.place_odds)}</span>
           </p>
           <p style={{ color: c.textMuted }} className="text-xs mt-0.5">
             {o.standard_places} places as standard, {o.places_paid - o.standard_places} extra
@@ -513,7 +512,8 @@ function Shortlist({ ui, races, extra, onOpen, oddsFilter }) {
             </div>
             <div className="text-right flex-shrink-0">
               <p style={{ color: c.green }} className="num text-sm font-bold">{decUp(vf)}+</p>
-              <p style={{ color: c.textMuted }} className="text-[10px]">{r.best_win_odds ? <>bookmaker <span className="num">{dec(price)}</span>{" · "}</> : "over the line "}<span style={{ color: why ? c.orange : c.green }} className="num">+{Math.round((ratio - 1) * 100)}%</span></p>
+              <p style={{ color: c.textMuted }} className="text-[10px]">{r.best_win_odds ? "bookmaker" : "est. best price"} <span className="num">{dec(price)}</span>
+                {" · "}<span style={{ color: why ? c.orange : c.green }} className="num">+{Math.round((ratio - 1) * 100)}%</span></p>
               {why && <p style={{ color: c.orange }} className="text-[10px]">{why}</p>}
             </div>
           </button>
@@ -930,7 +930,7 @@ function RunnerSheet({ ui, race, runner, extra, onClose, initial }) {
       {facts.length > 0 && <p style={{ color: c.textSecondary }} className="text-xs mt-1">{facts.join(" · ")}</p>}
       <div className="grid grid-cols-3 gap-3 my-4">
         <Metric ui={ui} label="Exchange" value={ex.back ? Number(ex.back).toFixed(2) : "—"}
-          sub={`${ex.lay ? `lay ${Number(ex.lay).toFixed(2)}` : "back"}`} />
+          sub={`${ex.lay ? `lay ${Number(ex.lay).toFixed(2)}` : "back"}${runner.est_book_odds ? ` · est. best price ${dec(runner.est_book_odds)}` : ""}`} />
         <Metric ui={ui} label="Win" value={pct(runner.win_probability)} tone={c.green} sub="model" />
         <Metric ui={ui} label={`Top ${std.places || 3}`} value={pct(runner[`top${std.places || 3}_probability`])} sub="standard places" />
       </div>

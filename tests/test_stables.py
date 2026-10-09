@@ -1118,10 +1118,9 @@ def test_betfair_place_market_prices_collected(monkeypatch, tmp_path):
             m, prm = json["method"].split("/")[-1], json["params"]
             if m == "listMarketCatalogue" and "PLACE" in (prm["filter"].get("marketTypeCodes") or []):
                 return _Resp({"result": [
-                    {"marketId": "1.901", "marketStartTime": start, "event": {"id": "E9"},
-                     "description": {"numberOfWinners": 3}},
-                    {"marketId": "1.902", "marketStartTime": start, "event": {"id": "E9"},
-                     "description": {"numberOfWinners": 4}}]})
+                    # as Betfair does: the catalogue's description has no numberOfWinners
+                    {"marketId": "1.901", "marketStartTime": start, "event": {"id": "E9"}, "description": {}},
+                    {"marketId": "1.902", "marketStartTime": start, "event": {"id": "E9"}, "description": {}}]})
             if m == "listMarketCatalogue":
                 return _Resp({"result": [{
                     "marketId": "1.900", "marketName": "1m Hcap", "marketStartTime": start,
@@ -1131,7 +1130,7 @@ def test_betfair_place_market_prices_collected(monkeypatch, tmp_path):
                 out = []
                 for mid in prm["marketIds"]:
                     mult = {"1.900": 1.0, "1.901": 0.35, "1.902": 0.28}[mid]
-                    out.append({"marketId": mid, "runners": [
+                    out.append({"marketId": mid, "numberOfWinners": {"1.900": 1, "1.901": 3, "1.902": 4}[mid], "runners": [
                         {"selectionId": 200 + i, "status": "ACTIVE", "totalMatched": 50.0,
                          "ex": {"availableToBack": [{"price": round(1 + (o - 1) * mult, 2)}],
                                 "availableToLay": [{"price": round(1 + (o - 1) * mult + 0.1, 2)}]}}
@@ -1144,6 +1143,12 @@ def test_betfair_place_market_prices_collected(monkeypatch, tmp_path):
     r3 = next(r for r in race["runners"] if r["name"] == "Pl 3")
     assert r3["place_exchange"]["3"] == {"back": 3.45, "lay": 3.55, "volume": 50.0}
     assert r3["place_exchange"]["4"]["back"] == 2.96
+    conn = store.get_db()
+    pm = conn.execute("SELECT place_markets FROM rac_races WHERE external_id = 'bf:1.900'").fetchone()[0]
+    sel = conn.execute("SELECT COUNT(selection_id) FROM rac_runners ru JOIN rac_races r ON r.id = ru.race_id "
+                       "WHERE r.external_id = 'bf:1.900'").fetchone()[0]
+    conn.close()
+    assert __import__("json").loads(pm) == {"1.901": 3, "1.902": 4} and sel == 8      # saved for the results
     priced = price_race(race, n_sims=2000)
     assert next(r for r in priced["runners"] if r["name"] == "Pl 3")["place_exchange"]["3"]["lay"] == 3.55
 

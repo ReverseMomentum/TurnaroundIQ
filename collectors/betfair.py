@@ -217,12 +217,20 @@ def place_markets(client: Client, markets: list[dict]) -> dict:
             "filter": {"eventIds": event_ids[i:i + 10], "marketTypeCodes": ["PLACE", "OTHER_PLACE"]},
             "marketProjection": ["EVENT", "MARKET_START_TIME", "MARKET_DESCRIPTION"],
             "maxResults": 200})
+    found = {c["marketId"]: (by_key.get(((c.get("event") or {}).get("id"), c.get("marketStartTime"))),
+                             (c.get("description") or {}).get("numberOfWinners")) for c in cats}
+    found = {mid: v for mid, v in found.items() if v[0]}
+    # places paid is MarketBook.numberOfWinners: the catalogue's market description doesn't carry it
+    need = [mid for mid, (_, k) in found.items() if not k]
+    paid = {}
+    for i in range(0, len(need), BOOK_PAGE):
+        for b in client.call("listMarketBook", {"marketIds": need[i:i + BOOK_PAGE]}):
+            paid[b["marketId"]] = b.get("numberOfWinners")
     places = {}
-    for c in cats:
-        k = (c.get("description") or {}).get("numberOfWinners")
-        win_id = by_key.get(((c.get("event") or {}).get("id"), c.get("marketStartTime")))
-        if k and win_id:
-            places[c["marketId"]] = (win_id, int(k))
+    for mid, (win_id, k) in found.items():
+        k = k or paid.get(mid)
+        if k:
+            places[mid] = (win_id, int(k))
     return places
 
 
@@ -385,7 +393,8 @@ def collect_results(client: Client, hours: float = 36) -> dict:
             rows[r["selectionId"]] = {"horse_id": hid, "won": r.get("status") == "WINNER",
                                       "exchange_sp": sp if isinstance(sp, (int, float)) and 1 < sp < 10000 else None}
         key = ((wc.get("event") or {}).get("id"), wc.get("marketStartTime")) if wc else None
-        race_places = {pc["marketId"]: (pc.get("description") or {}).get("numberOfWinners") for pc in place_cats
+        race_places = {pc["marketId"]: (pc.get("description") or {}).get("numberOfWinners")
+                       or (place_books.get(pc["marketId"]) or {}).get("numberOfWinners") for pc in place_cats
                        if key and ((pc.get("event") or {}).get("id"), pc.get("marketStartTime")) == key}
         race_places.update({pid: k for pid, k in (race.get("place_markets") or {}).items() if pid not in race_places})
         for pid, k in race_places.items():

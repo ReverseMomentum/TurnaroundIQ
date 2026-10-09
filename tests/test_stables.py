@@ -1243,7 +1243,7 @@ def test_estimated_bookmaker_prices():
     q = m.early_book_from_fair(p, 1.22)
     cut = 1 - (1 / q - 1) / (1 / p - 1)
     assert abs(q.sum() - 1.22) < 1e-6 and cut[-1] - cut[0] < 0.08            # ...but not SP-harsh
-    assert m.best_price_overround(14) == pytest.approx(1.084) and m.best_price_overround(40) == 1.15
+    assert m.best_price_overround(14) == pytest.approx(1.14) and m.best_price_overround(40) == 1.20
     # graded on an estimated price: never an A (that needs a real price)
     race = {"handicap": True, "terms": [{"bookmaker": "B", "places": 5, "fraction": "1/5"}],
             "runners": [{"name": f"E{i}", "exchange": {"back": o, "lay": round(o * 1.03, 2), "volume": 5000}}

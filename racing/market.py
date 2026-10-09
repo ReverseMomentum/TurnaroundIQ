@@ -215,8 +215,9 @@ def early_book_from_fair(p_fair: Sequence[float], overround: float) -> np.ndarra
 
 def best_price_overround(n: int) -> float:
     """Book of the BEST price across the firms offering the extra place (the price a bettor
-    shopping around takes): close to the exchange, ~100% + 0.6% a runner, not a single firm's SP book."""
-    return min(1.15, max(1.03, 1.0 + 0.006 * n))
+    shopping around takes): ~100% + 1% a runner (14 runners: 114%), between the exchange and a
+    single firm's SP book. 0.6% a runner graded too many runners B on estimates alone."""
+    return min(1.20, max(1.04, 1.0 + 0.010 * n))
 
 
 def estimated_book_odds(p_fair: Sequence[float], table: Optional[dict] = None) -> list:

@@ -1405,3 +1405,29 @@ def test_shadow_tracker_records_shown_runners_and_reports_by_grade():
     # 4-place rows all settle; 5-place ones only where Betfair says (top 4 = placed, else unknown)
     assert rep["all"]["settled"] >= 14 and rep["by_grade"] and rep["by_odds"]
     assert rep["all"]["avg_clv"] is not None          # every runner has an SP: value at SP computed
+
+
+def test_recal_from_bsp_files_rows_and_fit():
+    import importlib.util
+    from racing import backtest
+
+    spec = importlib.util.spec_from_file_location("rb", "scripts/stables_recal_bsp.py")
+    rb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rb)
+    rng = np.random.default_rng(4)
+    head = "EVENT_ID,MENU_HINT,EVENT_NAME,EVENT_DT,SELECTION_ID,SELECTION_NAME,WIN_LOSE,BSP\n"
+    win, place = [head], [head]
+    for e in range(400):
+        n = 8
+        p = rng.dirichlet(np.ones(n) * 2)
+        order = list(rng.choice(n, n, replace=False, p=p))
+        dt = f"01-10-2026 {10 + e // 60}:{e % 60:02d}"
+        for i in range(n):
+            win.append(f"{e},UK / Test,1m Hcap,{dt},{i},H{e}x{i},{int(order[0] == i)},{1 / p[i]:.2f}\n")
+            place.append(f"{e},UK / Test,1m Hcap,{dt},{i},H{e}x{i},{int(i in order[:3])},{1 / min(.95, 3 * p[i]):.2f}\n")
+    races = backtest.bsp_races("".join(win), "".join(place))
+    assert len(races) == 400 and races[0]["name"] == "1m Hcap"
+    rows = rb.rows_for(races, {}, 300)
+    assert len(rows["place_y"]) == 3200 and rows["place_y"].sum() == 1200
+    new = rb.recalibrate.fit(rows)
+    assert new["fitted"] and rb.log_loss(rb.scored(rows, new), rows["place_y"]) <= rb.log_loss(rows["place_p"], rows["place_y"]) + 1e-3

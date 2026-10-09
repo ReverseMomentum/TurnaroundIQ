@@ -190,7 +190,9 @@ def bsp_races(win_text: str, place_text: str) -> list[dict]:
         bsp = np.array([_f(runners[s]["BSP"]) for s in ids])
         p = (1 / bsp) / (1 / bsp).sum()
         pbsp = [_f(pl[s].get("BSP")) for s in ids]
+        first = next(iter(runners.values()))
         out.append({"key": f"{key[0]}|{key[1]}", "p_win": p, "placed": placed, "places": k,
+                    "name": first.get("EVENT_NAME"), "event_dt": key[1],
                     "place_bsp": pbsp, "won": [1 if runners[s].get("WIN_LOSE") == "1" else 0 for s in ids]})
     return out
 

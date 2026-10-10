@@ -1499,3 +1499,42 @@ def test_settle_finished_button_settles_racing_bets(monkeypatch):
     assert r["settled"] >= 1 and r["racing_waiting"] == 1
     got = {b["id"]: b for b in tracked_store_list("u_settle")}
     assert got[bet["id"]]["result"] == "won" and got[bet5["id"]]["status"] == "open"
+
+
+def test_morning_price_test_script_pieces(monkeypatch):
+    import importlib.util
+    from datetime import date
+    from scipy.optimize import check_grad
+
+    spec = importlib.util.spec_from_file_location("mt", "scripts/stables_morning_test.py")
+    mt = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mt)
+    rng = np.random.default_rng(2)
+    head = "EVENT_ID,MENU_HINT,EVENT_NAME,EVENT_DT,SELECTION_ID,SELECTION_NAME,WIN_LOSE,BSP,MORNINGWAP,MORNINGTRADEDVOL\n"
+
+    def day_file(d, market):
+        lines = [head]
+        for e in range(30):
+            p = rng.dirichlet(np.ones(8) * 2)
+            w = rng.choice(8, p=p)
+            top3 = set(rng.choice(8, 3, replace=False, p=p)) | {w}
+            dt = f"{d:%d-%m-%Y} {12 + e // 6}:{(e % 6) * 10:02d}"
+            for i in range(8):
+                res = int(i == w) if market == "win" else int(i in list(top3)[:3])
+                lines.append(f"{e},UK / Testford {d.day}th Oct,1m Hcap,{dt},{i},Horse {e % 5}{i},{res},"
+                             f"{1 / p[i]:.2f},{1.1 / p[i]:.2f},100\n")
+        return "".join(lines)
+
+    monkeypatch.setattr(mt.bsp_files, "fetch", lambda region, market, d, pause=0.3: day_file(d, market) if region == "uk" else "")
+    races = mt.load_races(date(2026, 1, 1), date(2026, 1, 10))
+    assert len(races) == 300 and races[0]["morning"][0] > races[0]["sp"][0] and races[0]["dist"] == 8
+    hist = {"horse 01": [("2025-12-01", "testford", 8, 1, 0, 0.1, 0.3)]}
+    X = mt.features(races[0], hist)
+    assert X.shape == (8, len(mt.FEATURES)) and X[1, mt.FEATURES.index("first_run")] == 0.0
+    for r in races:
+        r["X"] = mt.features(r, hist)
+    logp, Xp, mask, y = mt.pad(races)
+    th = np.concatenate([[0.9], rng.normal(0, 0.1, len(mt.FEATURES))])
+    assert check_grad(lambda t: mt.nll(t, logp, Xp, mask, y)[0], lambda t: mt.nll(t, logp, Xp, mask, y)[1], th) < 1e-4
+    p = mt.harville_topk(np.array([0.5, 0.3, 0.2]), 2)
+    assert abs(p.sum() - 2) < 1e-9 and p[0] > p[2]

@@ -95,7 +95,7 @@ def load_history() -> dict:
         hist[h].append((str(d)[:10], (course or "").lower(), dist, placed, 1 if pos == 1 else 0, ew, ep))
     conn.close()
     for h in hist:
-        hist[h].sort()
+        hist[h].sort(key=lambda r: r[0])      # by date only (other fields can be empty)
     return hist
 
 

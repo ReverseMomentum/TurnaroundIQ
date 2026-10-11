@@ -47,4 +47,6 @@ J=/root/TurnaroundIQ/scripts/cron_job.sh
 
 # Betfair exchange back/lay for the football picks (same Betfair login as The Stables)
 25,55 * * * *  $J betfair_football python -u collectors/betfair_football.py --hours 24
+# In-play draw / home / away prices + score each minute for games in play (nothing called otherwise)
+* * * * *  $J betfair_inplay python -u collectors/betfair_inplay.py
 10 5 * * 1    $J recal python -u scripts/stables_recal_bsp.py --save

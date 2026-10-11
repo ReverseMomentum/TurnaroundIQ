@@ -62,6 +62,11 @@ Read this first. It is what a fresh session needs to work on this repo.
 - **Other pages:** Early Goal Hunter, Chaos Factor, the bet tracker (paper P/L, with a cash-out calculator
   that uses the live turnaround model `models/live_turnaround.py`), the calculator, and the Live monitor
   (`api/live_monitor.py`, `GET /live`: open bets in play + live games 2 up, shared 60s api-sports cache).
+- **Goal Likelihood (trial):** `models/goal_likelihood.py` (BTTS / O2.5 / goal by 30', page under More).
+  Backtest: no sharper than Chaos as a filter; `scripts/lay_draw_test.py`: no lay-the-draw edge vs the market.
+- **In-play log:** `collectors/betfair_inplay.py` (cron every minute) stores Betfair home/draw/away prices +
+  score for games in play in `inplay_prices`; `scripts/inplay_drift_report.py` replays lay-the-draw /
+  cash-out-after-first-goal on real prices. Read it after a few hundred games, not before.
 - **Scorecard:** pre-kick-off predictions logged to `prediction_log`; `scripts/scorecard.py` vs results.
 - **Adding a league mid-season:** the nightly backfill only collects completed seasons and the
   results job looks back 3 days, so also run `collectors/backfill_apisports.py --league-id N

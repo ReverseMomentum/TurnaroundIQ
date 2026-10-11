@@ -207,22 +207,25 @@ def save(conn, match_id, market, book, prices, ts):
     conn.execute(
         """INSERT INTO exchange_odds (match_id, market_id, betfair_event, home_back, home_back_size,
                home_lay, home_lay_size, away_back, away_back_size, away_lay, away_lay_size,
-               total_matched, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+               total_matched, updated_at, kickoff)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(match_id) DO UPDATE SET market_id=excluded.market_id,
                betfair_event=excluded.betfair_event, home_back=excluded.home_back,
                home_back_size=excluded.home_back_size, home_lay=excluded.home_lay,
                home_lay_size=excluded.home_lay_size, away_back=excluded.away_back,
                away_back_size=excluded.away_back_size, away_lay=excluded.away_lay,
                away_lay_size=excluded.away_lay_size, total_matched=excluded.total_matched,
-               updated_at=excluded.updated_at""",
+               updated_at=excluded.updated_at, kickoff=excluded.kickoff""",
         (str(match_id), market["marketId"], (market.get("event") or {}).get("name"),
-         *h, *a, (book or {}).get("totalMatched"), ts),
+         *h, *a, (book or {}).get("totalMatched"), ts, market.get("marketStartTime")),
     )
 
 
 def ensure_table(conn):
     conn.execute(DDL)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(exchange_odds)")}
+    if "kickoff" not in cols:   # the in-play logger (collectors/betfair_inplay.py) picks games by kick-off
+        conn.execute("ALTER TABLE exchange_odds ADD COLUMN kickoff TEXT")
 
 
 def load(match_ids, max_age_hours=MAX_AGE_HOURS):

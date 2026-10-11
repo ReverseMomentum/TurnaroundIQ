@@ -19,6 +19,7 @@ import {
   Lock,
   Crosshair,
   Flame,
+  Goal,
   FlaskConical,
   RefreshCw,
   Info,
@@ -352,6 +353,7 @@ const NAV_MORE = [
   ...(SHOW_DEV_TOOLS ? [{ key: "model-testing", icon: FlaskConical, label: "Model Testing (dev)" }] : []),
   { key: "early-goal-hunter", icon: Crosshair, label: "Early Goal Hunter" },
   { key: "chaos-factor", icon: Flame, label: "Chaos Factor" },
+  { key: "goal-likelihood", icon: Goal, label: "Goal Likelihood (trial)" },
   { key: "stables", icon: Medal, label: "The Stables" },
   { key: "calculator", icon: Calculator, label: "Calculator" },
   { key: "settings", icon: Settings, label: "Settings" },
@@ -1567,6 +1569,53 @@ function ChaosFactorPage({ nav, entitled, onPurchased }) {
   );
 }
 
+function GoalLikelihoodPage({ nav, entitled, onPurchased }) {
+  const q = useApi(() => api.goals(), [entitled]);
+  const [sortKey, setSortKey] = useState("goal_score");
+  const sorts = [
+    { key: "goal_score", label: "Goal score" },
+    { key: "btts_over25_pct", label: "BTTS & O2.5" },
+    { key: "btts_pct", label: "BTTS" },
+    { key: "over25_pct", label: "Over 2.5" },
+    { key: "early_goal_pct", label: "Goal by 30'" },
+  ];
+  const ranked = [...(q.data?.matches || [])].sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
+  return (
+    <PageShell activeTab="goal-likelihood" onNavigate={nav} entitled={entitled}>
+      <PageTitle title="Goal Likelihood" subtitle="Trial. How likely the next 24 hours' games are to have goals, separate from Chaos: both teams to score, over 2.5 and a goal by 30 minutes, from each side's scoring and conceding record. Goal score = 40% BTTS + 40% over 2.5 + 20% early goal." />
+      {q.needsPro && <Paywall onPurchased={onPurchased} />}
+      {q.data && (
+        <div className="flex gap-2 overflow-x-auto mb-4 -mx-1 px-1">
+          {sorts.map((s) => (
+            <button key={s.key} onClick={() => setSortKey(s.key)} style={chip(s.key === sortKey)} className="text-xs font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap">{s.label}</button>
+          ))}
+        </div>
+      )}
+      <FeatureList q={q} ranked={ranked} empty="No games in our leagues in the next 24 hours." render={(f, i) => (
+        <div key={f.match_id || f.match} style={i === 0 ? accentCard : card} className="rounded-xl p-4 flex flex-col gap-4">
+          <FixtureHead f={f} />
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p style={{ color: c.text }} className="text-base font-semibold truncate">{f.home_team}</p>
+              <p style={{ color: c.textSecondary }} className="text-sm truncate"><span style={{ color: c.textMuted }}>vs</span> {f.away_team}</p>
+              <p style={{ color: c.textMuted }} className="num text-[11px] mt-1">Expected goals {f.xg_home?.toFixed(2)} – {f.xg_away?.toFixed(2)}</p>
+              {f.thin_data && <p style={{ color: c.orange }} className="text-[11px] mt-1">New team: very little data</p>}
+            </div>
+            <ScoreBox value={f.goal_score} tone={c.green} tag="goal score" highlight={i === 0} />
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <Bar label="Both teams score" value={f.btts_pct} tone={c.cyan} right={f.btts_pct?.toFixed(1) + "%"} />
+            <Bar label="Over 2.5 goals" value={f.over25_pct} tone={c.orange} right={f.over25_pct?.toFixed(1) + "%"} />
+            <Bar label="Goal by 30'" value={f.early_goal_pct} tone={c.green} right={f.early_goal_pct?.toFixed(1) + "%"} />
+            <Bar label="BTTS & over 2.5" value={f.btts_over25_pct} tone={c.textSecondary} right={f.btts_over25_pct?.toFixed(1) + "%"} />
+          </div>
+        </div>
+      )} />
+      <Disclaimer />
+    </PageShell>
+  );
+}
+
 const LIVE_VERDICT = {
   waiting: { text: "Waiting for 2 up", tone: c.textSecondary },
   triggered: { text: "2UP triggered", tone: c.green },
@@ -2589,6 +2638,7 @@ export default function App() {
     opportunities: <OpportunitiesPage {...common} opps={opps} onOpen={setSelected} />,
     "early-goal-hunter": <EarlyGoalHunterPage {...common} />,
     "chaos-factor": <ChaosFactorPage {...common} />,
+    "goal-likelihood": <GoalLikelihoodPage {...common} />,
     stables: <StablesPage {...common} ui={{ ...STABLES_UI, defaultCommission: me?.prefs?.default_commission ?? 2, bankroll: me?.prefs?.bankroll ?? null }} />,
     live: <LiveMonitorPage {...common} />,
     bets: <MyBetsPage {...common} reloadMe={loadMe} />,

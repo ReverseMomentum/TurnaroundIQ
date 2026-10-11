@@ -45,6 +45,7 @@ from models.opportunities_engine import (
 )
 from models.early_goal_hunter import rank_early_goal_matches
 from models.chaos_index import rank_chaos_matches
+from models.goal_likelihood import rank_goal_matches
 from models.mismatch_meter import rank_mismatch_matches
 from team_normalizer import normalize_team
 from ops.health import check as data_health
@@ -243,6 +244,8 @@ def _keep_warm():
                     lambda: rank_chaos_matches(_feature_pairs(50, 24)))
             _cached(("early", 50, 24), FEATURE_CACHE_SECONDS,
                     lambda: rank_early_goal_matches(_feature_pairs(50, 24)))
+            _cached(("goals", 50, 24), FEATURE_CACHE_SECONDS,
+                    lambda: rank_goal_matches(_feature_pairs(50, 24)))
         except Exception:
             log.exception("warm: feature pages failed")
         log.info("warm cycle %.1fs", time.time() - started)
@@ -1065,6 +1068,25 @@ def chaos_feature(
         **fixture_meta(),
         "matches": ranked[:limit],
     }
+
+
+@app.get("/features/goals")
+def goals_feature(
+    authorization: str | None = Header(default=None),
+    limit: int = 50,
+    hours: Optional[int] = 24,
+    min_score: Optional[float] = None,
+):
+    """Goal Likelihood (trial): BTTS, over 2.5 and goal-by-30' chances per game, and a
+    goal score weighted 0.4 / 0.4 / 0.2. Backtest: models/goal_likelihood.py check."""
+    require_pro(authorization)
+    limit = max(1, min(limit, 100))
+    ranked = [dict(r) for r in _cached(("goals", limit, hours), FEATURE_CACHE_SECONDS,
+                                       lambda: rank_goal_matches(_feature_pairs(limit, hours))) if _still_upcoming(r)]
+    if min_score is not None:
+        ranked = [r for r in ranked if (r.get("goal_score") or 0) >= min_score]
+    return {"feature": "goal_likelihood", "trial": True, "count": len(ranked[:limit]),
+            **fixture_meta(), "matches": ranked[:limit]}
 
 
 @app.get("/features/mismatch")

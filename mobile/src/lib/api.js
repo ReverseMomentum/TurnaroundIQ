@@ -72,6 +72,7 @@ export const api = {
   oddsRefreshStatus: () => request("/odds/refresh"),
   oddsBookmakers: () => request("/odds/bookmakers"),
   earlyGoal: (limit = 50) => request(`/features/early-goal?limit=${limit}&hours=24&min_score=${MIN_SCORE}`),
+  goals: (limit = 50) => request(`/features/goals?limit=${limit}&hours=24`),
   chaos: (limit = 50) => request(`/features/chaos?limit=${limit}&hours=24&min_score=${MIN_SCORE}`),
   tracked: (status) => request(status ? `/tracked?status=${status}&limit=200` : "/tracked?limit=200"),
   track: (body) => request("/tracked", { method: "POST", body }),

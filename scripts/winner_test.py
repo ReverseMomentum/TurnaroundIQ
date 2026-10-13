@@ -100,6 +100,34 @@ def report(gs):
         print(f"  {'+' + str(int(edge * 100)) + '% or more':<16} | {len(bets):>5} | {100 * np.mean([w for _, w in bets]):4.1f}% "
               f"| £{profit:>6.0f} | {100 * profit / (10 * len(bets)):+5.1f}%")
 
+    print("  Underdog with higher expected goals: back the market underdog (not the draw), £10 at the average price")
+    print("  filter                         |  bets | won   | avg odds | profit  | ROI")
+    for name, min_gap, side_filter in (
+            ("underdog xG higher", 0.0, None), ("underdog xG higher by 0.25+", 0.25, None),
+            ("underdog xG higher by 0.5+", 0.5, None), ("home underdog xG higher", 0.0, 0),
+            ("away underdog xG higher", 0.0, 2), ("underdog xG higher, odds 2.5-4", 0.0, "mid")):
+        bets = []
+        for g in gs:
+            dog = 0 if g["market"][0] < g["market"][2] else 2
+            gap = g["xg_gap"] if dog == 0 else -g["xg_gap"]
+            if gap <= min_gap:
+                continue
+            if side_filter in (0, 2) and dog != side_filter:
+                continue
+            if side_filter == "mid" and not 2.5 <= g["odds"][dog] <= 4.0:
+                continue
+            bets.append((g["odds"][dog], int(g["result"] == dog)))
+        if not bets:
+            continue
+        profit = sum(10 * (o - 1) if w else -10 for o, w in bets)
+        print(f"  {name:<30} | {len(bets):>5} | {100 * np.mean([w for _, w in bets]):4.1f}% | "
+              f"{np.mean([o for o, _ in bets]):8.2f} | £{profit:>6.0f} | {100 * profit / (10 * len(bets)):+5.1f}%")
+    dogs = [(g["odds"][d], int(g["result"] == d)) for g in gs
+            for d in [0 if g["market"][0] < g["market"][2] else 2]]
+    base = sum(10 * (o - 1) if w else -10 for o, w in dogs)
+    print(f"  {'every underdog (baseline)':<30} | {len(dogs):>5} | {100 * np.mean([w for _, w in dogs]):4.1f}% | "
+          f"{np.mean([o for o, _ in dogs]):8.2f} | £{base:>6.0f} | {100 * base / (10 * len(dogs)):+5.1f}%")
+
     print("  xG gap (home minus away) | games | stronger side won | market implied | model implied")
     for lo, hi in ((0, 0.25), (0.25, 0.5), (0.5, 1.0), (1.0, 9)):
         sel = [g for g in gs if lo <= abs(g["xg_gap"]) < hi]

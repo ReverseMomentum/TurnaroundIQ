@@ -22,3 +22,9 @@ def test_hold_and_trade_profit_signs():
     early_goal = t.trade_pl(3.5, lam, [(10, 1), (80, 2)], True, 70, 0.0)
     goalless = t.trade_pl(3.5, lam, [], True, 70, 0.0)
     assert early_goal > 0 > goalless                   # a goal lets you green up; 0-0 at 70' costs
+
+
+def test_winner_test_one_x_two_sums_to_one():
+    import winner_test as w
+    h, d, a = w.one_x_two(1.6, 1.1)
+    assert h + d + a == pytest.approx(1) and h > a and d == pytest.approx(t.draw_prob(1.6, 1.1), abs=1e-6)

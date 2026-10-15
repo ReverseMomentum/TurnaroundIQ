@@ -139,6 +139,10 @@ def run(matches, commission=0.02, exit_minute=70, test_years=2):
         is_draw = m["fh"] == m["fa"]
         games.append({
             "score": gl.goal_score(p), "model_d": model_d, "market_d": pd_, "lay": lay, "draw": int(is_draw),
+            # chance a first goal before the exit is worth trading (>= £1 per £10), from the model's
+            # expected goals and from the market's own goal expectation
+            "good": gl.ltd_profile(pred["xg_home"], pred["xg_away"], exit_minute=exit_minute)["good_goal_pct"],
+            "good_mkt": gl.ltd_profile(lam[0], lam[1], lay=lay, exit_minute=exit_minute)["good_goal_pct"],
             "hold": hold_pl(lay, is_draw, commission),
             "trade": trade_pl(lay, lam, m["goals"], is_draw, exit_minute, commission),
         })
@@ -173,6 +177,8 @@ def report(games, commission, exit_minute):
           f"  market {_ll([g['market_d'] for g in games], y):.4f}  "
           f"actual draws {100 * np.mean(y):.1f}%")
     q = np.quantile([g["score"] for g in games], 0.8)
+    qg = np.quantile([g["good"] for g in games], 0.8)
+    qm = np.quantile([g["good_mkt"] for g in games], 0.8)
     filters = [
         ("All games", lambda g: True),
         ("Top 20% goal score", lambda g: g["score"] >= q),
@@ -181,6 +187,9 @@ def report(games, commission, exit_minute):
         ("Draw lay 3.0-4.0", lambda g: 3.0 <= g["lay"] <= 4.0),
         ("Draw lay 3.0-4.0 + top 20% score", lambda g: 3.0 <= g["lay"] <= 4.0 and g["score"] >= q),
         ("Top 20% score + model 2pp below", lambda g: g["score"] >= q and g["model_d"] <= g["market_d"] - 0.02),
+        ("Top 20% goal worth trading", lambda g: g["good"] >= qg),
+        ("Bottom 20% goal worth trading", lambda g: g["good"] <= np.quantile([x["good"] for x in games], 0.2)),
+        ("Top 20% worth trading (market)", lambda g: g["good_mkt"] >= qm),
     ]
     print("  filter                          |    n | draws | avg lay | hold P/L (ROI)    | trade P/L (ROI)")
     for name, f in filters:

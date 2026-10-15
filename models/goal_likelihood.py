@@ -143,6 +143,66 @@ def poisson_chances(lam_h, lam_a, early_share):
     return {"btts": btts, "over25": 1 - under, "early": early, "btts_over25": max(btts_over, 0.0)}
 
 
+# --- lay the draw: what a first goal would do to the draw price ---------------
+
+LTD_EXIT = 60          # still 0-0 at this minute: trade out for a loss
+LTD_GOOD_GREEN = 1.0   # a first goal "pays" if it locks in at least this per £10 laid
+
+
+def _pois_vec(lam, n=12):
+    k = np.arange(n)
+    fact = np.array([math.factorial(int(i)) for i in k], float)
+    return np.exp(-lam) * lam ** k / fact
+
+
+def draw_chance(lam_h, lam_a, lead=0):
+    """P(final draw) with lam_* goals still to come and the home side `lead` goals up."""
+    ph, pa = _pois_vec(lam_h), _pois_vec(lam_a)
+    return float(sum(ph[j - lead] * pa[j] for j in range(len(pa)) if 0 <= j - lead < len(ph)))
+
+
+def ltd_profile(lam_h, lam_a, lay=None, exit_minute=LTD_EXIT, stake=10.0):
+    """
+    For laying the draw before kick-off and trading out after the first goal:
+    where the draw price goes if each side scores first, and how often a first goal
+    before `exit_minute` is worth trading (locks in >= LTD_GOOD_GREEN per £10).
+    Fair prices from the expected goals; real prices carry a spread.
+    """
+    tot = lam_h + lam_a
+    lay = lay or 1 / max(draw_chance(lam_h, lam_a), 1e-6)
+    fav_home = lam_h >= lam_a
+
+    def after(minute, lead):
+        r = max(0.0, (90 - minute) / 90)
+        back = 1 / max(draw_chance(lam_h * r, lam_a * r, lead), 1e-6)
+        return back, stake - stake * lay / back
+
+    good = exp_green = p_goal = 0.0
+    for t in range(1, exit_minute + 1):       # first goal in minute t
+        dens = math.exp(-tot * (t - 1) / 90) - math.exp(-tot * t / 90)
+        for lam, lead in ((lam_h, 1), (lam_a, -1)):
+            w = dens * lam / tot
+            _, g = after(t, lead)
+            p_goal += w
+            exp_green += w * g
+            if g >= LTD_GOOD_GREEN:
+                good += w
+    fav_b, fav_g = after(30, 1 if fav_home else -1)
+    dog_b, dog_g = after(30, -1 if fav_home else 1)
+    nil_b, nil_g = after(exit_minute, 0)
+    return {
+        "lay": round(lay, 2),
+        "goal_before_exit_pct": round(100 * p_goal, 1),
+        "good_goal_pct": round(100 * good, 1),
+        "fav_first_pct": round(100 * max(lam_h, lam_a) / tot, 1),
+        "fav_scores": {"draw": round(fav_b, 2), "green": round(fav_g, 2)},
+        "dog_scores": {"draw": round(dog_b, 2), "green": round(dog_g, 2)},
+        "nil_at_exit": {"draw": round(nil_b, 2), "green": round(nil_g, 2), "pct": round(100 * math.exp(-tot * exit_minute / 90), 1)},
+        "avg_green_after_goal": round(exp_green / p_goal, 2) if p_goal else None,
+        "exit_minute": exit_minute,
+    }
+
+
 # --- calibration ---------------------------------------------------------------
 
 def _logit(p):
@@ -258,6 +318,7 @@ def match_goals(home, away, league="", kickoff=None, match_id=None, state=None):
         "btts_over25_pct": round(100 * p["btts_over25"], 1),
         "xg_home": round(pred["xg_home"], 2), "xg_away": round(pred["xg_away"], 2),
         "thin_data": min(g_home, g_away) < 5,
+        "ltd": ltd_profile(pred["xg_home"], pred["xg_away"]),
         "feature": "goal_likelihood",
     }
 

@@ -1578,8 +1578,12 @@ function GoalLikelihoodPage({ nav, entitled, onPurchased }) {
     { key: "btts_pct", label: "BTTS" },
     { key: "over25_pct", label: "Over 2.5" },
     { key: "early_goal_pct", label: "Goal by 30'" },
+    { key: "ltd", label: "Lay the draw" },
   ];
-  const ranked = [...(q.data?.matches || [])].sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
+  const sortVal = (m) => (sortKey === "ltd" ? m.ltd?.good_goal_pct : m[sortKey]) || 0;
+  const ranked = [...(q.data?.matches || [])].sort((a, b) => sortVal(b) - sortVal(a));
+  const ltd = sortKey === "ltd";
+  const signed = (v) => (v >= 0 ? "+£" : "−£") + Math.abs(v).toFixed(2);
   return (
     <PageShell activeTab="goal-likelihood" onNavigate={nav} entitled={entitled}>
       <PageTitle title="Goal Likelihood" subtitle="Trial. How likely the next 24 hours' games are to have goals, separate from Chaos: both teams to score, over 2.5 and a goal by 30 minutes, from each side's scoring and conceding record. Goal score = 40% BTTS + 40% over 2.5 + 20% early goal." />
@@ -1601,8 +1605,19 @@ function GoalLikelihoodPage({ nav, entitled, onPurchased }) {
               <p style={{ color: c.textMuted }} className="num text-[11px] mt-1">Expected goals {f.xg_home?.toFixed(2)} – {f.xg_away?.toFixed(2)}</p>
               {f.thin_data && <p style={{ color: c.orange }} className="text-[11px] mt-1">New team: very little data</p>}
             </div>
-            <ScoreBox value={f.goal_score} tone={c.green} tag="goal score" highlight={i === 0} />
+            {ltd && f.ltd
+              ? <ScoreBox value={f.ltd.good_goal_pct} tone={c.cyan} tag="goal worth trading" highlight={i === 0} />
+              : <ScoreBox value={f.goal_score} tone={c.green} tag="goal score" highlight={i === 0} />}
           </div>
+          {ltd && f.ltd && (
+            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid " + c.border }} className="rounded-lg p-3 text-xs flex flex-col gap-1.5">
+              <p style={{ color: c.textMuted }}>Per £10 laid at about {f.ltd.lay.toFixed(2)}, trading out straight after the first goal:</p>
+              <p style={{ color: c.text }} className="num">Favourite scores first ({f.ltd.fav_first_pct}%): draw ≈ {f.ltd.fav_scores.draw.toFixed(2)} → <span style={{ color: f.ltd.fav_scores.green >= 0 ? c.green : c.red }}>{signed(f.ltd.fav_scores.green)}</span></p>
+              <p style={{ color: c.text }} className="num">Underdog scores first: draw ≈ {f.ltd.dog_scores.draw.toFixed(2)} → <span style={{ color: f.ltd.dog_scores.green >= 0 ? c.green : c.red }}>{signed(f.ltd.dog_scores.green)}</span></p>
+              <p style={{ color: c.text }} className="num">Still 0-0 at {f.ltd.exit_minute}' ({f.ltd.nil_at_exit.pct}%): draw ≈ {f.ltd.nil_at_exit.draw.toFixed(2)} → <span style={{ color: c.red }}>{signed(f.ltd.nil_at_exit.green)}</span></p>
+              <p style={{ color: c.textMuted }}>Goal worth trading = a first goal before {f.ltd.exit_minute}' that locks in £1+. Fair prices from expected goals (at 30'); real prices have a spread. It sorts games, it doesn't make laying the draw profitable on average.</p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
             <Bar label="Both teams score" value={f.btts_pct} tone={c.cyan} right={f.btts_pct?.toFixed(1) + "%"} />
             <Bar label="Over 2.5 goals" value={f.over25_pct} tone={c.orange} right={f.over25_pct?.toFixed(1) + "%"} />

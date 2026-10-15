@@ -73,3 +73,14 @@ def test_goals_page(monkeypatch):
     m = out["matches"][0]
     assert 0 < m["btts_pct"] < 100 and m["goal_score"] == pytest.approx(
         0.4 * m["btts_pct"] + 0.4 * m["over25_pct"] + 0.2 * m["early_goal_pct"], abs=0.2)
+
+
+def test_ltd_profile_who_scores_matters():
+    fav = gl.ltd_profile(2.07, 0.98)          # strong home favourite
+    assert fav["fav_scores"]["draw"] > fav["lay"] > fav["dog_scores"]["draw"]
+    assert fav["fav_scores"]["green"] > 0 > fav["dog_scores"]["green"]
+    assert fav["nil_at_exit"]["green"] < 0 and fav["nil_at_exit"]["draw"] < fav["lay"]
+    assert 0 < fav["good_goal_pct"] <= fav["goal_before_exit_pct"] <= 100
+    even = gl.ltd_profile(1.3, 1.3)
+    assert even["dog_scores"]["green"] > 0                 # in an even game either goal helps
+    assert gl.draw_chance(1.3, 1.3) == pytest.approx(1 / even["lay"], rel=1e-3)

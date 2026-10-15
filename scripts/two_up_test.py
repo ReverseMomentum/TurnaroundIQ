@@ -58,7 +58,7 @@ def sides(test_years=2):
                 X = np.nan_to_num(X)
             p_up2 = float(fm._predict_stage(ma, None, X)[0])
             p_fail = float(fm._predict_stage(mb, None, X)[0])
-            out.append({"p_up2": p_up2, "fta": p_up2 * p_fail, "odds": float(odds), "won": int(won),
+            out.append({"p_up2": p_up2, "p_fail": p_fail, "fta": p_up2 * p_fail, "odds": float(odds), "won": int(won),
                         "up2": r["up2"], "paid": int(won or r["up2"]), "mkt_win": r.get("mkt_win")})
     return out
 
@@ -112,6 +112,22 @@ def report(ss):
           lambda lo, hi: f"{lo:g}-{hi:g}%" if hi < 100 else f"{lo:g}%+")
     table("Odds band", lambda s: s["odds"], ((1, 1.5), (1.5, 2), (2, 2.5), (2.5, 3.5), (3.5, 5), (5, 1000)),
           lambda lo, hi: f"{lo:g}-{hi:g}" if hi < 1000 else f"{lo:g}+")
+    # 2-up chance x turnaround chance (fail to win once 2 up): thirds of the turnaround chance
+    q1, q2 = np.quantile([s["p_fail"] for s in ss], [1 / 3, 2 / 3])
+    turn = (("low", -1, q1), ("mid", q1, q2), ("high", q2, 2))
+    print(f"  2-up x turnaround (turnaround thirds: low < {100 * q1:.1f}% < mid < {100 * q2:.1f}% < high)")
+    print("  2-up %  turnaround | sides | won   | 2UP paid | avg odds | ROI with 2UP | ROI without")
+    for lo, hi in ((0, 20), (20, 30), (30, 40), (40, 101)):
+        for name, tlo, thi in turn:
+            sel = [s for s in ss if lo <= 100 * s["p_up2"] < hi and tlo <= s["p_fail"] < thi]
+            if len(sel) < 30:
+                continue
+            r2, r0 = _roi(sel, "paid"), _roi(sel, "won")
+            band = f"{lo}-{hi if hi < 101 else 100}%"
+            print(f"  {band:<7} {name:<10} | {len(sel):>5} | {100 * np.mean([s['won'] for s in sel]):4.1f}% | "
+                  f"{100 * np.mean([s['paid'] for s in sel]):7.1f}% | {np.mean([s['odds'] for s in sel]):8.2f} | "
+                  f"{100 * r2[1]:+11.1f}% | {100 * r0[1]:+10.1f}%")
+
     all2, all0 = _roi(ss, "paid"), _roi(ss, "won")
     print(f"  Every side: with 2UP {100 * all2[1]:+.1f}%   without {100 * all0[1]:+.1f}%  "
           f"(the gap is what the 2UP payout is worth at average prices)")

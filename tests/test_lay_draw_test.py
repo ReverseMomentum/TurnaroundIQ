@@ -28,3 +28,10 @@ def test_winner_test_one_x_two_sums_to_one():
     import winner_test as w
     h, d, a = w.one_x_two(1.6, 1.1)
     assert h + d + a == pytest.approx(1) and h > a and d == pytest.approx(t.draw_prob(1.6, 1.1), abs=1e-6)
+
+
+def test_two_up_roi_counts_two_up_as_paid():
+    import two_up_test as tu
+    ss = [{"odds": 3.0, "won": 0, "up2": 1, "paid": 1}, {"odds": 3.0, "won": 0, "up2": 0, "paid": 0}]
+    assert tu._roi(ss, "paid") == (pytest.approx(10.0), pytest.approx(0.5))   # +20 - 10 over £20
+    assert tu._roi(ss, "won") == (pytest.approx(-20.0), pytest.approx(-1.0))

@@ -291,6 +291,7 @@ class AuthStart(BaseModel):
 class AuthVerify(BaseModel):
     email: str
     code: str
+    adult: bool = False   # the "I'm 18 or over" tick
 
 
 @app.post("/auth/start")
@@ -308,7 +309,7 @@ def auth_start(body: AuthStart, request: Request):
 @app.post("/auth/verify")
 def auth_verify(body: AuthVerify):
     try:
-        return auth.verify(body.email, body.code)
+        return auth.verify(body.email, body.code, body.adult)
     except auth.AuthError as exc:
         raise HTTPException(exc.status, exc.message) from exc
 

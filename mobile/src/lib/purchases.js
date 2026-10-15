@@ -45,8 +45,8 @@ function saveSession(token) {
 export async function startSignIn(email) {
   await api.authStart(email);
 }
-export async function finishSignIn(email, code) {
-  const { token } = await api.authVerify(email, code);
+export async function finishSignIn(email, code, adult) {
+  const { token } = await api.authVerify(email, code, adult);
   saveSession(token);
   setUserId(token);
   return token;

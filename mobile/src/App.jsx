@@ -682,6 +682,7 @@ function SignInPage({ onSignedIn }) {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [step, setStep] = useState("email");
+  const [adult, setAdult] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -703,7 +704,7 @@ function SignInPage({ onSignedIn }) {
     setBusy(true);
     setError(null);
     try {
-      await finishSignIn(email.trim(), code.trim());
+      await finishSignIn(email.trim(), code.trim(), adult);
       await onSignedIn();
     } catch (err) {
       setError(err.message);
@@ -727,7 +728,11 @@ function SignInPage({ onSignedIn }) {
               <p style={{ color: c.text }} className="text-xl font-bold tracking-tight">Sign in</p>
               <p style={{ color: c.textSecondary }} className="text-sm">We'll email you a 6-digit code. No password needed.</p>
               <input type="email" autoComplete="email" inputMode="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} className="rounded-xl px-4 py-3 text-base" />
-              <button type="submit" disabled={busy || !email} style={{ ...primaryBtn, opacity: busy || !email ? 0.55 : 1 }} className="rounded-xl py-3 text-sm font-medium flex items-center justify-center gap-2">
+              <label className="flex items-start gap-2.5 text-sm cursor-pointer select-none" style={{ color: c.textSecondary }}>
+                <input type="checkbox" checked={adult} onChange={(e) => setAdult(e.target.checked)} className="mt-0.5 w-4 h-4 flex-shrink-0" style={{ accentColor: c.green }} />
+                <span>I confirm I'm 18 or over and agree to the <a href={TERMS_URL} style={{ color: c.cyan }}>Terms</a>.</span>
+              </label>
+              <button type="submit" disabled={busy || !email || !adult} style={{ ...primaryBtn, opacity: busy || !email || !adult ? 0.55 : 1 }} className="rounded-xl py-3 text-sm font-medium flex items-center justify-center gap-2">
                 <Mail size={16} /> {busy ? "Sending…" : "Email me a code"}
               </button>
             </form>

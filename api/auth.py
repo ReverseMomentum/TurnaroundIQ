@@ -80,6 +80,9 @@ def ensure_auth_tables():
         );
         """
     )
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    if "age_confirmed_at" not in cols:   # when the account ticked "I'm 18 or over"
+        conn.execute("ALTER TABLE users ADD COLUMN age_confirmed_at TEXT")
     conn.commit()
     conn.close()
 
@@ -186,7 +189,9 @@ def start(email: str, ip: str = ""):
     send_code_email(email, code)
 
 
-def verify(email: str, code: str):
+def verify(email: str, code: str, adult: bool = False):
+    """adult: the sign-in form's "I'm 18 or over" tick. Needed once per account (recorded
+    with a timestamp); a sign-in without it is refused before the code is used up."""
     email = normalize_email(email)
     code = re.sub(r"\D", "", code or "")
     ensure_auth_tables()
@@ -204,15 +209,20 @@ def verify(email: str, code: str):
         conn.commit()
         conn.close()
         raise AuthError(400, "Wrong code")
+    user = conn.execute("SELECT id, age_confirmed_at FROM users WHERE email = ?", (email,)).fetchone()
+    if not adult and not (user and user[1]):
+        conn.close()
+        raise AuthError(400, "Please confirm you're 18 or over")
     conn.execute("UPDATE login_codes SET used = 1 WHERE id = ?", (row[0],))
 
-    user = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
     if user:
         user_id = user[0]
+        if adult and not user[1]:
+            conn.execute("UPDATE users SET age_confirmed_at = ? WHERE id = ?", (_now().isoformat(), user_id))
     else:
         user_id = "u_" + secrets.token_hex(12)
-        conn.execute("INSERT INTO users (id, email, created_at) VALUES (?,?,?)",
-                     (user_id, email, _now().isoformat()))
+        conn.execute("INSERT INTO users (id, email, created_at, age_confirmed_at) VALUES (?,?,?,?)",
+                     (user_id, email, _now().isoformat(), _now().isoformat()))
     token = "s_" + secrets.token_urlsafe(32)
     conn.execute(
         "INSERT INTO sessions (token_hash, user_id, created_at, expires_at, last_seen) VALUES (?,?,?,?,?)",

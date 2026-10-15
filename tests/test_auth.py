@@ -26,7 +26,7 @@ def client(monkeypatch):
 def sign_in(c, sent, email="Punter@Example.com"):
     assert c.post("/auth/start", json={"email": email}).status_code == 200
     code = sent[email.lower()]
-    r = c.post("/auth/verify", json={"email": email, "code": code})
+    r = c.post("/auth/verify", json={"email": email, "code": code, "adult": True})
     assert r.status_code == 200
     return r.json()
 
@@ -62,7 +62,7 @@ def test_wrong_code_and_lockout(client):
     for _ in range(5):
         assert c.post("/auth/verify", json={"email": "a@b.co", "code": "000000"}).status_code == 400
     # even the right code is dead after too many attempts
-    r = c.post("/auth/verify", json={"email": "a@b.co", "code": sent["a@b.co"]})
+    r = c.post("/auth/verify", json={"email": "a@b.co", "code": sent["a@b.co"], "adult": True})
     assert r.status_code == 400
 
 
@@ -70,8 +70,8 @@ def test_code_is_single_use(client):
     c, sent = client
     c.post("/auth/start", json={"email": "x@y.io"})
     code = sent["x@y.io"]
-    assert c.post("/auth/verify", json={"email": "x@y.io", "code": code}).status_code == 200
-    assert c.post("/auth/verify", json={"email": "x@y.io", "code": code}).status_code == 400
+    assert c.post("/auth/verify", json={"email": "x@y.io", "code": code, "adult": True}).status_code == 200
+    assert c.post("/auth/verify", json={"email": "x@y.io", "code": code, "adult": True}).status_code == 400
 
 
 def test_rate_limit(client):
@@ -115,3 +115,20 @@ def test_delete_account_erases_data(client):
     # signing in again with the same email creates a fresh, empty account
     again = sign_in(c, sent)
     assert again["user_id"] != s["user_id"]
+
+
+def test_age_confirmation_needed_once(client):
+    c, sent = client
+    assert c.post("/auth/start", json={"email": "kid@x.io"}).status_code == 200
+    code = sent["kid@x.io"]
+    r = c.post("/auth/verify", json={"email": "kid@x.io", "code": code})
+    assert r.status_code == 400 and "18" in r.json()["detail"]
+    # the refusal didn't use up the code: ticking the box with the same code works
+    assert c.post("/auth/verify", json={"email": "kid@x.io", "code": code, "adult": True}).status_code == 200
+    from database import get_db
+    conn = get_db()
+    assert conn.execute("SELECT age_confirmed_at FROM users WHERE email = 'kid@x.io'").fetchone()[0]
+    conn.close()
+    # recorded once: a later sign-in from an older app without the field still works
+    assert c.post("/auth/start", json={"email": "kid@x.io"}).status_code == 200
+    assert c.post("/auth/verify", json={"email": "kid@x.io", "code": sent["kid@x.io"]}).status_code == 200

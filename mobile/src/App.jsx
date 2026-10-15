@@ -354,7 +354,7 @@ const NAV_MORE = [
   { key: "early-goal-hunter", icon: Crosshair, label: "Early Goal Hunter" },
   { key: "chaos-factor", icon: Flame, label: "Chaos Factor" },
   { key: "goal-likelihood", icon: Goal, label: "Goal Likelihood (trial)" },
-  { key: "stables", icon: Medal, label: "The Stables" },
+  { key: "stables", icon: Medal, label: "The Stables (beta)" },
   { key: "calculator", icon: Calculator, label: "Calculator" },
   { key: "settings", icon: Settings, label: "Settings" },
 ];

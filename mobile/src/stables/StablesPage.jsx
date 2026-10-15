@@ -1530,7 +1530,8 @@ export default function StablesPage({ nav, entitled, onPurchased, ui }) {
     <PageShell activeTab="stables" onNavigate={nav} entitled={entitled}>
       <PageTitle
         title="The Stables"
-        subtitle="Extra-place each-way offers, priced runner by runner. We estimate each horse's chance of finishing in every position, then compare its chance of landing in the paid places with what the bookmaker's each-way terms imply."
+        right={<span style={{ color: ui.c.cyan, border: "1px solid rgba(75,199,255,0.4)", letterSpacing: "0.12em" }} className="text-[11px] font-bold uppercase px-2.5 py-1 rounded-lg mt-1.5 flex-shrink-0">Beta</span>}
+        subtitle="Extra-place each-way offers, priced runner by runner. We estimate each horse's chance of finishing in every position, then compare its chance of landing in the paid places with what the bookmaker's each-way terms imply. In beta: the model is still learning from race results, so grades and features may change."
       />
       {!entitled && <Paywall title="The Stables is a Pro feature" onPurchased={onPurchased} />}
       {entitled && (

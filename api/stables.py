@@ -401,9 +401,13 @@ def stables_tracker(authorization: str | None = Header(default=None), paper: Opt
 def stables_shadow(authorization: str | None = Header(default=None), days: int = 60):
     """Every runner shown in an extra-place race, graded just before the off: what each grade returned."""
     _require_pro(authorization)
+    from api.app import _cached   # late import: api.app includes this router
     from racing import shadow
 
-    return shadow.report(max(1, min(int(days), 365)))
+    days = max(1, min(int(days), 365))
+    # the same for everyone and only changes as results land: reuse for 10 minutes,
+    # rebuilt in the background (it walks every graded runner in the window)
+    return _cached(("stables-shadow", days), 600, lambda: shadow.report(days))
 
 
 class ManualRunner(BaseModel):

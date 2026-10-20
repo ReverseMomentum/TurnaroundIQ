@@ -1,0 +1,7 @@
+node_modules/
+dist/
+art/_build/
+art/_logo_bw.png
+art/_logo_traced.svg
+server/*.db
+server/.env

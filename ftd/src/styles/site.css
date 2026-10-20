@@ -1206,7 +1206,7 @@
   }
   .gallery__thumbs {
     order: 2;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
   }
   .pdp__title {
     margin-top: -0.3rem;

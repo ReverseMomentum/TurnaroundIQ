@@ -71,7 +71,7 @@ const email = `qa+${Date.now()}@example.com`;
   ok("thumbnail switches main image", (await p.locator(".gallery__image").getAttribute("src")).includes("hoodie-back"));
   await thumbs.nth(1).focus();
   await p.keyboard.press("ArrowRight");
-  ok("arrow keys move through thumbnails", (await p.locator(".gallery__image").getAttribute("src")).includes("detail-sleeve"));
+  ok("arrow keys move through thumbnails", (await p.locator(".gallery__image").getAttribute("src")).includes("detail-back"));
 
   await p.click("text=Notify me at drop");
   ok("notify without size asks for a size", (await p.locator(".sizes__error").count()) === 1);

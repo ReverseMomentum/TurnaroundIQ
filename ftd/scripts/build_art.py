@@ -8,6 +8,7 @@ from PIL import Image, ImageFilter
 from art_lib import BONE, OUT, _blur_noise, render, save_ink, screenprint, svg_doc
 
 import art_garments
+import art_flats
 import art_hero
 import art_scenes
 
@@ -20,18 +21,14 @@ INK_JOBS = {
 }
 
 GARMENTS = {
-    "hoodie-front": (art_garments.hoodie_front, 21),
-    "hoodie-back": (art_garments.hoodie_back, 22),
     "pants": (art_garments.pants, 23),
     "tee-heaven": (art_garments.tee_heaven, 24),
     "tee-decay": (art_garments.tee_decay, 25),
 }
 
-# close-ups cropped from the 3x hoodie render, in 1x coordinates (left, top, width)
-CROPS = {
-    "hoodie-detail-sleeve": ("hoodie-front", (74, 440, 300)),
-    "hoodie-detail-chest": ("hoodie-front", (296, 280, 300)),
-}
+# close-ups cropped from a 3x garment render, in 1x coordinates (left, top, width).
+# The zip hoodie's images come from the supplied flats instead (art_flats.py).
+CROPS = {}
 
 SCALE = 3
 GARMENT_BG = np.array([21, 17, 14], dtype=np.float32)  # #15110E
@@ -99,6 +96,11 @@ def main(names):
             c.resize((1000, 1100), Image.LANCZOS).save(OUT / f"{crop}.webp", "WEBP", quality=84, method=6)
             c.resize((400, 440), Image.LANCZOS).save(OUT / f"{crop}-thumb.webp", "WEBP", quality=80, method=6)
             print("  " + crop)
+
+
+    if not names or any(n.startswith("hoodie") for n in names):
+        print("hoodie (from supplied flats)")
+        art_flats.main()
 
 
 if __name__ == "__main__":

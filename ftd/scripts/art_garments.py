@@ -1,4 +1,7 @@
-"""Garment flats for Drop 01, drawn as shaded technical illustrations.
+"""Garment flats for Drop 01 (pants, tees), drawn as shaded technical illustrations.
+
+The zip hoodie uses the supplied flats (art_flats.py); hoodie_back() remains as
+the silhouette for the "relic" campaign panel.
 
 Each garment is rendered as two layers: the washed-black fabric (greyscale shading)
 and the bone-white print (a mask). They are composited in build_art.py with knit
@@ -109,68 +112,6 @@ BODY = ("M300,300 C360,280 410,262 440,250 C470,275 530,275 560,250 C590,262 640
         "C722,380 728,470 724,560 C722,680 730,780 736,858 L264,858 C270,780 278,680 276,560 "
         "C272,470 278,380 300,300 Z")
 HEM = "M262,852 L738,852 L742,930 C600,946 400,946 258,930 Z"
-HOOD_BACK = ("M380,268 C360,190 390,120 450,96 C485,82 515,82 550,96 C610,120 640,190 620,268 "
-             "C580,282 420,282 380,268 Z")
-HOOD_OPEN = ("M418,262 C410,200 432,140 476,122 C492,116 508,116 524,122 C568,140 590,200 582,262 "
-             "C560,300 530,330 500,338 C470,330 440,300 418,262 Z")
-
-
-def hoodie_front():
-    fab, prn = [], []
-    sl, cl = SLEEVE_L, CUFF_L
-    sr, cr = mirror_x(sl, 500), mirror_x(cl, 500)
-    edge = f"stroke='{g(0.05)}' stroke-width='5' stroke-linejoin='round'"
-    fab.append(f"<path d='{HOOD_BACK}' fill='{g(0.3)}' {edge}/>")
-    for s in (sl, sr):
-        fab.append(f"<path d='{s}' fill='url(#sleeveShade)' {edge}/>")
-    for c in (cl, cr):
-        fab.append(f"<path d='{c}' fill='url(#ribPat)' {edge}/>")
-    fab.append(f"<path d='{BODY}' fill='url(#bodyShade)' {edge}/>")
-    fab.append(f"<path d='{HEM}' fill='url(#ribPat)' {edge}/>")
-    # hood opening and lining
-    fab.append(f"<path d='{HOOD_OPEN}' fill='url(#hoodIn)' {edge}/>")
-    fab.append(f"<path d='M432,250 C440,190 462,150 490,140 C470,170 462,220 470,280 Z' fill='{g(0.04)}' filter='url(#fold2)'/>")
-    # hood band (double-layer edge)
-    fab.append(f"<path d='M418,262 C410,200 432,140 476,122 C492,116 508,116 524,122 C568,140 590,200 582,262' "
-               f"fill='none' stroke='{g(0.36)}' stroke-width='16'/>")
-    # folds on body and sleeves
-    folds = [
-        ("M330,420 C350,520 340,650 352,800", 0.18, 26), ("M670,430 C650,540 662,660 646,800", 0.18, 26),
-        ("M300,330 C330,350 360,360 410,372", 0.52, 14), ("M700,330 C670,350 640,360 590,372", 0.52, 14),
-        ("M300,820 C380,836 430,840 470,842", 0.22, 18), ("M700,820 C620,836 570,840 530,842", 0.22, 18),
-        ("M220,420 C200,520 186,640 172,790", 0.5, 18), ("M780,420 C800,520 814,640 828,790", 0.5, 18),
-        ("M250,560 C230,620 214,720 200,830", 0.14, 16), ("M750,560 C770,620 786,720 800,830", 0.14, 16),
-        ("M150,780 C170,800 200,812 222,812", 0.16, 14), ("M850,780 C830,800 800,812 778,812", 0.16, 14),
-    ]
-    for d, tone, wdt in folds:
-        fab.append(f"<path d='{d}' fill='none' stroke='{g(tone)}' stroke-width='{wdt}' stroke-linecap='round' filter='url(#fold)'/>")
-    # seams: dropped shoulder, side, armhole topstitch
-    seam = f"fill='none' stroke='{g(0.5)}' stroke-width='1.8' stroke-dasharray='5 5'"
-    fab.append(f"<path d='M300,306 C282,380 276,470 290,476' {seam}/><path d='M700,306 C718,380 724,470 710,476' {seam}/>")
-    fab.append(f"<path d='M268,846 L732,846' {seam}/>")
-    # split welt pockets
-    for d in ("M330,640 L392,780", "M670,640 L608,780"):
-        fab.append(f"<path d='{d}' fill='none' stroke='{g(0.06)}' stroke-width='7' stroke-linecap='round'/>")
-        fab.append(f"<path d='{d}' fill='none' stroke='{g(0.48)}' stroke-width='1.6' stroke-dasharray='4 4' transform='translate(6,0)'/>")
-    # zip: tape, teeth, puller
-    fab.append(f"<rect x='492' y='330' width='16' height='600' fill='{g(0.12)}'/>")
-    for y in range(334, 928, 7):
-        fab.append(f"<rect x='{495 if (y // 7) % 2 else 500}' y='{y}' width='5' height='4' fill='{g(0.62)}'/>")
-    for y0 in (342, 900):
-        fab.append(f"<rect x='491' y='{y0}' width='18' height='16' rx='2' fill='{g(0.7)}'/>")
-        fab.append(f"<rect x='496' y='{y0 + 14}' width='8' height='30' rx='3' fill='{g(0.58)}' stroke='{g(0.1)}' stroke-width='2'/>")
-    # drawcords with metal tips
-    for x, c in ((470, -10), (530, 10)):
-        fab.append(f"<path d='M{x},300 C{x + c},360 {x - c * 0.5},420 {x + c},480' fill='none' stroke='{g(0.08)}' stroke-width='11' stroke-linecap='round'/>")
-        fab.append(f"<path d='M{x},300 C{x + c},360 {x - c * 0.5},420 {x + c},480' fill='none' stroke='{g(0.4)}' stroke-width='7' stroke-linecap='round'/>")
-        fab.append(f"<rect x='{x + c - 5}' y='478' width='10' height='22' rx='2' fill='{g(0.72)}'/>")
-    # prints: chest wordmark split by the zip, sleeve crossbones
-    prn.append(logo(318, 392, 364))
-    prn.append(f"<rect x='490' y='300' width='20' height='640' fill='#000'/>")
-    prn.append(crossbone(224, 610, 0.88, rot=7.5))
-    prn.append(crossbone(776, 610, 0.88, rot=-7.5))
-    fab_mask = (f"<path d='{BODY}' fill='#fff'/><path d='{sl}' fill='#fff'/><path d='{sr}' fill='#fff'/>")
-    return 1000, 1100, HOOD_DEFS, "".join(fab), "".join(prn), fab_mask
 
 
 def hoodie_back():

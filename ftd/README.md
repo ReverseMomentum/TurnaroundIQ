@@ -8,6 +8,8 @@ shares nothing with TurnaroundIQ except the server it can be deployed to.
   can also sync them to a Resend audience.
 - **Artwork:** every image in `public/art/` comes from the scripts in `scripts/`. Nothing is stock or traced from
   third-party posters. The FTD wordmark is a vector trace of the supplied logo (`art/ftd-logo-source.jpg`).
+  The Crossbone Zip Hoodie images are cut from the supplied front/back flats
+  (`art/hoodie-flats-source.png`) by `scripts/art_flats.py`.
 
 ## Pages
 
@@ -94,8 +96,8 @@ These are labelled as indicative on the site, but they are not real yet:
 - **Prices** (£120 / £110 / £70 / £65). They're shown with "Indicative price — confirmed at release".
 - **Details and size chart** (`src/data/products.js`, `SIZE_GUIDE`). Marked as illustrative spec and
   indicative measurements. Replace them with the real fabric, weight and grading.
-- **Garment and campaign imagery.** These are shaded illustrations made by the art pipeline, not
-  photographs. When you have real photography, drop it into `public/art/` with the same file names and
+- **Garment and campaign imagery.** The zip hoodie uses your flats. The pants, tees and campaign panels
+  are illustrations made by the art pipeline, not photographs. When you have real photography, drop it into `public/art/` with the same file names and
   proportions and nothing else needs to change:
   - Product images are 1000×1100, with 400×440 `-thumb` versions.
   - Campaign images are 900×1200.
@@ -119,7 +121,9 @@ node scripts/trace-logo.mjs             # re-trace the wordmark (needs art/_logo
 ```
 
 - `art_hero.py`: skull, halo, shoulders.
-- `art_garments.py`: the hoodie, pants and tees, and the crossbone motif.
+- `art_flats.py`: the zip hoodie, from the supplied flats. To use new flats, replace the source file and re-run it.
+  If the layout of the image changes, update the crop boxes and `UNDERARM_GAPS`.
+- `art_garments.py`: the pants and tees, and the crossbone motif.
 - `art_scenes.py`: the cathedral and the campaign panels.
 
 Each image is drawn as greyscale SVG, rendered by Chromium, then given a screen-print finish in `art_lib.py`.

@@ -24,6 +24,7 @@ ART = {
     "FTD-ART-01_FTD-wordmark": ("ftd-wordmark-source.jpg", 45.0),
     "FTD-ART-02_Never-Enough": ("never-enough-source.png", 50.0),
     "FTD-ART-03_Crossbone-cross": ("crossbone-cross-source.png", 30.0),
+    "FTD-ART-03L_Crossbone-cross-large": ("crossbone-cross-source.png", 38.0),
     # T-shirt versions: own screens at T-shirt size
     "FTD-ART-01T_FTD-wordmark-tee": ("ftd-wordmark-source.jpg", 14.0),
     "FTD-ART-02T_Never-Enough-tee": ("never-enough-source.png", 38.0),

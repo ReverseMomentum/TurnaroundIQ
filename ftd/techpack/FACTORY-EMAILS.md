@@ -28,7 +28,7 @@ Portugal suits me well as a UK brand. I'd like a quote for samples and a first p
 **The styles** (full tech packs attached):
 
 1. **Crossbone Zip Hoodie (FTD-D01-HD01):** cropped boxy zip hoodie, balloon sleeves, 450–500 gsm cotton fleece. One-colour white screen prints on the chest, back and both sleeves.
-2. **Crossbone Baggy Pants (FTD-D01-PT01):** barrel-leg joggers in the same fleece. One-colour white prints across both legs.
+2. **Crossbone Baggy Pants (FTD-D01-PT01):** barrel-leg joggers in the same fleece. Three one-colour white crosses wrapping the outer side seams.
 3. **Never Enough Tee (FTD-D01-TS01):** cropped boxy tee, 260–280 gsm cotton jersey. One-colour white print on the chest and back.
 
 All three are black. I'll confirm the Pantone TCX code and approve a lab dip before bulk. Several prints cross
@@ -44,7 +44,7 @@ seams or the zip, so the tech packs ask for those panels to be **printed before 
 2. Minimum order per style and colour, and how it can be split across sizes.
 3. Unit price per style at the quantities above, and what that includes.
 4. Do you screen print in house? Can you print cut panels before sewing?
-5. Screen setup cost per screen and print cost per location. Drop 01 uses five one-colour screens, some shared between styles.
+5. Screen setup cost per screen and print cost per location. Drop 01 uses six one-colour screens, some shared between styles. The pants crosses wrap the outer side seams, so please quote the print cost per half and say how you match the halves at the seam.
 6. Which ink you'd recommend on this fabric (water-based discharge or plastisol), and the cost of a strike-off.
 7. Fabric: your 450–500 gsm 100% cotton fleece and 260–280 gsm jersey options, with shrinkage figures. Swatches would be very welcome.
 8. Zips: your options for the sample, and the cost and minimum for a custom FTD zip pull in production.
@@ -82,7 +82,7 @@ samples and a first production run.
 **The styles** (full tech packs attached):
 
 1. **Crossbone Zip Hoodie (FTD-D01-HD01):** cropped boxy zip hoodie, balloon sleeves, 450–500 gsm cotton fleece. One-colour white screen prints on the chest, back and both sleeves.
-2. **Crossbone Baggy Pants (FTD-D01-PT01):** barrel-leg joggers in the same fleece. One-colour white prints across both legs.
+2. **Crossbone Baggy Pants (FTD-D01-PT01):** barrel-leg joggers in the same fleece. Three one-colour white crosses wrapping the outer side seams.
 3. **Never Enough Tee (FTD-D01-TS01):** cropped boxy tee, 260–280 gsm cotton jersey. One-colour white print on the chest and back.
 
 All three are black. I'll confirm the Pantone TCX code and approve a lab dip before bulk. Several prints cross
@@ -98,7 +98,7 @@ seams or the zip, so the tech packs ask for those panels to be **printed before 
 2. Minimum order per style and colour, and how it can be split across sizes.
 3. Unit price per style at the quantities above, and what that includes.
 4. Do you screen print in house? Can you print cut panels before sewing?
-5. Screen setup cost per screen and print cost per location. Drop 01 uses five one-colour screens, some shared between styles.
+5. Screen setup cost per screen and print cost per location. Drop 01 uses six one-colour screens, some shared between styles. The pants crosses wrap the outer side seams, so please quote the print cost per half and say how you match the halves at the seam.
 6. Which ink you'd recommend on this fabric (water-based discharge or plastisol), and the cost of a strike-off.
 7. Fabric: your zip hoodies are listed at 320–400 gsm. Can you make these in 450–500 gsm 100% cotton fleece? Please also share your 260–280 gsm jersey options, with shrinkage figures. Swatches would be very welcome.
 8. Zips: your options for the sample, and the cost and minimum for a custom FTD zip pull in production.
@@ -137,7 +137,7 @@ samples and a first production run.
 **The styles** (full tech packs attached):
 
 1. **Crossbone Zip Hoodie (FTD-D01-HD01):** cropped boxy zip hoodie, balloon sleeves, 450–500 gsm cotton fleece. One-colour white screen prints on the chest, back and both sleeves.
-2. **Crossbone Baggy Pants (FTD-D01-PT01):** barrel-leg joggers in the same fleece. One-colour white prints across both legs.
+2. **Crossbone Baggy Pants (FTD-D01-PT01):** barrel-leg joggers in the same fleece. Three one-colour white crosses wrapping the outer side seams.
 3. **Never Enough Tee (FTD-D01-TS01):** cropped boxy tee, 260–280 gsm cotton jersey. One-colour white print on the chest and back.
 
 All three are black. I'll confirm the Pantone TCX code and approve a lab dip before bulk. Several prints cross
@@ -153,7 +153,7 @@ seams or the zip, so the tech packs ask for those panels to be **printed before 
 2. Minimum order per style and colour, and how it can be split across sizes. Does the 15-piece minimum apply to cut-and-sew fleece like this?
 3. Unit price per style at the quantities above, and what that includes.
 4. Do you screen print in house? Can you print cut panels before sewing?
-5. Screen setup cost per screen and print cost per location. Drop 01 uses five one-colour screens, some shared between styles.
+5. Screen setup cost per screen and print cost per location. Drop 01 uses six one-colour screens, some shared between styles. The pants crosses wrap the outer side seams, so please quote the print cost per half and say how you match the halves at the seam.
 6. Which ink you'd recommend on this fabric (water-based discharge or plastisol), and the cost of a strike-off.
 7. Fabric: your 450–500 gsm 100% cotton fleece and 260–280 gsm jersey options, with shrinkage figures. Swatches would be very welcome.
 8. Zips: your options for the sample, and the cost and minimum for a custom FTD zip pull in production.
@@ -192,7 +192,7 @@ samples and a first production run.
 **The styles** (full tech packs attached):
 
 1. **Crossbone Zip Hoodie (FTD-D01-HD01):** cropped boxy zip hoodie, balloon sleeves, 450–500 gsm cotton fleece. One-colour white screen prints on the chest, back and both sleeves.
-2. **Crossbone Baggy Pants (FTD-D01-PT01):** barrel-leg joggers in the same fleece. One-colour white prints across both legs.
+2. **Crossbone Baggy Pants (FTD-D01-PT01):** barrel-leg joggers in the same fleece. Three one-colour white crosses wrapping the outer side seams.
 3. **Never Enough Tee (FTD-D01-TS01):** cropped boxy tee, 260–280 gsm cotton jersey. One-colour white print on the chest and back.
 
 All three are black. I'll confirm the Pantone TCX code and approve a lab dip before bulk. Several prints cross
@@ -208,7 +208,7 @@ seams or the zip, so the tech packs ask for those panels to be **printed before 
 2. Minimum order per style and colour, and how it can be split across sizes.
 3. Unit price per style at the quantities above, and what that includes.
 4. Do you screen print in house? Can you print cut panels before sewing?
-5. Screen setup cost per screen and print cost per location. Drop 01 uses five one-colour screens, some shared between styles.
+5. Screen setup cost per screen and print cost per location. Drop 01 uses six one-colour screens, some shared between styles. The pants crosses wrap the outer side seams, so please quote the print cost per half and say how you match the halves at the seam.
 6. Which ink you'd recommend on this fabric (water-based discharge or plastisol), and the cost of a strike-off.
 7. Fabric: your 450–500 gsm 100% cotton fleece and 260–280 gsm jersey options, with shrinkage figures. Swatches would be very welcome.
 8. Zips: your options for the sample, and the cost and minimum for a custom FTD zip pull in production.
@@ -236,7 +236,7 @@ FTD (Forsaken To Decay)
 - `FTD-D01-HD01_Crossbone-Zip-Hoodie.pdf`
 - `FTD-D01-PT01_Crossbone-Baggy-Pants.pdf`
 - `FTD-D01-TS01_Never-Enough-Tee.pdf`
-- `artwork/`, zipped (five SVGs and 300 dpi films)
+- `artwork/`, zipped (six SVGs and 300 dpi films)
 - `labels/FTD-labels-overview.pdf`
 
 If the Never Enough hoodie is in the sample run, attach `FTD-D01-HD02_Never-Enough-Zip-Hoodie.pdf`, change "3

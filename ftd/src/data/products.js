@@ -132,19 +132,19 @@ export const PRODUCTS = [
     name: "Crossbone Baggy Pants",
     price: 110,
     summary:
-      "A barrel leg, wide through the knee and curved back in to the hem. Crossbone artwork sprawls across both legs, front and back, printed to match the zip hoodie.",
+      "A barrel leg, wide through the knee and curved back in to the hem. Crossbone crosses wrap the side seams at the hip, knee and shin, printed to match the zip hoodie.",
     details: [
       "Heavyweight fleece to match the zip hoodies",
       "Barrel leg, curved from hip to hem",
       "Elasticated waistband with drawcord",
       "Side pockets and a rear welt pocket",
-      "Crossbone artwork across both legs, front and back",
+      "Crossbone crosses wrapping both side seams",
     ],
     fit: "Cut wide with a curved leg. Take your usual waist size.",
     sizeGuide: BOTTOM_GUIDE,
     colours: colourways("crossbone-baggy-pants", ["front", "back", "front-detail"], {
-      front: "Crossbone Baggy Pants, front: barrel-leg joggers with a drawcord waist and large crossbone crosses printed across both legs.",
-      back: "Crossbone Baggy Pants, back: a rear welt pocket and a large crossbone cross running down from the waistband.",
+      front: "Crossbone Baggy Pants, front: barrel-leg joggers with a drawcord waist and crossbone crosses wrapping round the outer side seams at the hip, knee and shin.",
+      back: "Crossbone Baggy Pants, back: rear welt pockets, a clean seat, and the back halves of the crosses wrapping round from the side seams.",
       "front-detail": "Close-up of the crossbone print on the front of the leg, beside the drawcord.",
     }),
   },

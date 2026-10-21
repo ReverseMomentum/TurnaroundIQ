@@ -131,6 +131,20 @@ node scripts/trace-logo.mjs             # re-trace the wordmark (needs art/_logo
 
 The campaign halos are drawn as SVG, rendered by Chromium, then given a screen-print finish in `art_lib.py`.
 
+## Sample tech packs
+
+`techpack/` holds one PDF per Drop 01 sample (Crossbone Zip Hoodie, Never Enough Zip Hoodie, Crossbone Baggy
+Pants), ready to send to manufacturers with a quote request. Every value is in `techpack/spec.py` and marked
+CONFIRMED, PROPOSED or TBC. Edit it and rebuild:
+
+```bash
+python3 scripts/build_techpack.py
+```
+
+Flats come from `art/flats/<slug>-black.png`. Callout and measurement-line positions are in `CALLOUTS` and
+`POM_LINES` in `scripts/build_techpack.py`, in flat-sheet pixels. Print sizes are scaled from the flats using the
+proposed chest (hoodie) and hip (pants) widths.
+
 ## QA scripts
 
 With the dev server and API running:

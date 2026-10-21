@@ -1,0 +1,206 @@
+"""Tech pack data for the Drop 01 samples. Edit here, then rebuild:
+
+    python3 scripts/build_techpack.py
+
+Status of every value: "CONFIRMED" (decided by FTD), "PROPOSED" (a starting
+point from the flats and typical specs for this garment type; confirm or change),
+or "TBC" (needs an answer, usually from the manufacturer).
+Measurements are centimetres, garment laid flat (half measurements) unless noted.
+"""
+
+VERSION = "v0.1"
+DATE = "21 Oct 2026"
+SAMPLE_SIZE = "M"
+SIZES = ["XS", "S", "M", "L", "XL", "XXL"]
+BRAND = {
+    "name": "FTD — Forsaken To Decay",
+    "contact": "",  # name / email / phone, filled in before sending
+    "address": "",
+}
+
+# ---------------------------------------------------------------- hoodie block
+
+# Scale used to size prints from the flats: the proposed 66 cm chest = 590 px.
+HOODIE_CM_PER_PX = 66 / 590
+PANTS_CM_PER_PX = 58 / 323  # proposed 58 cm hip = 323 px
+
+HOODIE_POM = [
+    # code, point of measure, how to measure, M value, grade per size, tolerance
+    ("A", "Body length", "HPS to bottom edge of hem rib", 60, 2, 1),
+    ("B", "Chest width", "2.5 cm below armhole, edge to edge", 66, 3, 1),
+    ("C", "Shoulder width (dropped)", "Shoulder seam point to point, across back", 64, 3, 1),
+    ("D", "Body width above hem rib", "Edge to edge at the rib seam", 52, 3, 1),
+    ("E", "Hem rib width, relaxed", "Bottom edge, edge to edge", 40, 3, 1),
+    ("F", "Hem rib height", "Rib seam to bottom edge", 7, 0, 0.5),
+    ("G", "Armhole, straight", "Shoulder point to underarm, straight", 30, 1, 0.5),
+    ("H", "Sleeve length", "Shoulder seam to cuff edge, along top of sleeve", 60, 1, 1),
+    ("I", "Bicep width", "2.5 cm below armhole, perpendicular to sleeve", 29, 1, 0.5),
+    ("J", "Sleeve width at balloon", "Widest point of lower sleeve, approx. 20 cm above cuff", 31, 1, 0.5),
+    ("K", "Cuff width, relaxed", "Cuff edge, edge to edge", 9.5, 0.5, 0.5),
+    ("L", "Cuff height", "Cuff seam to edge", 7, 0, 0.5),
+    ("M", "Neck width", "Seam to seam at shoulder", 21, 0.5, 0.5),
+    ("N", "Front neck drop", "HPS to top of zip, vertical", 9, 0.5, 0.5),
+    ("O", "Hood height", "Neck seam at side to top of hood", 36, 0.5, 1),
+    ("P", "Hood width", "Widest point, laid flat", 27, 0.5, 0.5),
+    ("Q", "Zip length", "Top stop to bottom of hem rib (to fit)", 52, 1.5, 0.5),
+    ("R", "Pouch pocket opening", "Each side, along the opening edge", 16, 0.5, 0.5),
+]
+
+HOODIE_FEATURES = [
+    "Cropped, boxy body with dropped shoulders and a blouson hem (body gathered into rib)",
+    "Full balloon sleeves gathered into ribbed cuffs",
+    "Two-piece hood with centre seam, self-lined",
+    "Full-length front zip, single slider",
+    "Split kangaroo pouch pocket, divided by the zip",
+    "Ribbed cuffs and hem",
+    "Screen prints applied by FTD in house (see artwork pages)",
+]
+
+# component, specification, placement, colour, status
+HOODIE_BOM = [
+    ("Main fabric", "100% cotton heavyweight fleece, brushed back, 450–500 gsm. Pre-shrunk; shrinkage ≤3% length and width. Cotton face required for screen printing (no polyester: ink dye migration).", "Body, sleeves, hood, pocket", "Black", "PROPOSED"),
+    ("Hood lining", "Self fabric (double-layer hood)", "Hood", "Black", "PROPOSED"),
+    ("Rib", "2×2 rib, 95% cotton / 5% elastane, approx. 400 gsm", "Cuffs, hem", "Black, matched to main", "PROPOSED"),
+    ("Zip (sample)", "Metal, open-end (separating), no. 5 or 8 teeth, single auto-lock slider. Best available stock zip in this finish.", "Centre front", "Gunmetal / black nickel", "PROPOSED"),
+    ("Zip (production)", "As above with custom FTD puller. Quote separately: mould cost and minimum order.", "Centre front", "TBC", "TBC"),
+    ("Thread", "Polyester core-spun, Tex 40", "All seams", "Black", "PROPOSED"),
+    ("Neck tape", "Woven or printed tape covering back neck seam (as drawn in flat)", "Inside back neck", "Black", "TBC"),
+    ("Main label", "Woven FTD label, artwork by FTD", "Inside centre back neck", "TBC", "TBC"),
+    ("Size label", "Woven or printed, size only", "Under main label", "TBC", "TBC"),
+    ("Care / composition label", "Printed satin; fibre composition, care symbols, brand", "Left side seam, 8 cm above hem", "White on black", "PROPOSED"),
+]
+
+HOODIE_CONSTRUCTION = [
+    ("Seams", "Overlock (4-thread) all body and sleeve seams; twin-needle topstitch 6 mm at armhole seams as drawn."),
+    ("Shoulders", "Dropped shoulder; armhole seam topstitched on body side."),
+    ("Sleeves", "Balloon shape: extra volume in the lower sleeve, gathered evenly into the cuff. Cuff joined with overlock, topstitched."),
+    ("Hem", "Body gathered evenly into rib hem (blouson). Rib joined with overlock, cover-stitched."),
+    ("Zip", "Inserted between front panels, ending at hem rib bottom and at neck. Topstitched both sides 3 mm. Zip teeth exposed as drawn."),
+    ("Hood", "Two-piece, centre seam. Self-lined, joined at face opening and neck; no drawcord (per flat, confirm)."),
+    ("Pouch pocket", "Split pouch, one each side of zip; opening edges bound or topstitched 6 mm; bar-tack at opening ends."),
+    ("Neck", "Back neck seam covered with neck tape; main label sewn into tape at centre back."),
+    ("Finishing", "Trim all threads; press; no fusing. Fold and bag individually."),
+]
+
+# ---------------------------------------------------------------- pants block
+
+PANTS_POM = [
+    ("A", "Waist, relaxed", "Top edge of waistband, edge to edge", 36, 3, 1),
+    ("B", "Waist, extended", "Top edge, fully stretched", 52, 3, 1),
+    ("C", "Hip", "18 cm below top of waistband, edge to edge", 58, 3, 1),
+    ("D", "Front rise", "Top of waistband to crotch seam, including band", 33, 1, 0.5),
+    ("E", "Back rise", "Top of waistband to crotch seam, including band", 42, 1, 0.5),
+    ("F", "Thigh", "2.5 cm below crotch, perpendicular to leg", 36, 1.5, 0.5),
+    ("G", "Knee (barrel peak)", "36 cm below crotch", 37, 1.5, 0.5),
+    ("H", "Leg opening", "Hem edge, edge to edge", 25, 1, 0.5),
+    ("I", "Inseam", "Crotch to hem edge", 76, 1, 1),
+    ("J", "Outseam", "Top of waistband to hem edge, along the curved side", 108, 1.5, 1),
+    ("K", "Waistband height (both bands)", "Top edge to lower band seam", 9, 0, 0.5),
+    ("L", "Side pocket opening", "Along the opening edge", 16, 0.5, 0.5),
+    ("M", "Rear welt pocket width", "Each pocket, end to end", 13, 0.5, 0.5),
+]
+
+PANTS_FEATURES = [
+    "Barrel leg: wide through the knee, curving back in to the hem",
+    "Stacked double waistband, elasticated, with drawcord exiting at centre front",
+    "Slanted side pockets",
+    "Two rear welt pockets",
+    "Centre back seam",
+    "Clean-finished hem",
+    "Screen prints applied by FTD in house (see artwork pages)",
+]
+
+PANTS_BOM = [
+    ("Main fabric", "Same fleece as the zip hoodies: 100% cotton, brushed back, 450–500 gsm, pre-shrunk ≤3%", "Legs, waistband", "Black", "PROPOSED"),
+    ("Elastic", "Knitted elastic, 40 mm", "Inside upper waistband", "Black", "PROPOSED"),
+    ("Drawcord", "Round cotton cord, 8 mm, approx. 140 cm; tips TBC (knotted or metal aglets)", "Lower waistband channel, exits at CF", "Black", "PROPOSED"),
+    ("Drawcord exits", "Two buttonholes or gunmetal metal eyelets", "CF lower waistband", "Black / gunmetal", "TBC"),
+    ("Pocketing", "Self fabric or black cotton jersey", "Side and rear pocket bags", "Black", "PROPOSED"),
+    ("Thread", "Polyester core-spun, Tex 40", "All seams", "Black", "PROPOSED"),
+    ("Main label", "Woven FTD label (same as hoodies)", "Inside CB waistband", "TBC", "TBC"),
+    ("Care / composition label", "Printed satin; fibre composition, care symbols, brand", "Inside left side seam, below waistband", "White on black", "PROPOSED"),
+]
+
+PANTS_CONSTRUCTION = [
+    ("Seams", "Overlock (4-thread); topstitch as drawn at pockets and waistband."),
+    ("Barrel leg", "Curved outseam and inseam to create the barrel. Manufacturer to advise if knee darts or a shaped front panel are needed to hold the curve."),
+    ("Waistband", "Stacked double band. Upper band carries the 40 mm elastic; lower band carries the drawcord channel with exits at CF. Both bands topstitched as drawn."),
+    ("Side pockets", "Slanted opening, topstitched 6 mm, bar-tacked at both ends."),
+    ("Rear welts", "Two single-welt pockets, bar-tacked. Sewn after printing (the back print crosses the right welt)."),
+    ("Centre back", "Centre back seam, overlocked and topstitched."),
+    ("Hem", "Turned and twin-needle stitched, 2.5 cm, as drawn."),
+    ("Finishing", "Trim all threads; press; fold and bag individually."),
+]
+
+# ---------------------------------------------------------------- styles
+
+PRINT_METHOD = ("Screen print by FTD in house. Ink: white plastisol or water-based discharge (TBC after test "
+                "prints on the sample fabric). No printing by the manufacturer.")
+
+STYLES = [
+    {
+        "code": "FTD-D01-HD01",
+        "why": "The FTD wordmark crosses the zip, the back crosses run over the shoulder seams onto the sleeves, and the sleeve crosses wrap a gathered balloon sleeve. None of these can be printed cleanly once the garment is sewn.",
+        "slug": "crossbone-zip-hoodie",
+        "name": "Crossbone Zip Hoodie",
+        "block": "hoodie",
+        "colour": "Black",
+        "summary": "Cropped boxy zip hoodie with balloon sleeves. FTD wordmark on the chest, crossbone crosses down both sleeves and across the back shoulders.",
+        "prints": [
+            # name, approx size w x h (cm), placement, panels printed
+            ("P1  FTD wordmark", "44.7 × 23.3", "Centred on CF, across the zip. Top edge approx. 8 cm below HPS. Matched across the zip within 3 mm.", "Front L, Front R"),
+            ("P2  Back crosses (×2)", "30.4 × 37.6 and 28.2 × 26.7", "Diagonal across upper back. Both run over the shoulder seams onto the sleeves; match at the seams within 5 mm.", "Back, Sleeve L, Sleeve R"),
+            ("P3  Sleeve crosses", "approx. 27 × 52 each (wraps sleeve)", "Full length of each sleeve, wrapping from front to back. Printed on the flat sleeve panel.", "Sleeve L, Sleeve R"),
+        ],
+        "printed_panels": ["Front L", "Front R", "Back", "Sleeve L", "Sleeve R"],
+        "factory_panels": ["Hood (×2 outer, ×2 lining)", "Pouch pocket pieces", "Cuff rib (×2)", "Hem rib"],
+    },
+    {
+        "code": "FTD-D01-HD02",
+        "why": "The FTD wordmark crosses the zip, so the two front panels are printed before the zip goes in. The back is printed flat at the same time so all prints are cured together.",
+        "slug": "never-enough-zip-hoodie",
+        "name": "Never Enough Zip Hoodie",
+        "block": "hoodie",
+        "colour": "Black",
+        "summary": "Same body as HD01. FTD wordmark on the chest, NEVER ENOUGH death-metal logo across the back. Plain sleeves.",
+        "prints": [
+            ("P1  FTD wordmark", "44.7 × 23.3", "Centred on CF, across the zip. Top edge approx. 8 cm below HPS. Matched across the zip within 3 mm.", "Front L, Front R"),
+            ("P2  NEVER ENOUGH logo", "50.5 × 43.3", "Centred on CB. Top edge approx. 2 cm below the hood seam.", "Back"),
+        ],
+        "printed_panels": ["Front L", "Front R", "Back"],
+        "factory_panels": ["Sleeves (×2)", "Hood (×2 outer, ×2 lining)", "Pouch pocket pieces", "Cuff rib (×2)", "Hem rib"],
+    },
+    {
+        "code": "FTD-D01-PT01",
+        "why": "The crosses run off the side seams, across the centre back seam and over the right rear welt pocket. The legs are printed flat before the seams, welts and waistband are sewn.",
+        "slug": "crossbone-baggy-pants",
+        "name": "Crossbone Baggy Pants",
+        "block": "pants",
+        "colour": "Black",
+        "summary": "Barrel-leg fleece pants with a stacked drawcord waistband. Crossbone crosses across both legs, front and back.",
+        "prints": [
+            ("P1  Front cross, left leg", "32.7 × 41.8", "Upper left leg, running off the outseam. Cut by the side seam as drawn.", "Front L"),
+            ("P2  Front cross, right leg", "27.1 × 44.5", "Lower right leg, running off the outseam.", "Front R"),
+            ("P3  Back crosses", "approx. 31 × 48 (upper) plus fragments", "Upper back crossing the CB seam and the right welt pocket; second cross lower on the left leg. Match across CB seam within 5 mm.", "Back L, Back R"),
+        ],
+        "printed_panels": ["Front L", "Front R", "Back L", "Back R"],
+        "factory_panels": ["Waistband bands", "Pocket bags and facings", "Welt pieces"],
+    },
+]
+
+QUESTIONS = [
+    "Sample cost per style, lead time, and how many fit rounds are included.",
+    "Can you supply the printable panels cut but unsewn, then sew them after we return them printed? Cost and turnaround?",
+    "Production minimum order per style and colour, and how it can be split across sizes.",
+    "Fleece options at 450–500 gsm, 100% cotton: shrinkage figures and colourfastness.",
+    "Zip options for the sample (brand, finish), and for production: cost and minimum for a custom puller, including mould fee.",
+    "Can you grade the pattern XS–XXL and share the pattern pieces (PDF or DXF) so we can make print placement guides?",
+    "Can you source the woven main and size labels, and the care labels?",
+    "Shipping method, cost and duties to the UK.",
+]
+
+LABEL_NOTES = [
+    "UK law requires a fibre composition label on clothing sold in the UK (e.g. \"100% cotton\"). Care symbols are standard practice.",
+    "Include the brand name and a contact address on the label or packaging so the product can be traced.",
+    "Main label artwork, size label format and care wording will be supplied by FTD before production.",
+]

@@ -78,7 +78,7 @@ HOODIE_CONSTRUCTION = [
     ("Hem", "Body gathered evenly into rib hem (blouson). Rib joined with overlock, cover-stitched."),
     ("Zip", "Inserted between front panels, ending at hem rib bottom and at neck. Topstitched both sides 3 mm. Zip teeth exposed as drawn."),
     ("Hood", "Two-piece, centre seam. Self-lined, joined at face opening and neck; no drawcord (per flat, confirm)."),
-    ("Pouch pocket", "Split pouch, one each side of zip; opening edges bound or topstitched 6 mm; bar-tack at opening ends."),
+    ("Pouch pocket", "Split pouch, one each side of zip; opening edges and pocket outline twin-needle topstitched 6 mm; bar-tack at opening ends."),
     ("Neck", "Back neck seam covered with neck tape; main label sewn into tape at centre back."),
     ("Finishing", "Trim all threads; press; no fusing. Fold and bag individually."),
 ]
@@ -173,8 +173,8 @@ TEE_BOM = [
 
 TEE_CONSTRUCTION = [
     ("Seams", "Overlock (4-thread) shoulder and side seams; shoulder seams taped."),
-    ("Shoulders", "Dropped shoulder; armhole seam topstitched on body side as drawn."),
-    ("Collar", "2.5 cm 1×1 rib, joined with overlock, cover-stitched; back neck taped shoulder to shoulder."),
+    ("Shoulders", "Dropped shoulder; armhole seam twin-needle topstitched 6 mm on body side as drawn."),
+    ("Collar", "2.5 cm 1×1 rib (95% cotton / 5% elastane so it holds shape after washing), joined with overlock, twin-needle topstitched on the body side; back neck taped shoulder to shoulder."),
     ("Hems", "Body and sleeve hems turned 2.5 cm, twin-needle cover-stitch."),
     ("Printing", "Prints sit on flat areas away from seams; printing on cut panels or the finished garment are both fine, factory's choice."),
     ("Finishing", "Trim all threads; press; fold and bag individually."),

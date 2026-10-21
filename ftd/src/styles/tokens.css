@@ -3,19 +3,19 @@
   --ink: #0a0807;
   --char: #15110e;
   --char-2: #1c1713;
-  /* rust red: --rust is the ink of the artwork (2.9:1 on --ink, so art, fills and
-     ornaments only); --rust-text is the same hue lifted to 4.7:1 for all text and
-     interactive borders; bone on a --rust fill reads at 5.1:1 */
+  /* rust red, one tone for art and text alike (a brand choice: 2.9:1 on --ink, below
+     the 4.5:1 guideline for small text). For a more legible text tone, set
+     --rust-text to #c8583c (4.7:1). Bone on a --rust fill reads at 5.1:1. */
   --rust: #9c3a22;
-  --rust-text: #c8583c;
+  --rust-text: var(--rust);
   --rust-deep: #7a2c19;
   --bone: #e6dcc9;
   --grey: #82796f;
   --grey-2: #9a9085; /* small supporting text on --ink */
   --error: #eaa98c; /* paler than --rust-text so errors never read as normal copy */
 
-  --line: rgb(200 88 60 / 0.6);
-  --line-soft: rgb(200 88 60 / 0.26);
+  --line: rgb(156 58 34 / 0.75);
+  --line-soft: rgb(156 58 34 / 0.38);
   --line-bone: rgb(230 220 201 / 0.14);
 
   /* type */

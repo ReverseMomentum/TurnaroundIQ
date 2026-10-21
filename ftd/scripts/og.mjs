@@ -7,7 +7,7 @@ const root = path.resolve(".");
 const font = (f) => `file://${root}/node_modules/@fontsource/${f}`;
 const html = `<html><head><style>
 @font-face{font-family:S;src:url("${font("grenze/files/grenze-latin-600-normal.woff2")}")}
-body{margin:0;width:1200px;height:630px;background:#0A0807;overflow:hidden;font-family:S;color:#C8583C;text-transform:uppercase}
+body{margin:0;width:1200px;height:630px;background:#0A0807;overflow:hidden;font-family:S;color:#9C3A22;text-transform:uppercase}
 .art{position:absolute;right:60px;top:0;height:630px}
 .s{position:absolute;left:80px;top:150px;font-size:46px;line-height:1.12;letter-spacing:.06em}
 .d{position:absolute;left:84px;top:430px;letter-spacing:.2em;font-size:20px;color:#E6DCC9}

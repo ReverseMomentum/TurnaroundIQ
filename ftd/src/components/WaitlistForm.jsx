@@ -3,7 +3,7 @@ import { joinWaitlist, validateEmail } from "../lib/waitlist.js";
 
 // Email capture for drop announcements. Success is shown only after the
 // server confirms the address was stored.
-export default function WaitlistForm({ source = "landing", product, size, compact = false, autoFocus = false }) {
+export default function WaitlistForm({ source = "landing", product, colour, size, compact = false, autoFocus = false }) {
   const id = useId();
   const inputRef = useRef(null);
   const [email, setEmail] = useState("");
@@ -27,7 +27,7 @@ export default function WaitlistForm({ source = "landing", product, size, compac
     setState("submitting");
     setError(null);
     try {
-      const res = await joinWaitlist({ email, source, product, size, website });
+      const res = await joinWaitlist({ email, source, product, colour, size, website });
       setAlready(res.already);
       setState("success");
     } catch (err) {
@@ -42,7 +42,7 @@ export default function WaitlistForm({ source = "landing", product, size, compac
         <p className="waitlist-form__done-title">{already ? "Already on the list." : "You're on the list."}</p>
         <p className="waitlist-form__done-copy">
           {product
-            ? `We'll write to ${email.trim()} when Drop 01 opens${size ? ` — size ${size} noted` : ""}.`
+            ? `We'll write to ${email.trim()} when Drop 01 opens${size ? ` — ${colour ? `${colour}, ` : ""}size ${size} noted` : ""}.`
             : `We'll write to ${email.trim()} before Drop 01 opens.`}
         </p>
       </div>

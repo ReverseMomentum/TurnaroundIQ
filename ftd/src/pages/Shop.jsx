@@ -4,7 +4,7 @@ import { DROP, PRODUCTS } from "../data/products.js";
 import { usePageMeta } from "../lib/usePageMeta.js";
 
 export default function Shop() {
-  usePageMeta({ title: "Shop — Drop 01", description: "FTD Drop 01: the Crossbone Zip Hoodie, Crossbone Baggy Pants, Heaven Graphic Tee and Decay Tee." });
+  usePageMeta({ title: "Shop — Drop 01", description: "FTD Drop 01: the Crossbone, Never Enough and Cross zip hoodies and the Crossbone Baggy Pants, in black and grey." });
   return (
     <section className="shop" aria-labelledby="shop-title">
       <header className="shop__head">

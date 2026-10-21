@@ -1,8 +1,7 @@
 import { useEffect, useRef } from "react";
-import { SIZE_GUIDE } from "../data/products.js";
 
 // Modal size chart built on <dialog>, which handles focus trapping and Escape.
-export default function SizeGuide({ open, onClose, fit }) {
+export default function SizeGuide({ open, onClose, guide, fit }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -31,13 +30,13 @@ export default function SizeGuide({ open, onClose, fit }) {
           <caption className="visually-hidden">Garment measurements in centimetres, measured flat</caption>
           <thead>
             <tr>
-              {SIZE_GUIDE.columns.map((c) => (
+              {guide.columns.map((c) => (
                 <th key={c} scope="col">{c}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {SIZE_GUIDE.rows.map(([size, ...cells]) => (
+            {guide.rows.map(([size, ...cells]) => (
               <tr key={size}>
                 <th scope="row">{size}</th>
                 {cells.map((v, i) => (
@@ -47,7 +46,7 @@ export default function SizeGuide({ open, onClose, fit }) {
             ))}
           </tbody>
         </table>
-        <p className="size-guide__note">Centimetres, measured flat. Chest is pit to pit; length is shoulder to hem.</p>
+        <p className="size-guide__note">{guide.note}</p>
         {fit && <p className="size-guide__note">{fit}</p>}
         <p className="size-guide__note size-guide__note--flag">Indicative measurements. Final grading is published at release.</p>
       </div>

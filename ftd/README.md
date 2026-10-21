@@ -8,8 +8,8 @@ shares nothing with TurnaroundIQ except the server it can be deployed to.
   can also sync them to a Resend audience.
 - **Artwork:** every image in `public/art/` comes from the scripts in `scripts/`. Nothing is stock or traced from
   third-party posters. The FTD wordmark is a vector trace of the supplied logo (`art/ftd-logo-source.jpg`).
-  The Crossbone Zip Hoodie images are cut from the supplied front/back flats
-  (`art/hoodie-flats-source.png`) by `scripts/art_flats.py`.
+  Product images are cut from the supplied front/back flats in `art/flats/` by `scripts/art_flats.py`,
+  and the campaign panels re-ink their back prints (`scripts/art_campaign.py`).
 
 ## Pages
 
@@ -17,8 +17,9 @@ shares nothing with TurnaroundIQ except the server it can be deployed to.
 | --- | --- |
 | `/` | Hero, waitlist, the ruin and About statement, Drop 01 preview |
 | `/shop` | Drop 01 grid (four pieces) |
-| `/shop/crossbone-zip-hoodie` | Full product page: gallery, sizes, size guide, notify-me, campaign, other pieces |
-| `/shop/:slug` | The same template for the pants and both tees |
+| `/shop/crossbone-zip-hoodie` | Product page: gallery, colour, sizes, size guide, notify-me, campaign, other pieces |
+| `/shop/:slug` | The same page for the Never Enough and Cross hoodies and the pants |
+| `/shop/:slug?colour=grey` | Opens a product in its grey colourway (black is the default) |
 
 ## Run it locally
 
@@ -44,8 +45,8 @@ python3 server/waitlist_api.py export > signups.csv
   "Already on the list" and isn't stored twice.
 - The browser shows success **only** after the API returns `{ ok: true }`. A network failure, a 4xx/5xx
   response or a proxy error page shows an error saying the email was not saved.
-- Notify-me on a product page posts the product slug and chosen size. They are stored in
-  `waitlist_interest`, so you can see who wants which size.
+- Notify-me on a product page posts the product slug, colour and size. They are stored in
+  `waitlist_interest`. `python3 server/waitlist_api.py interest` counts demand by product, colour and size.
 - Spam protection: a hidden honeypot field (bots get a fake success and nothing is stored), a limit of
   8 attempts per IP per 10 minutes, and an optional origin allow-list.
 - If Resend is configured, each new signup is also added to a Resend audience in the background. If that
@@ -93,16 +94,16 @@ This builds the site into `/var/www/ftd`, installs and restarts the `ftd-waitlis
 
 These are labelled as indicative on the site, but they are not real yet:
 
-- **Prices** (£120 / £110 / £70 / £65). They're shown with "Indicative price — confirmed at release".
-- **Details and size chart** (`src/data/products.js`, `SIZE_GUIDE`). Marked as illustrative spec and
+- **Prices** (£120 for each hoodie, £110 for the pants). They're shown with "Indicative price — confirmed at release".
+- **Details and size charts** (`src/data/products.js`, `TOP_GUIDE` and `BOTTOM_GUIDE`). Marked as illustrative spec and
   indicative measurements. Replace them with the real fabric, weight and grading.
-- **Garment and campaign imagery.** The zip hoodie uses your flats. The pants, tees and campaign panels
-  are illustrations made by the art pipeline, not photographs. When you have real photography, drop it into `public/art/` with the same file names and
-  proportions and nothing else needs to change:
+- **Garment imagery.** These are your flats, not photographs. When you have real photography, drop it
+  into `public/art/` with the same file names (`<slug>-<colour>-<view>.webp`) and proportions, and nothing
+  else needs to change:
   - Product images are 1000×1100, with 400×440 `-thumb` versions.
   - Campaign images are 900×1200.
 - **Release status.** `DROP.status` in `src/data/products.js`. No checkout exists. "Notify me at drop"
-  joins the waitlist with the chosen size.
+  joins the waitlist with the chosen colour and size.
 - **Privacy notice.** Collecting emails in the UK falls under UK GDPR. Add a privacy page (what you store,
   why, how to unsubscribe and delete) and link it from the footer before launch.
 - **Social share URLs.** `og:image` is relative. Make it absolute once the domain is known, in `index.html`.
@@ -114,16 +115,17 @@ The artwork is built from code, so it can be changed and rebuilt:
 ```bash
 pip install numpy pillow
 npx playwright --version        # Chromium comes from /opt/pw-browsers or CHROMIUM_PATH
-python3 scripts/build_art.py            # all images, or name some: hero-skull hoodie-front …
+python3 scripts/build_art.py            # everything, or name: hero-skull cathedral flats campaign
 python3 scripts/art_textures.py         # grain + ink-dropout mask
 node scripts/og.mjs                     # share card
 node scripts/trace-logo.mjs             # re-trace the wordmark (needs art/_logo_bw.png)
 ```
 
 - `art_hero.py`: skull, halo, shoulders.
-- `art_flats.py`: the zip hoodie, from the supplied flats. To use new flats, replace the source file and re-run it.
-  If the layout of the image changes, update the crop boxes and `UNDERARM_GAPS`.
-- `art_garments.py`: the pants and tees, and the crossbone motif.
+- `art_flats.py`: product images from `art/flats/<slug>-<colour>.png`. Every hoodie sheet uses one
+  layout and both pants sheets use another. A sheet with a new layout needs new crop boxes, and new gap
+  boxes and seeds if its print touches the garment edge.
+- `art_campaign.py`: the campaign panels, made from the back prints.
 - `art_scenes.py`: the cathedral and the campaign panels.
 
 Each image is drawn as greyscale SVG, rendered by Chromium, then given a screen-print finish in `art_lib.py`.

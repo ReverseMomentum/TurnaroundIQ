@@ -51,7 +51,7 @@ export default function Landing() {
 
       <section className="preview" aria-labelledby="preview-title">
         <Link to={`/shop/${lead.slug}`} className="preview__link">
-          <img src={lead.images[0].thumb} alt="" width="400" height="440" loading="lazy" decoding="async" />
+          <img src={lead.colours[0].images[0].thumb} alt="" width="400" height="440" loading="lazy" decoding="async" />
           <span className="preview__text">
             <span className="label">First piece</span>
             <span id="preview-title" className="preview__name">{lead.name}</span>

@@ -13,13 +13,13 @@ export function validateEmail(value) {
   return null;
 }
 
-export async function joinWaitlist({ email, source, product, size, website }) {
+export async function joinWaitlist({ email, source, product, colour, size, website }) {
   let res;
   try {
     res = await fetch(ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim(), source, product, size, website }),
+      body: JSON.stringify({ email: email.trim(), source, product, colour, size, website }),
     });
   } catch {
     throw new Error("Couldn't reach the server. Check your connection and try again.");

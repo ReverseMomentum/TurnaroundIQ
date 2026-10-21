@@ -1,6 +1,6 @@
 """FTD waitlist API.
 
-POST /api/waitlist  {email, source?, product?, size?, website?}
+POST /api/waitlist  {email, source?, product?, colour?, size?, website?}
   -> 200 {"ok": true, "already": bool}   stored (and synced to Resend if configured)
   -> 4xx/5xx {"ok": false, "error": "..."}
 
@@ -52,6 +52,7 @@ ALLOWED_ORIGINS = {o.strip() for o in os.environ.get("FTD_ALLOWED_ORIGINS", "").
 
 SOURCES = {"landing", "product"}
 SIZES = {"XS", "S", "M", "L", "XL", "XXL"}
+COLOURS = {"black", "grey"}
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$")
 SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 
@@ -78,21 +79,26 @@ def init_db():
                 email TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 source TEXT NOT NULL,
                 product TEXT,
+                colour TEXT,
                 size TEXT,
                 created_at TEXT NOT NULL,
                 synced_at TEXT
             )"""
         )
-        # one row per product/size someone asked to be told about
+        # one row per product colourway someone asked to be told about, with their size
         conn.execute(
             """CREATE TABLE IF NOT EXISTS waitlist_interest (
                 email TEXT NOT NULL COLLATE NOCASE,
                 product TEXT NOT NULL,
+                colour TEXT NOT NULL DEFAULT '',
                 size TEXT,
                 created_at TEXT NOT NULL,
-                PRIMARY KEY (email, product)
+                PRIMARY KEY (email, product, colour)
             )"""
         )
+        # databases created before colourways existed
+        if "colour" not in {r["name"] for r in conn.execute("PRAGMA table_info(waitlist)")}:
+            conn.execute("ALTER TABLE waitlist ADD COLUMN colour TEXT")
 
 
 init_db()
@@ -207,19 +213,20 @@ async def join(request: Request):
     product = data.get("product")
     product = product if isinstance(product, str) and SLUG_RE.match(product) else None
     size = data.get("size") if data.get("size") in SIZES else None
+    colour = data.get("colour") if data.get("colour") in COLOURS else None
 
     try:
         with _db_lock, closing(db()) as conn, conn:
             cur = conn.execute(
-                "INSERT OR IGNORE INTO waitlist (email, source, product, size, created_at) VALUES (?,?,?,?,?)",
-                (email, source, product, size, now_iso()),
+                "INSERT OR IGNORE INTO waitlist (email, source, product, colour, size, created_at) VALUES (?,?,?,?,?,?)",
+                (email, source, product, colour, size, now_iso()),
             )
             already = cur.rowcount == 0
             if product:
                 conn.execute(
-                    "INSERT INTO waitlist_interest (email, product, size, created_at) VALUES (?,?,?,?) "
-                    "ON CONFLICT(email, product) DO UPDATE SET size=excluded.size",
-                    (email, product, size, now_iso()),
+                    "INSERT INTO waitlist_interest (email, product, colour, size, created_at) VALUES (?,?,?,?,?) "
+                    "ON CONFLICT(email, product, colour) DO UPDATE SET size=excluded.size",
+                    (email, product, colour or "", size, now_iso()),
                 )
     except sqlite3.Error:
         log.exception("waitlist write failed")
@@ -242,8 +249,14 @@ if __name__ == "__main__":
             print(conn.execute("SELECT COUNT(*) FROM waitlist").fetchone()[0])
     elif cmd == "export":
         with closing(db()) as conn:
-            print("email,source,product,size,created_at")
-            for r in conn.execute("SELECT email, source, product, size, created_at FROM waitlist ORDER BY id"):
+            print("email,source,product,colour,size,created_at")
+            for r in conn.execute("SELECT email, source, product, colour, size, created_at FROM waitlist ORDER BY id"):
+                print(",".join(str(v or "") for v in r))
+    elif cmd == "interest":
+        with closing(db()) as conn:
+            print("product,colour,size,count")
+            for r in conn.execute("SELECT product, colour, size, COUNT(*) FROM waitlist_interest "
+                                  "GROUP BY product, colour, size ORDER BY product, colour, size"):
                 print(",".join(str(v or "") for v in r))
     else:
-        print("usage: python3 server/waitlist_api.py sync|count|export")
+        print("usage: python3 server/waitlist_api.py sync|count|export|interest")

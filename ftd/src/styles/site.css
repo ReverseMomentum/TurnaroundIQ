@@ -1412,3 +1412,101 @@
   line-height: 1;
   color: var(--orange);
 }
+
+/* ============================================================== colourways */
+
+.colours {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.colours legend {
+  padding: 0;
+  margin-bottom: 0.7rem;
+}
+.colours__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.colours__option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 46px;
+  padding: 0 1rem 0 0.7rem;
+  border: 1px solid var(--line-soft);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+.colours__option:hover {
+  border-color: var(--line);
+}
+.colours__option:has(input:checked) {
+  border-color: var(--orange);
+}
+.colours__option:has(input:focus-visible) {
+  box-shadow: var(--focus);
+}
+.colours__option input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.colours__swatch,
+.card__swatch {
+  width: 18px;
+  height: 18px;
+  background: var(--swatch);
+  border: 1px solid rgb(230 220 201 / 0.35);
+  transform: rotate(45deg) scale(0.8);
+  flex: none;
+}
+.colours__name {
+  font-family: var(--f-ed);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+.colours__option:has(input:checked) .colours__name {
+  color: var(--orange);
+}
+
+.card__meta {
+  flex-wrap: wrap;
+}
+.card__colours {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track);
+  text-transform: uppercase;
+  color: var(--grey-2);
+}
+.card__swatch {
+  width: 11px;
+  height: 11px;
+}
+.card__swatch:last-of-type {
+  margin-right: 0.35rem;
+}
+.campaign__item figcaption a {
+  color: inherit;
+  text-decoration: none;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-size: 0% 1px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  transition: background-size var(--dur) var(--ease);
+}
+.campaign__item figcaption a:hover {
+  background-size: 100% 1px;
+}

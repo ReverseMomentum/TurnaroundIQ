@@ -1,11 +1,9 @@
-"""Orange-ink scenes: the ruined cathedral and the three Drop 01 campaign panels."""
+"""Orange-ink scene: the ruined cathedral. (Campaign panels: art_campaign.py.)"""
 
 import math
 import random
 
-import art_garments as ag
-import art_hero
-from art_lib import mirror_x, rays
+from art_lib import mirror_x
 
 
 def g(v):
@@ -144,91 +142,3 @@ def cathedral():
         rub.append(f"<ellipse cx='{x}' cy='{y}' rx='{r * 1.6}' ry='{r}' fill='{g(0.8)}' stroke='#000' stroke-width='4'/>"
                    f"<ellipse cx='{x + r * 1.2}' cy='{y}' rx='{r * 0.4}' ry='{r}' fill='{g(0.45)}'/>")
     return W, H, CATH_DEFS, building + "".join(rub)
-
-
-# ------------------------------------------------------------ campaign panels
-
-PANEL_DEFS = ag.HOOD_DEFS + art_hero.DEFS + f"""
-<radialGradient id='spot' cx='0.5' cy='0.35' r='0.6'>
-  <stop offset='0' stop-color='{g(0.2)}'/><stop offset='1' stop-color='#000'/>
-</radialGradient>
-<linearGradient id='floor' x1='0' y1='0' x2='0' y2='1'>
-  <stop offset='0' stop-color='#000'/><stop offset='1' stop-color='{g(0.34)}'/>
-</linearGradient>
-<radialGradient id='faceShadow' cx='0.5' cy='0.42' r='0.55'>
-  <stop offset='0' stop-color='#000' stop-opacity='0'/><stop offset='0.62' stop-color='#000' stop-opacity='0.35'/>
-  <stop offset='1' stop-color='#000' stop-opacity='0.95'/>
-</radialGradient>
-"""
-
-
-def campaign_hooded():
-    """Figure in the zip hoodie, hood up, skull face half lost to shadow."""
-    W, H = 900, 1200
-    p = [f"<rect width='{W}' height='{H}' fill='url(#spot)'/>"]
-    # rays behind the figure
-    p.append(rays(450, 420, 230, [(-180 + k * 15, 200 + (k % 2) * 150, 2.0, 0.85) for k in range(13)]))
-    # body: an inked silhouette of the hoodie, worn
-    p.append("<path d='M150,1200 C150,960 190,800 300,740 C350,712 400,700 450,700 C500,700 550,712 600,740 "
-             "C710,800 750,960 750,1200 Z' fill='rgb(150,150,150)'/>")
-    p.append("<path d='M300,740 C260,800 240,950 236,1200 L170,1200 C170,980 200,820 300,740 Z' fill='rgb(60,60,60)'/>")
-    p.append("<path d='M600,740 C640,800 660,950 664,1200 L730,1200 C730,980 700,820 600,740 Z' fill='rgb(60,60,60)'/>")
-    # hood up
-    p.append("<path d='M262,770 C236,600 240,410 326,330 C386,276 514,276 574,330 C660,410 664,600 638,770 "
-             "C580,722 520,702 450,702 C380,702 320,722 262,770 Z' fill='rgb(200,200,200)'/>")
-    p.append("<path d='M300,700 C280,560 300,420 360,360' fill='none' stroke='rgb(90,90,90)' stroke-width='16' filter='url(#fold)'/>")
-    p.append("<path d='M600,700 C620,560 600,420 540,360' fill='none' stroke='rgb(90,90,90)' stroke-width='16' filter='url(#fold)'/>")
-    p.append("<path d='M326,704 C306,580 320,450 370,396 C410,356 490,356 530,396 C580,450 594,580 574,704 C540,744 360,744 326,704 Z' fill='#000'/>")
-    # skull inside the hood, scaled from the hero skull
-    p.append(f"<g transform='translate(450,560) scale(0.6) translate(-600,-525)'>{art_hero.skull()}</g>")
-    p.append("<path d='M326,704 C306,580 320,450 370,396 C410,356 490,356 530,396 C580,450 594,580 574,704 C540,744 360,744 326,704 Z' fill='url(#faceShadow)'/>")
-    # hood edge highlight
-    p.append("<path d='M326,704 C306,580 320,450 370,396 C410,356 490,356 530,396 C580,450 594,580 574,704' fill='none' stroke='rgb(235,235,235)' stroke-width='14'/>")
-    # zip and chest wordmark
-    p.append("<rect x='444' y='740' width='12' height='460' fill='#000'/>")
-    p.append(f"<g opacity='1'>{ag.logo(300, 820, 300, '#000')}</g>")
-    p.append("<rect x='442' y='780' width='16' height='420' fill='rgb(150,150,150)' opacity='0'/>")
-    p.append(ag.crossbone(205, 1060, 0.8, rot=8, fill='rgb(20,20,20)', gap='rgb(150,150,150)'))
-    p.append(ag.crossbone(695, 1060, 0.8, rot=-8, fill='rgb(20,20,20)', gap='rgb(150,150,150)'))
-    return W, H, PANEL_DEFS, "".join(p)
-
-
-def campaign_relic():
-    """The back print hung in a gothic window: the hoodie as a relic."""
-    W, H = 900, 1200
-    p = []
-    # window frame
-    p.append("<path d='M120,1200 L120,520 A660,660 0 0 1 450,30 A660,660 0 0 1 780,520 L780,1200 Z' fill='rgb(70,70,70)'/>")
-    p.append("<path d='M170,1200 L170,540 A560,560 0 0 1 450,110 A560,560 0 0 1 730,540 L730,1200 Z' fill='rgb(18,18,18)'/>")
-    # tracery bars
-    for x in (310, 590):
-        p.append(f"<rect x='{x - 6}' y='300' width='12' height='900' fill='rgb(90,90,90)'/>")
-    p.append("<circle cx='450' cy='300' r='90' fill='none' stroke='rgb(90,90,90)' stroke-width='12'/>")
-    # light through the window
-    p.append("<path d='M200,140 L700,140 L900,1200 L0,1200 Z' fill='rgb(255,255,255)' opacity='0.08'/>")
-    # the hoodie back, hung from a hook: a solid ink silhouette with the print knocked out
-    w, h, d, fab_s, prn_s, mask_s = ag.hoodie_back()
-    p.append("<line x1='450' y1='150' x2='450' y2='262' stroke='rgb(220,220,220)' stroke-width='5'/>")
-    sil = (mask_s.replace("fill='#fff'", "fill='rgb(225,225,225)'")
-           + f"<path d='{ag.HEM}' fill='rgb(190,190,190)'/>"
-           + f"<path d='{ag.CUFF_L}' fill='rgb(190,190,190)'/><path d='{mirror_x(ag.CUFF_L, 500)}' fill='rgb(190,190,190)'/>")
-    folds = "".join(f"<path d='{fd}' fill='none' stroke='rgb(120,120,120)' stroke-width='22' filter='url(#fold)'/>"
-                    for fd in ("M330,460 C350,560 344,680 356,820", "M670,460 C650,560 656,680 644,820",
-                               "M220,420 C200,520 186,640 172,790", "M780,420 C800,520 814,640 828,790"))
-    knock = prn_s.replace("#fff", "@").replace("#000", "rgb(210,210,210)").replace("@", "#000")
-    p.append(f"<g transform='translate(450,720) scale(0.8) translate(-500,-560)'>{sil}{folds}{knock}</g>")
-    return W, H, PANEL_DEFS, "".join(p)
-
-
-def campaign_sigil():
-    """The crossbone as a monument: large sigil under a halo, flanked by thorns."""
-    W, H = 900, 1200
-    p = [f"<rect width='{W}' height='{H}' fill='url(#spot)' opacity='0.6'/>"]
-    p.append(rays(450, 520, 250, [(-180 + k * 10, 120 + (k % 3) * 90, 2.6, 1) for k in range(37)]))
-    p.append("<circle cx='450' cy='520' r='250' fill='#000'/>")
-    p.append("<circle cx='450' cy='520' r='236' fill='none' stroke='#fff' stroke-width='6'/>")
-    p.append("<circle cx='450' cy='520' r='222' fill='none' stroke='rgb(140,140,140)' stroke-width='2'/>")
-    p.append(ag.crossbone(450, 560, 1.85))
-    p.append("<text x='450' y='975' text-anchor='middle' font-family='Barlow Condensed' font-weight='600' font-size='96' letter-spacing='18' fill='#fff'>DROP 01</text>")
-    p.append("<text x='450' y='1050' text-anchor='middle' font-family='IBM Plex Mono' font-size='22' letter-spacing='10' fill='rgb(200,200,200)'>FORSAKEN TO DECAY</text>")
-    return W, H, PANEL_DEFS, "".join(p)

@@ -1,30 +1,35 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import ColourSelector from "../components/ColourSelector.jsx";
 import ProductCard from "../components/ProductCard.jsx";
 import ProductGallery from "../components/ProductGallery.jsx";
 import SizeGuide from "../components/SizeGuide.jsx";
 import SizeSelector from "../components/SizeSelector.jsx";
 import WaitlistForm from "../components/WaitlistForm.jsx";
 import { Star } from "../components/Ornaments.jsx";
-import { DROP, PRODUCTS, SIZES, formatPrice, getProduct } from "../data/products.js";
+import { DROP, PRODUCTS, SIZES, formatPrice, getColour, getProduct } from "../data/products.js";
 import { usePageMeta } from "../lib/usePageMeta.js";
 import NotFound from "./NotFound.jsx";
 
+// each panel is a Drop 01 back print, re-inked by scripts/art_campaign.py
 const CAMPAIGN = [
   {
-    src: "/art/campaign-hooded.webp",
-    alt: "Campaign artwork: a hooded figure in the zip hoodie, a skull face in the shadow of the hood, under a spiked halo.",
-    caption: "Hood up",
+    src: "/art/campaign-never-enough.webp",
+    alt: "Campaign artwork: the Never Enough back print in burnt-orange ink, a thorned death-metal logo under a spiked halo.",
+    caption: "Never Enough",
+    slug: "never-enough-zip-hoodie",
   },
   {
-    src: "/art/campaign-relic.webp",
-    alt: "Campaign artwork: the hoodie hung from a hook inside a gothic window, the back crossbone print facing out.",
-    caption: "The relic",
+    src: "/art/campaign-crossbone.webp",
+    alt: "Campaign artwork: the two crossbone crosses from the zip hoodie's back, in burnt-orange ink around a burst of rays.",
+    caption: "Crossbone",
+    slug: "crossbone-zip-hoodie",
   },
   {
-    src: "/art/campaign-sigil.webp",
-    alt: "Campaign artwork: the crossbone sigil inside a ring of thorns, above the words Drop 01, Forsaken to Decay.",
-    caption: "Drop 01",
+    src: "/art/campaign-cross.webp",
+    alt: "Campaign artwork: the single FTD cross in burnt-orange ink, haloed by thin rays.",
+    caption: "Cross",
+    slug: "cross-zip-hoodie",
   },
 ];
 
@@ -36,7 +41,10 @@ export default function Product() {
 }
 
 function ProductView({ product }) {
-  usePageMeta({ title: product.name, description: product.summary, image: product.images[0].src });
+  // the colourway lives in the URL (?colour=grey) so it can be linked and shared
+  const [params, setParams] = useSearchParams();
+  const colour = getColour(product, params.get("colour"));
+  usePageMeta({ title: product.name, description: product.summary, image: colour.images[0].src });
 
   const [size, setSize] = useState(null);
   const [sizeError, setSizeError] = useState(null);
@@ -49,6 +57,10 @@ function ProductView({ product }) {
   useEffect(() => {
     if (notifyOpen) notifyRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [notifyOpen]);
+
+  function onColour(id) {
+    setParams(id === product.colours[0].id ? {} : { colour: id }, { replace: true });
+  }
 
   function onNotify() {
     if (!size) {
@@ -70,7 +82,7 @@ function ProductView({ product }) {
       </nav>
 
       <section className="pdp" aria-labelledby="pdp-title">
-        <ProductGallery images={product.images} name={product.name} />
+        <ProductGallery images={colour.images} name={`${product.name}, ${colour.name}`} />
 
         <div className="pdp__info">
           <p className="label label--accent">FTD / {DROP.code}</p>
@@ -91,6 +103,8 @@ function ProductView({ product }) {
             </ul>
             <p className="pdp__flag">Illustrative spec. Final fabric and construction are confirmed at release.</p>
           </div>
+
+          <ColourSelector colours={product.colours} value={colour.id} onChange={onColour} />
 
           <SizeSelector
             sizes={SIZES}
@@ -117,11 +131,11 @@ function ProductView({ product }) {
           ) : (
             <div ref={notifyRef} className="pdp__notify">
               <p className="label">
-                Notify me — {product.name}, size {size}
+                Notify me — {product.name}, {colour.name}, size {size}
               </p>
-              <WaitlistForm source="product" product={product.slug} size={size} compact autoFocus />
+              <WaitlistForm source="product" product={product.slug} colour={colour.id} size={size} compact autoFocus />
               <button type="button" className="text-link" onClick={() => setNotifyOpen(false)}>
-                Change size
+                Change colour or size
               </button>
             </div>
           )}
@@ -129,14 +143,15 @@ function ProductView({ product }) {
         </div>
       </section>
 
-      <SizeGuide open={guideOpen} onClose={() => setGuideOpen(false)} fit={product.fit} />
+      <SizeGuide open={guideOpen} onClose={() => setGuideOpen(false)} guide={product.sizeGuide} fit={product.fit} />
 
       <section className="campaign" aria-label="Campaign">
         {CAMPAIGN.map((c, i) => (
           <figure key={c.src} className={`campaign__item campaign__item--${i + 1}`}>
             <img src={c.src} alt={c.alt} width="900" height="1200" loading="lazy" decoding="async" />
             <figcaption>
-              <span>{String(i + 1).padStart(2, "0")}</span> {c.caption}
+              <span>{String(i + 1).padStart(2, "0")}</span>
+              {c.slug === product.slug ? c.caption : <Link to={`/shop/${c.slug}`}>{c.caption}</Link>}
             </figcaption>
           </figure>
         ))}

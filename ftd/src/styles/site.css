@@ -1427,3 +1427,63 @@
 .campaign__item figcaption a:hover {
   background-size: 100% 1px;
 }
+
+/* ============================================================== page corners */
+
+.page-corners {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.corner {
+  position: absolute;
+  width: clamp(72px, 8vw, 120px);
+  height: auto;
+  overflow: visible;
+}
+.corner__ink {
+  fill: var(--rust);
+}
+.corner__line {
+  fill: none;
+  stroke: var(--rust);
+  stroke-width: 1.1;
+  stroke-linecap: round;
+}
+.corner--tl {
+  top: 6px;
+  left: 6px;
+}
+.corner--tr {
+  top: 6px;
+  right: 6px;
+  transform: scaleX(-1);
+}
+.corner--bl {
+  bottom: 6px;
+  left: 6px;
+  transform: scaleY(-1);
+}
+.corner--br {
+  bottom: 6px;
+  right: 6px;
+  transform: scale(-1, -1);
+}
+@media (max-width: 760px) {
+  .corner {
+    width: 62px;
+  }
+  .corner--tl,
+  .corner--tr {
+    top: 4px;
+  }
+  .corner--tl,
+  .corner--bl {
+    left: 3px;
+  }
+  .corner--tr,
+  .corner--br {
+    right: 3px;
+  }
+}

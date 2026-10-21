@@ -74,8 +74,8 @@ export default function SiteHeader() {
             {DROP.code}
             <span className="visually-hidden">: {DROP.statusLabel}</span>
           </span>
-          <Link to="/#waitlist" className="nav-link nav-link--accent">
-            Join waitlist
+          <Link to="/#waitlist" className="nav-link nav-link--accent" aria-label="Join the waitlist">
+            Join
           </Link>
         </div>
       </div>

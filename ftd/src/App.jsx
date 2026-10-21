@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
+import PageCorners from "./components/PageCorners.jsx";
 import SiteFooter from "./components/SiteFooter.jsx";
 import SiteHeader from "./components/SiteHeader.jsx";
 import Landing from "./pages/Landing.jsx";
@@ -39,6 +40,7 @@ export default function App() {
         </Routes>
       </main>
       <SiteFooter />
+      <PageCorners />
     </>
   );
 }

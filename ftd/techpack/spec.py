@@ -203,12 +203,8 @@ ARTWORK = {
                     note="Sized for S–L on the cropped body: it fills most of the back, clear of the dropped-shoulder "
                          "seams. Above a standard screen, so confirm your largest print area."),
     "ART-03": dict(name="Crossbone cross", file="FTD-ART-03_Crossbone-cross", size="30 × 37.3",
-                   used="HD01 back ×2, sleeves ×2; PT01 hip cross", status="PROPOSED",
-                   note="One screen, rotated per placement. Where a cross runs off a panel edge it is printed full size and cut by the seam."),
-    "ART-03L": dict(name="Crossbone cross (large)", file="FTD-ART-03L_Crossbone-cross-large", size="38 × 47.3",
-                    used="PT01 knee and lower-leg crosses", status="PROPOSED",
-                    note="The same cross at a larger size, so it needs its own screen. Each placement is split across the "
-                         "outseam: print the front half on the front panel and the back half on the back panel."),
+                   used="HD01 back ×2, sleeves ×2; PT01 legs ×3", status="PROPOSED",
+                   note="One screen, rotated per placement. Where a cross runs off a panel edge it is printed full size and cut by the seam. On PT01 each cross is split across the outseam: front half on the front panel, back half on the back panel."),
 }
 
 STYLES = [
@@ -256,11 +252,11 @@ STYLES = [
         "summary": "Barrel-leg fleece pants with a stacked drawcord waistband. Three crossbone crosses wrap the outer side seams at staggered heights.",
         "prints": [
             ("P1  Hip cross, right outseam (ART-03)", "30 × 37.3", "Wearer's right. Disc centre 31 cm below the top of the waistband, about 5 cm onto the front panel from the outseam. Tilted as drawn on the flat. Top of the print at least 3 cm below the waistband seam; it crosses the lower end of the side pocket opening.", "Front R, Back R"),
-            ("P2  Knee cross, left outseam (ART-03L)", "38 × 47.3", "Wearer's left. Disc centre on the outseam, 57 cm below the top of the waistband. Artwork at its drawn angle.", "Front L, Back L"),
-            ("P3  Lower-leg cross, right outseam (ART-03L)", "38 × 47.3", "Wearer's right. Disc centre on the outseam, 77 cm below the top of the waistband. Straightened so the long arm points up the leg.", "Front R, Back R"),
+            ("P2  Knee cross, left outseam (ART-03)", "30 × 37.3", "Wearer's left. Disc centre on the outseam, 57 cm below the top of the waistband. Artwork at its drawn angle.", "Front L, Back L"),
+            ("P3  Lower-leg cross, right outseam (ART-03)", "30 × 37.3", "Wearer's right. Disc centre on the outseam, 77 cm below the top of the waistband. Straightened so the long arm points up the leg.", "Front R, Back R"),
             ("All  Seam match", "", "Every cross is one image split at the outseam. The front and back halves must meet at the seam within 5 mm, at the same height and angle. Inseam, crotch, seat and waistband stay clear.", ""),
         ],
-        "artwork": ["ART-03", "ART-03L"],
+        "artwork": ["ART-03"],
         "printed_panels": ["Front L", "Front R", "Back L", "Back R"],
         "factory_panels": ["Waistband bands", "Pocket bags and facings", "Welt pieces"],
     },
@@ -286,7 +282,7 @@ STYLES = [
 QUESTIONS = [
     "Sample cost per style, lead time, and how many fit rounds are included.",
     "Do you screen print in house? If not, who prints, and is printing cut panels before sewing standard for you?",
-    "Screen set-up cost per screen and print cost per location. Drop 01 uses six screens (ART-01, -02, -03 and -03L for the hoodies and joggers; ART-01T, -02T at T-shirt size).",
+    "Screen set-up cost per screen and print cost per location. Drop 01 uses five screens (ART-01, -02, -03 for the hoodies and joggers; ART-01T, -02T at T-shirt size).",
     "Ink you recommend on this fleece (discharge or plastisol), and the cost of a strike-off on our fabric.",
     "Production minimum order per style and colour, and how it can be split across sizes.",
     "Fleece options at 450–500 gsm, 100% cotton: shrinkage figures and colourfastness.",

@@ -289,8 +289,8 @@ pattern pieces so prints that cross seams or the zip line up.</p>"""))
     pages.append(("Artwork files", f"""<div style="display:flex;gap:6mm">{''.join(cards)}</div>
 <p class="note">One colour: white ink on black. Files are supplied as vector SVG plus a 300 dpi PNG film positive at print size
 (black = ink). Fine distressed detail in ART-03 is part of the design; please flag any lines too fine to hold on your mesh.
-Drop 01 uses six screens: ART-01, ART-02, ART-03 and ART-03L for the hoodies and joggers (ART-01 and ART-03 shared
-between styles), and ART-01T and ART-02T at T-shirt size.</p>"""))
+Drop 01 uses five screens: ART-01, ART-02 and ART-03 for the hoodies and joggers (ART-01 and ART-03 shared between
+styles), and ART-01T and ART-02T at T-shirt size.</p>"""))
 
     # 8 cut panels workflow
     pp = "".join(f"<li>{esc(p)}</li>" for p in style["printed_panels"])

@@ -199,8 +199,8 @@ ARTWORK = {
                     used="TS01 chest", status="PROPOSED"),
     "ART-02T": dict(name="NEVER ENOUGH logo (tee)", file="FTD-ART-02T_Never-Enough-tee", size="38 × 34.9",
                     used="TS01 back", status="PROPOSED",
-                    note="The flat draws it near seam to seam (about 53 cm on a 61 cm chest). 38 cm keeps clear of the "
-                         "dropped-shoulder seams; it is above a standard screen, so confirm your largest print area."),
+                    note="Sized for S–L on the cropped body: it fills most of the back, clear of the dropped-shoulder "
+                         "seams. Above a standard screen, so confirm your largest print area."),
     "ART-03": dict(name="Crossbone cross", file="FTD-ART-03_Crossbone-cross", size="30 × 37.3",
                    used="HD01 back ×2, sleeves ×2; PT01 legs ×4", status="PROPOSED",
                    note="One screen, rotated per placement. Where a cross runs off a panel edge it is printed full size and cut by the seam."),

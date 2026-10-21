@@ -135,6 +135,51 @@ PANTS_CONSTRUCTION = [
     ("Finishing", "Trim all threads; press; fold and bag individually."),
 ]
 
+# ---------------------------------------------------------------- tee block
+
+TEE_POM = [
+    ("A", "Body length", "HPS to bottom edge of hem", 65, 1.5, 1),
+    ("B", "Chest width", "2.5 cm below armhole, edge to edge", 61, 3, 1),
+    ("C", "Shoulder width (dropped)", "Shoulder seam point to point, across back", 60, 3, 1),
+    ("D", "Hem width", "Bottom edge, edge to edge", 61, 3, 1),
+    ("E", "Sleeve length", "Shoulder seam to sleeve hem edge", 24, 1, 0.5),
+    ("F", "Bicep width", "2.5 cm below armhole, perpendicular to sleeve", 25, 1, 0.5),
+    ("G", "Sleeve opening", "Sleeve hem, edge to edge", 22, 1, 0.5),
+    ("H", "Armhole, straight", "Shoulder point to underarm, straight", 28, 1, 0.5),
+    ("I", "Neck width", "Seam to seam at shoulder", 19, 0.5, 0.5),
+    ("J", "Front neck drop", "HPS to top of collar seam at CF, vertical", 9, 0.5, 0.5),
+    ("K", "Back neck drop", "HPS to top of collar seam at CB, vertical", 2, 0, 0.5),
+    ("L", "Collar rib height", "Seam to edge", 2.5, 0, 0.3),
+    ("M", "Hem height", "Twin-needle hem, fold to edge", 2.5, 0, 0.3),
+]
+
+TEE_FEATURES = [
+    "Cropped, boxy body with dropped shoulders",
+    "Short, wide sleeves",
+    "Thick 2.5 cm rib crew collar",
+    "Twin-needle hems on body and sleeves",
+    "Screen-printed neck label inside (no sewn tag)",
+    "Screen prints by the manufacturer (see artwork pages)",
+]
+
+TEE_BOM = [
+    ("Main fabric", "100% cotton heavyweight single jersey, 260–280 gsm, compact, pre-shrunk; shrinkage ≤3% length and width", "Body, sleeves", "Black", "PROPOSED"),
+    ("Collar rib", "1×1 rib, 95% cotton / 5% elastane", "Neck", "Black, matched to main", "PROPOSED"),
+    ("Thread", "Polyester core-spun, Tex 40", "All seams", "Black", "PROPOSED"),
+    ("Neck tape", "Self-fabric or cotton tape covering back neck seam", "Inside back neck", "Black", "PROPOSED"),
+    ("Neck label", "Screen printed, white, 60 × 52 mm. Artwork FTD-LBL-01 (one screen, sizes taped off)", "Inside CB, 2 cm below neck seam", "White on black", "PROPOSED"),
+    ("Flag label (optional)", "Damask woven loop. Artwork FTD-LBL-05", "Left hem side seam", "Bone thread on black", "PROPOSED"),
+]
+
+TEE_CONSTRUCTION = [
+    ("Seams", "Overlock (4-thread) shoulder and side seams; shoulder seams taped."),
+    ("Shoulders", "Dropped shoulder; armhole seam topstitched on body side as drawn."),
+    ("Collar", "2.5 cm 1×1 rib, joined with overlock, cover-stitched; back neck taped shoulder to shoulder."),
+    ("Hems", "Body and sleeve hems turned 2.5 cm, twin-needle cover-stitch."),
+    ("Printing", "Prints sit on flat areas away from seams; printing on cut panels or the finished garment are both fine, factory's choice."),
+    ("Finishing", "Trim all threads; press; fold and bag individually."),
+]
+
 # ---------------------------------------------------------------- styles
 
 PRINT_METHOD = ("Screen print by the manufacturer (in house or their usual print partner), one colour, white. "
@@ -150,6 +195,12 @@ ARTWORK = {
     "ART-02": dict(name="NEVER ENOUGH logo", file="FTD-ART-02_Never-Enough", size="50 × 45.9",
                    used="HD02 back", status="PROPOSED",
                    note="At the limit of a standard screen; confirm the printer's maximum print area."),
+    "ART-01T": dict(name="FTD wordmark (tee)", file="FTD-ART-01T_FTD-wordmark-tee", size="14 × 6.9",
+                    used="TS01 chest", status="PROPOSED"),
+    "ART-02T": dict(name="NEVER ENOUGH logo (tee)", file="FTD-ART-02T_Never-Enough-tee", size="38 × 34.9",
+                    used="TS01 back", status="PROPOSED",
+                    note="The flat draws it near seam to seam (about 53 cm on a 61 cm chest). 38 cm keeps clear of the "
+                         "dropped-shoulder seams; it is above a standard screen, so confirm your largest print area."),
     "ART-03": dict(name="Crossbone cross", file="FTD-ART-03_Crossbone-cross", size="30 × 37.3",
                    used="HD01 back ×2, sleeves ×2; PT01 legs ×4", status="PROPOSED",
                    note="One screen, rotated per placement. Where a cross runs off a panel edge it is printed full size and cut by the seam."),
@@ -207,12 +258,29 @@ STYLES = [
         "printed_panels": ["Front L", "Front R", "Back L", "Back R"],
         "factory_panels": ["Waistband bands", "Pocket bags and facings", "Welt pieces"],
     },
+    {
+        "code": "FTD-D01-TS01",
+        "why": "The prints sit on flat areas of the front and back, clear of seams, so they can be printed before or after sewing.",
+        "slug": "never-enough-tee",
+        "name": "Never Enough Tee",
+        "block": "tee",
+        "colour": "Black",
+        "summary": "Cropped, boxy heavyweight tee. Small FTD wordmark on the chest, NEVER ENOUGH death-metal logo across the back.",
+        "boxes": {"front": (20, 240, 900, 960), "back": (900, 240, 1780, 960)},
+        "prints": [
+            ("P1  FTD wordmark (ART-01T)", "14 × 6.9", "Centred on CF. Top edge 9 cm below HPS.", "Front"),
+            ("P2  NEVER ENOUGH logo (ART-02T)", "38 × 34.9", "Centred on CB. Top edge 7 cm below the back neck seam.", "Back"),
+        ],
+        "artwork": ["ART-01T", "ART-02T"],
+        "printed_panels": ["Front", "Back"],
+        "factory_panels": ["Sleeves (×2)", "Collar rib"],
+    },
 ]
 
 QUESTIONS = [
     "Sample cost per style, lead time, and how many fit rounds are included.",
     "Do you screen print in house? If not, who prints, and is printing cut panels before sewing standard for you?",
-    "Screen set-up cost per screen and print cost per location. Drop 01 uses three screens (ART-01, -02, -03), shared across styles.",
+    "Screen set-up cost per screen and print cost per location. Drop 01 uses five screens (ART-01, -02, -03 for the hoodies and joggers; ART-01T, -02T at T-shirt size).",
     "Ink you recommend on this fleece (discharge or plastisol), and the cost of a strike-off on our fabric.",
     "Production minimum order per style and colour, and how it can be split across sizes.",
     "Fleece options at 450–500 gsm, 100% cotton: shrinkage figures and colourfastness.",

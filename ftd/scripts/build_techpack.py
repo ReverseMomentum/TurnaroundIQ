@@ -32,6 +32,12 @@ CALLOUTS = {
                   (193, 985, "Rib cuff"), (560, 772, "Rib hem, body gathered in (blouson)"), (700, 330, "Chest print P1 (FTD wordmark)")],
         "back": [(1357, 262, "Hood centre seam"), (1357, 560, "Back print area (see artwork page)")],
     },
+    "tee": {
+        "front": [(460, 262, "Crew neck, thick rib collar"), (205, 452, "Dropped shoulder, seam topstitched"),
+                  (100, 590, "Short wide sleeve, twin-needle hem"), (560, 452, "Chest print P1 (FTD wordmark)"),
+                  (600, 930, "Cropped boxy body, twin-needle hem")],
+        "back": [(1336, 300, "Back neck tape, neck print label inside"), (1340, 600, "Back print P2 (NEVER ENOUGH)")],
+    },
     "pants": {
         "front": [(300, 108, "Stacked double waistband, elastic"), (352, 152, "Drawcord exits at CF"),
                   (215, 182, "Slanted side pocket"), (162, 560, "Curved outseam (barrel leg)"),
@@ -44,6 +50,11 @@ POM_LINES = {
         "front": [("A", 400, 255, 400, 805), ("B", 215, 610, 805, 610), ("E", 297, 798, 629, 798),
                   ("H", 792, 488, 742, 995), ("J", 55, 760, 276, 760), ("K", 161, 994, 226, 994)],
         "back": [("C", 1040, 470, 1690, 470), ("O", 1357, 195, 1357, 352)],
+    },
+    "tee": {
+        "front": [("A", 300, 276, 300, 943), ("B", 236, 790, 683, 790), ("D", 233, 905, 686, 905),
+                  ("E", 205, 445, 72, 600), ("I", 395, 290, 527, 290)],
+        "back": [("C", 1062, 405, 1610, 405)],
     },
     "pants": {
         "front": [("A", 257, 106, 444, 106), ("C", 188, 300, 511, 300), ("D", 353, 98, 353, 352),
@@ -122,7 +133,8 @@ def crop_views(style):
     BUILD.mkdir(parents=True, exist_ok=True)
     sheet = Image.open(art_flats.FLATS / f"{style['slug']}-black.png").convert("RGB")
     out = {}
-    for view, box in art_flats.PRODUCTS[style["slug"]]["boxes"].items():
+    boxes = style.get("boxes") or art_flats.PRODUCTS[style["slug"]]["boxes"]
+    for view, box in boxes.items():
         path = BUILD / f"{style['slug']}-{view}.png"
         sheet.crop(box).save(path)
         out[view] = (path, box)
@@ -179,12 +191,12 @@ def page(style, title, body, n, total):
 def build(style):
     block = style["block"]
     views = crop_views(style)
-    pom = spec.HOODIE_POM if block == "hoodie" else spec.PANTS_POM
-    features = spec.HOODIE_FEATURES if block == "hoodie" else spec.PANTS_FEATURES
-    bom = spec.HOODIE_BOM if block == "hoodie" else spec.PANTS_BOM
-    construction = spec.HOODIE_CONSTRUCTION if block == "hoodie" else spec.PANTS_CONSTRUCTION
-    shared = ("Same pattern as FTD-D01-HD01 / HD02 (one hoodie block, two print versions)."
-              if block == "hoodie" else "Fabric matched to the Drop 01 zip hoodies.")
+    b = block.upper()
+    pom, features = getattr(spec, f"{b}_POM"), getattr(spec, f"{b}_FEATURES")
+    bom, construction = getattr(spec, f"{b}_BOM"), getattr(spec, f"{b}_CONSTRUCTION")
+    shared = {"hoodie": "Same pattern as FTD-D01-HD01 / HD02 (one hoodie block, two print versions).",
+              "pants": "Fabric matched to the Drop 01 zip hoodies.",
+              "tee": "Cropped, boxy fit to match the Drop 01 zip hoodies."}[block]
     pages = []
 
     # 1 cover
@@ -194,16 +206,19 @@ def build(style):
             ("Quantity", "1 sample, plus a print strike-off on the sample fabric"),
             ("Brand contact", spec.BRAND["contact"] or "—"), ("Version / date", f"{spec.VERSION} · {spec.DATE}")]
     kv = "".join(f"<tr><td>{esc(k)}</td><td>{esc(v)}</td></tr>" for k, v in rows)
+    print_note = ("Prints sit on flat areas, so they can go on cut panels or the finished garment, whichever you prefer."
+                  if block == "tee" else
+                  'Please screen print the panels listed on the "Cut panels" page while they are <b>cut but not yet sewn</b>, '
+                  "then sew the sample.")
     feats = "".join(f"<li>{esc(f)}</li>" for f in features)
     pages.append(("Sample request", f"""<div class="cover"><div>
 <div class="flats" style="gap:3mm">{''.join(f'<div class="flat"><img src="file://{views[v][0]}"></div>' for v in ('front','back'))}</div>
 <p class="note" style="font-size:8.4pt;color:#111">{esc(style['summary'])}</p>
 <h3>Key features</h3><ul>{feats}</ul></div>
 <div><table class="kv">{kv}</table>
-<h3>Important: print before sewing</h3>
-<p class="note" style="color:#111;font-size:8.2pt">Please screen print the panels listed on the "Cut panels" page while they are
-<b>cut but not yet sewn</b>, then sew the sample. Please send a photo of the strike-off for approval before printing the panels.
-{esc(shared)}</p>
+<h3>{'Printing' if block == 'tee' else 'Important: print before sewing'}</h3>
+<p class="note" style="color:#111;font-size:8.2pt">{print_note} Please send a photo of the strike-off for approval before
+printing. {esc(shared)}</p>
 <div class="legend">Value status: {tag('CONFIRMED')} decided {tag('PROPOSED')} starting point, please advise {tag('TBC')} answer needed</div>
 </div></div>"""))
 
@@ -256,8 +271,8 @@ for the same look, please suggest it.</p>"""))
 <table style="margin-top:3mm"><tr><th style="width:17%">Print</th><th style="width:17%">Approx. size cm (w × h)</th><th>Placement</th>
 <th style="width:17%">Panels printed</th></tr>{pr}</table>
 <p class="note"><b>Method:</b> {esc(spec.PRINT_METHOD)}</p>
-<p class="note">Sizes are taken from the flats and are approximate for the first sample. FTD will make 1:1 placement guides on the
-pattern pieces once the pattern is shared, so prints that cross seams line up.</p>"""))
+<p class="note">Sizes are taken from the flats and are approximate for the first sample. Please mark each print position on the
+pattern pieces so prints that cross seams or the zip line up.</p>"""))
 
     # 7b artwork files
     cards = []
@@ -274,7 +289,8 @@ pattern pieces once the pattern is shared, so prints that cross seams line up.</
     pages.append(("Artwork files", f"""<div style="display:flex;gap:6mm">{''.join(cards)}</div>
 <p class="note">One colour: white ink on black. Files are supplied as vector SVG plus a 300 dpi PNG film positive at print size
 (black = ink). Fine distressed detail in ART-03 is part of the design; please flag any lines too fine to hold on your mesh.
-Drop 01 uses three screens in total: ART-01 and ART-03 are shared between styles.</p>"""))
+Drop 01 uses five screens: ART-01, ART-02 and ART-03 for the hoodies and joggers (ART-01 and ART-03 shared between
+styles), and ART-01T and ART-02T at T-shirt size.</p>"""))
 
     # 8 cut panels workflow
     pp = "".join(f"<li>{esc(p)}</li>" for p in style["printed_panels"])

@@ -48,6 +48,6 @@ whose minimum is 200.
 
 - `FTD-D01-HD01_Crossbone-Zip-Hoodie.pdf`
 - `FTD-D01-PT01_Crossbone-Baggy-Pants.pdf`
-- `FTD-D01-HD02_Never-Enough-Zip-Hoodie.pdf`, or the T-shirt once decided
+- `FTD-D01-TS01_Never-Enough-Tee.pdf` (and/or `FTD-D01-HD02_Never-Enough-Zip-Hoodie.pdf`)
 - `artwork/` (vector SVG and 300 dpi films)
 - `labels/FTD-labels-overview.pdf`

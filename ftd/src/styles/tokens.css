@@ -16,6 +16,7 @@
 
   /* type */
   --f-display: "Grenze Gotisch", "Barlow Condensed", serif; /* blackletter display, set in caps */
+  --f-serif: "Grenze", Georgia, serif; /* flared serif from the concept: statements, descriptor */
   --f-ed: "Barlow Condensed", "Arial Narrow", sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, monospace;
 

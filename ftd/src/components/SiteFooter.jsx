@@ -8,7 +8,7 @@ export default function SiteFooter() {
       <div className="site-footer__sign">
         <p className="site-footer__statement">Forsaken<br />to decay</p>
         <div className="site-footer__mark">
-          <img src="/art/hero-skull.webp" alt="" width="1200" height="1500" loading="lazy" decoding="async" />
+          <img src="/art/hero.webp" alt="" width="1266" height="1272" loading="lazy" decoding="async" />
         </div>
         <p className="site-footer__statement site-footer__statement--right">Nothing<br />lasts</p>
       </div>

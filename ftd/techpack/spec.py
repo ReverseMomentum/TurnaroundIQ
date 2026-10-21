@@ -65,9 +65,10 @@ HOODIE_BOM = [
     ("Zip (production)", "As above with custom FTD puller. Quote separately: mould cost and minimum order.", "Centre front", "TBC", "TBC"),
     ("Thread", "Polyester core-spun, Tex 40", "All seams", "Black", "PROPOSED"),
     ("Neck tape", "Woven or printed tape covering back neck seam (as drawn in flat)", "Inside back neck", "Black", "TBC"),
-    ("Main label", "Woven FTD label, artwork by FTD", "Inside centre back neck", "TBC", "TBC"),
-    ("Size label", "Woven or printed, size only", "Under main label", "TBC", "TBC"),
-    ("Care / composition label", "Printed satin; fibre composition, care symbols, brand", "Left side seam, 8 cm above hem", "White on black", "PROPOSED"),
+    ("Main label", "Damask woven, end-fold, 50 × 20 mm visible. Artwork FTD-LBL-02", "Inside CB neck, sewn onto neck tape", "Bone thread on black", "PROPOSED"),
+    ("Size label", "Printed satin tab, folded, 15 × 12.5 mm. Artwork FTD-LBL-04", "Under main label", "White on black", "PROPOSED"),
+    ("Care / composition label", "Printed satin, 30 × 80 mm. Artwork FTD-LBL-03_care_hoodies", "Left side seam, 8 cm above hem", "White on black", "PROPOSED"),
+    ("Flag label (optional)", "Damask woven loop, 15 × 15 mm folded. Artwork FTD-LBL-05", "Left hem rib seam", "Bone thread on black", "PROPOSED"),
 ]
 
 HOODIE_CONSTRUCTION = [
@@ -117,8 +118,10 @@ PANTS_BOM = [
     ("Drawcord exits", "Two buttonholes or gunmetal metal eyelets", "CF lower waistband", "Black / gunmetal", "TBC"),
     ("Pocketing", "Self fabric or black cotton jersey", "Side and rear pocket bags", "Black", "PROPOSED"),
     ("Thread", "Polyester core-spun, Tex 40", "All seams", "Black", "PROPOSED"),
-    ("Main label", "Woven FTD label (same as hoodies)", "Inside CB waistband", "TBC", "TBC"),
-    ("Care / composition label", "Printed satin; fibre composition, care symbols, brand", "Inside left side seam, below waistband", "White on black", "PROPOSED"),
+    ("Main label", "Damask woven, end-fold, same as hoodies. Artwork FTD-LBL-02", "Inside CB waistband", "Bone thread on black", "PROPOSED"),
+    ("Size label", "Printed satin tab, folded. Artwork FTD-LBL-04", "Under main label", "White on black", "PROPOSED"),
+    ("Care / composition label", "Printed satin, 30 × 80 mm. Artwork FTD-LBL-03_care_joggers", "Inside left side seam, below waistband", "White on black", "PROPOSED"),
+    ("Flag label (optional)", "Damask woven loop. Artwork FTD-LBL-05", "Right hip seam", "Bone thread on black", "PROPOSED"),
 ]
 
 PANTS_CONSTRUCTION = [
@@ -219,5 +222,5 @@ QUESTIONS = [
 LABEL_NOTES = [
     "UK law requires a fibre composition label on clothing sold in the UK (e.g. \"100% cotton\"). Care symbols are standard practice.",
     "Include the brand name and a contact address on the label or packaging so the product can be traced.",
-    "Main label artwork, size label format and care wording will be supplied by FTD before production.",
+    "Label artwork is in techpack/labels/ (see FTD-labels-overview.pdf). Please quote the woven and printed labels, or advise your usual label supplier.",
 ]

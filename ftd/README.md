@@ -148,6 +148,18 @@ Flats come from `art/flats/<slug>-black.png`. Callout and measurement-line posit
 `POM_LINES` in `scripts/build_techpack.py`, in flat-sheet pixels. Print sizes are scaled from the flats using the
 proposed chest (hoodie) and hip (pants) widths.
 
+## Labels
+
+`python3 scripts/build_labels.py` builds the garment labels into `techpack/labels/`, all at actual size:
+- **Neck print (T-shirt):** a PDF and a 300 dpi film for each size, plus an all-sizes film to print from one screen.
+- **Woven main label and optional woven flag.**
+- **Care labels:** one per garment type.
+- **Size tabs.**
+- **`FTD-labels-overview.pdf`:** an overview sheet with the specs, for suppliers.
+
+Care wording and fibre compositions are set at the top of the script. Replace `[address / website]` on the care
+label before ordering.
+
 ## QA scripts
 
 With the dev server and API running:

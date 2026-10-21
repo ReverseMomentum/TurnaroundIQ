@@ -30,7 +30,7 @@ export default function HeroArtwork() {
           src="/art/hero.webp"
           width="1266"
           height="1272"
-          alt="Distressed burnt-orange screen print of a skeletal figure crowned with a spiked halo, its decaying torso behind huge spiked FTD lettering, above the words Forsaken to Decay."
+          alt="Distressed rust-red screen print of a skeletal figure crowned with a spiked halo, its decaying torso behind huge spiked FTD lettering, above the words Forsaken to Decay."
           fetchPriority="high"
           decoding="async"
         />

@@ -96,8 +96,8 @@ main:focus {
 }
 
 ::selection {
-  background: var(--orange);
-  color: var(--ink);
+  background: var(--rust);
+  color: var(--bone);
 }
 
 .visually-hidden {

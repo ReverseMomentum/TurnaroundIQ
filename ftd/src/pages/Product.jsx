@@ -15,19 +15,19 @@ import NotFound from "./NotFound.jsx";
 const CAMPAIGN = [
   {
     src: "/art/campaign-never-enough.webp",
-    alt: "Campaign artwork: the Never Enough back print in burnt-orange ink, a thorned death-metal logo under a spiked halo.",
+    alt: "Campaign artwork: the Never Enough back print in rust-red ink, a thorned death-metal logo under a spiked halo.",
     caption: "Never Enough",
     slug: "never-enough-zip-hoodie",
   },
   {
     src: "/art/campaign-crossbone.webp",
-    alt: "Campaign artwork: the two crossbone crosses from the zip hoodie's back, in burnt-orange ink around a burst of rays.",
+    alt: "Campaign artwork: the two crossbone crosses from the zip hoodie's back, in rust-red ink around a burst of rays.",
     caption: "Crossbone",
     slug: "crossbone-zip-hoodie",
   },
   {
     src: "/art/campaign-cross.webp",
-    alt: "Campaign artwork: the single FTD cross in burnt-orange ink, haloed by thin rays.",
+    alt: "Campaign artwork: the single FTD cross in rust-red ink, haloed by thin rays.",
     caption: "Cross",
     slug: "cross-zip-hoodie",
   },

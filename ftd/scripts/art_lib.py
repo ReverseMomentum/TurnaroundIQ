@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parent.parent
 BUILD = ROOT / "art" / "_build"
 OUT = ROOT / "public" / "art"
 
-ORANGE = np.array([216, 120, 43], dtype=np.float32)  # #D8782B
-AMBER = np.array([185, 106, 43], dtype=np.float32)  # #B96A2B
+RUST = np.array([156, 58, 34], dtype=np.float32)  # #9C3A22, the ink of all artwork
+RUST_DEEP = np.array([122, 44, 25], dtype=np.float32)  # #7A2C19, starved-ink patches
 BONE = np.array([230, 220, 201], dtype=np.float32)  # #E6DCC9
 
 
@@ -102,12 +102,12 @@ def screenprint(tone, seed=1, grain=0.16, clump=0.22, dropout=0.10, scratches=40
     return ink, big
 
 
-def save_ink(name, ink, big, colour="orange", size=None, quality=86):
+def save_ink(name, ink, big, colour="rust", size=None, quality=86):
     """Save ink as an RGBA WebP (ink colour over transparency)."""
     h, w = ink.shape
-    if colour == "orange":
+    if colour == "rust":
         mix = np.clip(0.5 + big[..., None] * 0.35, 0, 1)
-        rgb = ORANGE * mix + AMBER * (1 - mix)
+        rgb = RUST * mix + RUST_DEEP * (1 - mix)
     else:
         rgb = np.broadcast_to(BONE, (h, w, 3))
     rgba = np.dstack([rgb, ink * 255]).astype(np.uint8)

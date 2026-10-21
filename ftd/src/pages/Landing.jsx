@@ -33,7 +33,7 @@ export default function Landing() {
             height="468"
             loading="lazy"
             decoding="async"
-            alt="Distressed burnt-orange print of a ruined gothic cathedral, its great arched portal open above a field of rubble, flanked by two thorned crosses."
+            alt="Distressed rust-red print of a ruined gothic cathedral, its great arched portal open above a field of rubble, flanked by two thorned crosses."
           />
         </div>
         <div className="ruin__text">

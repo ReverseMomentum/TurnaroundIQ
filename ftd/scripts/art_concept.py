@@ -9,12 +9,13 @@ Run from ftd/: python3 scripts/art_concept.py
 import numpy as np
 from PIL import Image
 
-from art_lib import ORANGE, OUT, ROOT
+from art_lib import OUT, ROOT, RUST
 
 SRC = ROOT / "art" / "hero-concept-source.jpg"
 
 # floor/ceiling of the ink signal in the red channel
 PAPER, INK = 34, 175  # paper grain peaks around 27, so 34 keeps the background fully clear
+SCAN_ORANGE_R = 200  # red channel of the concept's printed orange at full ink
 FEATHER = 40  # px fade at the crop edges so the image boundary never shows
 
 # name -> crop (source pixels), regions to erase (crop-relative), edges to feather
@@ -45,9 +46,11 @@ def lift(name, crop, erase, feather):
     if "t" not in feather:
         rows = np.where(np.arange(h) < h / 2, 1, rows)
     ink *= rows[:, None]
-    # un-premultiply the scan's own colour, then pull it halfway to the brand orange
-    colour = np.clip(rgb / np.maximum(ink[..., None], 1e-3), 0, 255)
-    colour = colour * 0.5 + ORANGE * 0.5
+    # The scan is printed in orange. Keep its light/dark variation (un-premultiplied
+    # brightness relative to that orange) and re-ink it in the brand rust.
+    lit = np.clip(rgb[..., 0] / np.maximum(ink, 1e-3), 0, 255)
+    shade = np.clip(lit / SCAN_ORANGE_R, 0.7, 1.2)[..., None]
+    colour = np.clip(RUST * shade, 0, 255)
     out = np.dstack([colour, ink * 255]).astype(np.uint8)
     OUT.mkdir(parents=True, exist_ok=True)
     Image.fromarray(out, "RGBA").save(OUT / f"{name}.webp", "WEBP", quality=88, method=6)

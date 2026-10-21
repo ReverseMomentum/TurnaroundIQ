@@ -420,61 +420,40 @@
 
 /* ============================================================== waitlist */
 
+/* as in the concept: one wide, compact plate the width of the hero, stars inside its ends */
 .waitlist {
-  position: relative;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: var(--s-3);
-  max-width: 860px;
-  margin: clamp(2.5rem, 5vw, 4.5rem) auto 0;
-  padding: clamp(2rem, 4vw, 3rem) clamp(1.25rem, 4vw, 3rem);
+  width: min(calc(100% - 2 * var(--gutter)), 1060px);
+  margin: clamp(1.6rem, 3vw, 2.6rem) auto 0;
+  padding: clamp(1.4rem, 2.6vw, 2.1rem) clamp(1.25rem, 3vw, 2.6rem);
   border: var(--hair);
-  width: calc(100% - 2 * var(--gutter));
-}
-/* corner nicks: the border reads as a cut plate rather than a UI card */
-.waitlist::before,
-.waitlist::after {
-  content: "";
-  position: absolute;
-  width: 9px;
-  height: 9px;
-  border: var(--hair);
-  background: var(--ink);
-  transform: rotate(45deg);
-}
-.waitlist::before {
-  top: -5px;
-  left: 50%;
-  margin-left: -5px;
-}
-.waitlist::after {
-  bottom: -5px;
-  left: 50%;
-  margin-left: -5px;
 }
 .waitlist__body {
   text-align: center;
 }
 .waitlist__title {
-  font-family: var(--f-display);
+  font-family: var(--f-serif);
   font-weight: 600;
-  font-size: clamp(2rem, 1.4rem + 1.8vw, 3rem);
+  font-size: clamp(1.9rem, 1.3rem + 1.6vw, 2.8rem);
   line-height: 1;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--orange);
 }
 .waitlist__copy {
-  margin: 0.9rem 0 1.6rem;
+  margin: 0.7rem 0 1.3rem;
   font-size: var(--t-small);
-  letter-spacing: var(--track);
+  font-weight: 500;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--bone);
 }
 
 .waitlist-form {
-  max-width: 480px;
+  max-width: 560px;
   margin: 0 auto;
 }
 .waitlist-form__row {
@@ -502,7 +481,7 @@
   color: var(--bone);
 }
 .waitlist-form input[type="email"]::placeholder {
-  color: var(--grey-2);
+  color: rgb(230 220 201 / 0.72);
   text-transform: uppercase;
   font-size: var(--t-small);
   letter-spacing: var(--track);
@@ -612,20 +591,18 @@
 
 /* ============================================================== ruin / about */
 
+/* the cathedral sits straight under the waitlist plate, as in the concept */
 .ruin {
   max-width: var(--max);
-  margin: var(--s-6) auto 0;
+  margin: clamp(0.8rem, 2vw, 1.6rem) auto 0;
   padding: 0 var(--gutter);
 }
 .ruin__art {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1100px) auto;
-  justify-content: center;
-  align-items: end;
-  gap: clamp(1rem, 3vw, 3rem);
+  width: min(100%, 1060px);
+  margin: 0 auto;
 }
-.ruin__cross {
-  margin-bottom: 6%;
+.ruin__art img {
+  width: 100%;
 }
 .ruin__text {
   display: grid;
@@ -647,18 +624,8 @@
 
 @media (max-width: 760px) {
   .ruin__art {
-    grid-template-columns: 1fr;
-  }
-  .ruin__cross {
-    display: none;
-  }
-  .ruin__art img {
-    width: 128%;
-    max-width: none;
-    margin-left: -14%;
-  }
-  .ruin {
-    overflow-x: clip;
+    margin: 0 -10px;
+    width: auto;
   }
 }
 

@@ -115,21 +115,21 @@ The artwork is built from code, so it can be changed and rebuilt:
 ```bash
 pip install numpy pillow
 npx playwright --version        # Chromium comes from /opt/pw-browsers or CHROMIUM_PATH
-python3 scripts/build_art.py            # everything, or name: hero cathedral flats campaign
+python3 scripts/build_art.py            # everything, or name: concept flats campaign
 python3 scripts/art_textures.py         # grain + ink-dropout mask
 node scripts/og.mjs                     # share card
 node scripts/trace-logo.mjs             # re-trace the wordmark (needs art/_logo_bw.png)
 ```
 
-- `art_hero_concept.py`: the hero, lifted from the supplied concept (`art/hero-concept-source.jpg`).
-  It crops the figure, turns the ink into transparency and erases the baked-in corner statements.
+- `art_concept.py`: the hero and the cathedral, lifted from the supplied concept
+  (`art/hero-concept-source.jpg`). It crops each piece, turns the ink into transparency and erases the
+  hero's baked-in corner statements. Crop boxes are in `PIECES`.
 - `art_flats.py`: product images from `art/flats/<slug>-<colour>.png`. Every hoodie sheet uses one
   layout and both pants sheets use another. A sheet with a new layout needs new crop boxes, and new gap
   boxes and seeds if its print touches the garment edge.
 - `art_campaign.py`: the campaign panels, made from the back prints.
-- `art_scenes.py`: the cathedral and the campaign panels.
 
-Each image is drawn as greyscale SVG, rendered by Chromium, then given a screen-print finish in `art_lib.py`.
+The campaign halos are drawn as SVG, rendered by Chromium, then given a screen-print finish in `art_lib.py`.
 
 ## QA scripts
 

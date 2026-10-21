@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import HeroArtwork from "../components/HeroArtwork.jsx";
 import WaitlistForm from "../components/WaitlistForm.jsx";
-import { CrossStar, Rule, Star } from "../components/Ornaments.jsx";
+import { Rule, Star } from "../components/Ornaments.jsx";
 import { PRODUCTS, formatPrice } from "../data/products.js";
 import { usePageMeta } from "../lib/usePageMeta.js";
 
@@ -27,16 +27,14 @@ export default function Landing() {
 
       <section id="about" className="ruin" aria-labelledby="about-title">
         <div className="ruin__art">
-          <CrossStar className="ruin__cross ruin__cross--l" height={220} />
           <img
             src="/art/cathedral.webp"
-            width="1600"
-            height="760"
+            width="1266"
+            height="468"
             loading="lazy"
             decoding="async"
-            alt="Screen-printed illustration of a ruined gothic cathedral: a rose window, a broken spire and a great arched portal above a field of rubble."
+            alt="Distressed burnt-orange print of a ruined gothic cathedral, its great arched portal open above a field of rubble, flanked by two thorned crosses."
           />
-          <CrossStar className="ruin__cross ruin__cross--r" height={220} />
         </div>
         <div className="ruin__text">
           <h2 id="about-title" className="label label--accent">About</h2>

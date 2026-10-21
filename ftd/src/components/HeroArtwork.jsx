@@ -1,6 +1,6 @@
 // The defining composition, from the FTD concept: the spiked-halo figure with
 // the FTD lettering and tagline worked into the artwork, framed by two short
-// statements set as live text (scripts/art_hero_concept.py removes them from the art).
+// statements set as live text (scripts/art_concept.py removes them from the art).
 export default function HeroArtwork() {
   return (
     <section className="hero" aria-labelledby="hero-title">

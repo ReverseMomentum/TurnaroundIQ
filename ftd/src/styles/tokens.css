@@ -15,7 +15,7 @@
   --line-bone: rgb(230 220 201 / 0.14);
 
   /* type */
-  --f-display: "Pirata One", "UnifrakturCook", serif;
+  --f-display: "Grenze Gotisch", "Barlow Condensed", serif; /* blackletter display, set in caps */
   --f-ed: "Barlow Condensed", "Arial Narrow", sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, monospace;
 

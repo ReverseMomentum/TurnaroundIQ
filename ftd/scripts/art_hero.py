@@ -40,11 +40,11 @@ DEFS = f"""
   <stop offset='0.86' stop-color='{g(0.45)}'/><stop offset='1' stop-color='#000'/>
 </linearGradient>
 <linearGradient id='flesh' x1='0' y1='0' x2='0' y2='1'>
-  <stop offset='0' stop-color='{g(0.78)}'/><stop offset='1' stop-color='{g(0.5)}'/>
+  <stop offset='0' stop-color='{g(0.9)}'/><stop offset='1' stop-color='{g(0.68)}'/>
 </linearGradient>
 <radialGradient id='delt' cx='0.45' cy='0.32' r='0.7'>
-  <stop offset='0' stop-color='{g(0.92)}'/><stop offset='0.6' stop-color='{g(0.66)}'/>
-  <stop offset='1' stop-color='{g(0.18)}'/>
+  <stop offset='0' stop-color='{g(0.97)}'/><stop offset='0.6' stop-color='{g(0.8)}'/>
+  <stop offset='1' stop-color='{g(0.3)}'/>
 </radialGradient>
 <filter id='soft' x='-20%' y='-20%' width='140%' height='140%'><feGaussianBlur stdDeviation='7'/></filter>
 <filter id='soft2' x='-20%' y='-20%' width='140%' height='140%'><feGaussianBlur stdDeviation='3'/></filter>
@@ -84,13 +84,13 @@ def body():
         f"L1080,1080 C1050,990 985,940 900,915 C780,880 700,800 680,700 Z' fill='url(#flesh)'/>"
     )
     # torso shadow under the collarbones
-    parts.append(f"<path d='M330,960 C450,990 750,990 870,960 L880,1500 L320,1500 Z' fill='{g(0.3)}' filter='url(#soft)'/>")
+    parts.append(f"<path d='M330,960 C450,990 750,990 870,960 L880,1500 L320,1500 Z' fill='{g(0.42)}' filter='url(#soft)'/>")
     # deltoids
     parts.append(both("M110,1010 C140,930 250,905 330,935 C380,960 395,1060 370,1170 C345,1270 250,1330 150,1330 "
                       "C95,1250 80,1110 110,1010 Z", "url(#delt)"))
     # pectoral masses, wasted
     parts.append(both("M360,985 C450,975 560,985 588,1000 L588,1170 C520,1200 430,1195 372,1160 C350,1100 345,1030 360,985 Z",
-                      g(0.55)))
+                      g(0.72)))
     # muscle fibres on pecs and deltoids
     r = random.Random(3)
     fib = []

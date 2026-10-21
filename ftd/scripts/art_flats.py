@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from art_lib import BONE, OUT, ROOT, _blur_noise
 
 FLATS = ROOT / "art" / "flats"
-BG = np.array([21, 17, 14], dtype=np.float32)  # #15110E
+BG = np.array([15, 13, 12], dtype=np.float32)  # near-black; the old #15110E pool read as brown
 W, H = 1000, 1100
 
 # garment boxes on each sheet template (left, top, right, bottom), source pixels
@@ -89,7 +89,7 @@ def grade(rgb):
 def backdrop(rng):
     yy, xx = np.mgrid[0:H, 0:W]
     pool = np.exp(-(((xx - W / 2) / (W * 0.55)) ** 2 + ((yy - H * 0.45) / (H * 0.6)) ** 2))
-    return BG * (0.72 + 0.5 * pool[..., None]), _blur_noise((H, W), 0.7, rng)[..., None] * 3.0
+    return BG * (0.8 + 0.4 * pool[..., None]), _blur_noise((H, W), 0.7, rng)[..., None] * 2.4
 
 
 def stage(img, alpha, seed):

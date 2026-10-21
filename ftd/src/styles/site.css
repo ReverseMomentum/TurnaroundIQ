@@ -76,7 +76,7 @@
 }
 .logo--outlined path {
   stroke: var(--ink);
-  stroke-width: 54px;
+  stroke-width: 84px;
   stroke-linejoin: round;
   paint-order: stroke;
 }
@@ -109,9 +109,11 @@
   justify-content: center;
   gap: var(--s-2);
   font-family: var(--f-display);
-  font-weight: 400;
-  font-size: var(--t-h2);
+  font-weight: 600;
+  font-size: clamp(1.7rem, 1.3rem + 1.2vw, 2.4rem);
   line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--orange);
 }
 
@@ -269,8 +271,10 @@
     display: block;
     padding: 1rem 0;
     font-family: var(--f-display);
-    font-size: 2.6rem;
+    font-size: 2.4rem;
     line-height: 1.1;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     color: var(--orange);
     text-decoration: none;
   }
@@ -301,11 +305,11 @@
 .hero__statement {
   align-self: start;
   margin-top: clamp(80px, 12vw, 190px);
-  font-family: var(--f-ed);
+  font-family: var(--f-display);
   font-weight: 600;
-  font-size: var(--t-statement);
-  line-height: 1.18;
-  letter-spacing: 0.06em;
+  font-size: clamp(1.15rem, 0.9rem + 0.8vw, 1.7rem);
+  line-height: 1.12;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--orange);
   animation: rise 1.2s var(--ease) 1.1s both;
@@ -345,8 +349,8 @@
 .hero__title {
   position: absolute;
   left: 50%;
-  top: 56%;
-  width: 84%;
+  top: 58%;
+  width: 78%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
@@ -358,13 +362,6 @@
   position: relative;
   width: 100%;
   height: auto;
-}
-/* a pool of shadow behind the wordmark so it separates from the ribcage */
-.hero__title::before {
-  content: "";
-  position: absolute;
-  inset: -12% -10% -6%;
-  background: radial-gradient(closest-side, rgb(10 8 7 / 0.92), rgb(10 8 7 / 0.7) 55%, transparent);
 }
 .hero__tagline {
   position: relative;
@@ -436,8 +433,11 @@
       "desc desc";
     row-gap: 0;
   }
+  /* blackletter stops reading below ~20px (D becomes V), so small statements use the condensed sans */
   .hero__statement {
     margin-top: 22px;
+    font-family: var(--f-ed);
+    font-weight: 600;
     font-size: 0.95rem;
     letter-spacing: 0.08em;
   }
@@ -454,7 +454,7 @@
     width: 90%;
   }
   .hero__logo.logo--outlined path {
-    stroke-width: 70px;
+    stroke-width: 96px;
   }
   .hero__tagline {
     letter-spacing: 0.22em;
@@ -507,9 +507,11 @@
 }
 .waitlist__title {
   font-family: var(--f-display);
-  font-weight: 400;
-  font-size: var(--t-h2);
+  font-weight: 600;
+  font-size: clamp(2rem, 1.4rem + 1.8vw, 3rem);
   line-height: 1;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--orange);
 }
 .waitlist__copy {
@@ -739,8 +741,10 @@
 }
 .preview__name {
   font-family: var(--f-display);
-  font-size: clamp(1.8rem, 1.2rem + 2vw, 2.8rem);
+  font-size: clamp(1.5rem, 1.1rem + 1.2vw, 2.1rem);
   line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--orange);
 }
 .preview__price {
@@ -794,7 +798,7 @@
 .site-footer__statement {
   justify-self: end;
   text-align: center;
-  font-family: var(--f-ed);
+  font-family: var(--f-display);
   font-weight: 600;
   font-size: var(--t-statement);
   line-height: 1.15;
@@ -862,6 +866,8 @@
     gap: 8px;
   }
   .site-footer__statement {
+    font-family: var(--f-ed);
+    font-weight: 600;
     font-size: 0.85rem;
   }
   .site-footer__mark {
@@ -937,7 +943,7 @@
 .gallery__thumb {
   padding: 0;
   border: 1px solid var(--line-soft);
-  background: var(--char);
+  background: var(--ink);
   opacity: 0.62;
   transition: opacity var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
@@ -951,7 +957,7 @@
 .gallery__main {
   position: relative;
   border: 1px solid var(--line-soft);
-  background: var(--char);
+  background: var(--ink);
 }
 .gallery__image {
   width: 100%;
@@ -984,10 +990,13 @@
 }
 .pdp__title {
   margin-top: -0.6rem;
+  max-width: 12ch;
   font-family: var(--f-display);
-  font-weight: 400;
-  font-size: var(--t-h1);
-  line-height: 0.95;
+  font-weight: 600;
+  font-size: clamp(2.1rem, 1.5rem + 1.8vw, 3.1rem);
+  line-height: 1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   color: var(--orange);
 }
 .pdp__price {
@@ -1248,9 +1257,6 @@
 .campaign__item figcaption span {
   color: var(--orange);
 }
-.campaign__item--2 {
-  margin-top: clamp(0px, 5vw, 64px);
-}
 
 @media (max-width: 760px) {
   .campaign {
@@ -1258,9 +1264,6 @@
   }
   .campaign__item--1 {
     grid-column: 1 / -1;
-  }
-  .campaign__item--2 {
-    margin-top: 0;
   }
 }
 
@@ -1294,7 +1297,7 @@
 }
 .card__media {
   border: 1px solid var(--line-soft);
-  background: var(--char);
+  background: var(--ink);
   overflow: hidden;
   transition: border-color var(--dur) var(--ease);
 }
@@ -1302,22 +1305,16 @@
   width: 100%;
   aspect-ratio: 1000 / 1100;
   object-fit: cover;
-  transition: transform 0.8s var(--ease), filter var(--dur) var(--ease);
-  filter: brightness(0.92);
 }
 .card__link:hover .card__media {
   border-color: var(--orange);
 }
-.card__link:hover .card__media img {
-  transform: scale(1.025);
-  filter: none;
-}
 .card__meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 1rem;
-  padding: 0.8rem 0.1rem 0;
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+  padding: 0.9rem 0.1rem 0;
+  text-align: center;
 }
 .card__name {
   font-family: var(--f-ed);
@@ -1347,13 +1344,11 @@
     align-items: end;
   }
   .others__grid > :last-child:nth-child(odd) .card__meta {
-    flex-direction: column;
+    justify-items: start;
+    text-align: left;
     padding-bottom: 0.4rem;
   }
-  .card__meta {
-    flex-direction: column;
-    gap: 0.2rem;
-  }
+
 }
 
 /* ============================================================== shop + 404 */
@@ -1372,13 +1367,13 @@
   border-bottom: var(--hair-soft);
 }
 .shop__title {
-  /* condensed rather than blackletter: Pirata's capital D reads as an O at this size */
-  font-family: var(--f-ed);
+  font-family: var(--f-display);
   font-weight: 600;
-  font-size: clamp(3.4rem, 1.8rem + 7vw, 8rem);
+  font-size: clamp(3.4rem, 1.8rem + 6vw, 7rem);
   line-height: 0.9;
-  letter-spacing: 0.12em;
-  margin-right: -0.12em;
+  letter-spacing: 0.06em;
+  margin-right: -0.06em;
+  text-transform: uppercase;
   color: var(--orange);
 }
 .shop__note {
@@ -1407,9 +1402,11 @@
 }
 .lost__title {
   font-family: var(--f-display);
-  font-weight: 400;
+  font-weight: 600;
   font-size: var(--t-h1);
   line-height: 1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   color: var(--orange);
 }
 
@@ -1478,11 +1475,7 @@
   color: var(--orange);
 }
 
-.card__meta {
-  flex-wrap: wrap;
-}
 .card__colours {
-  flex-basis: 100%;
   display: flex;
   align-items: center;
   gap: 0.35rem;

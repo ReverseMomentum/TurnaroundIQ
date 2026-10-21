@@ -7,7 +7,6 @@ import path from "node:path";
 const [, , input, output, w, h] = process.argv;
 const fonts = path.resolve("node_modules/@fontsource");
 const css = `
-@font-face{font-family:"Pirata One";src:url("file://${fonts}/pirata-one/files/pirata-one-latin-400-normal.woff2")}
 @font-face{font-family:"IBM Plex Mono";src:url("file://${fonts}/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2")}
 @font-face{font-family:"Barlow Condensed";src:url("file://${fonts}/barlow-condensed/files/barlow-condensed-latin-600-normal.woff2")}`;
 const html = input.replace(/\.svg$/, ".html");

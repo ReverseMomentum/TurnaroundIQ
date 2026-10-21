@@ -13,7 +13,8 @@ import art_hero
 import art_scenes
 
 INK_JOBS = {
-    "hero-skull": (art_hero.build, dict(seed=11), (1200, 1500)),
+    # hero: denser ink and almost no dust so the figure reads as one hard print
+    "hero-skull": (art_hero.build, dict(seed=11, grain=0.11, clump=0.15, dust=0.00003), (1200, 1500)),
     "cathedral": (art_scenes.cathedral, dict(seed=12, scratches=30), (1600, 760)),
 }
 

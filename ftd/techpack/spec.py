@@ -53,7 +53,7 @@ HOODIE_FEATURES = [
     "Full-length front zip, single slider",
     "Split kangaroo pouch pocket, divided by the zip",
     "Ribbed cuffs and hem",
-    "Screen prints applied by FTD in house (see artwork pages)",
+    "Screen prints by the manufacturer on cut panels before sewing (see artwork pages)",
 ]
 
 # component, specification, placement, colour, status
@@ -108,7 +108,7 @@ PANTS_FEATURES = [
     "Two rear welt pockets",
     "Centre back seam",
     "Clean-finished hem",
-    "Screen prints applied by FTD in house (see artwork pages)",
+    "Screen prints by the manufacturer on cut panels before sewing (see artwork pages)",
 ]
 
 PANTS_BOM = [
@@ -137,8 +137,9 @@ PANTS_CONSTRUCTION = [
 
 # ---------------------------------------------------------------- styles
 
-PRINT_METHOD = ("Screen print by FTD in house. Ink: white plastisol or water-based discharge (TBC after test "
-                "prints on the sample fabric). No printing by the manufacturer.")
+PRINT_METHOD = ("Screen print by the manufacturer (in house or their usual print partner), one colour, white. "
+                "Ink: water-based discharge or white plastisol, please advise for this fabric; strike-off on "
+                "sample fabric to be approved by FTD before the sample panels are printed.")
 
 # Print artwork: three one-colour pieces cover all of Drop 01. Files in techpack/artwork/
 # are built by scripts/build_print_files.py (vector SVG + 300 dpi film positive, black = ink).
@@ -210,11 +211,13 @@ STYLES = [
 
 QUESTIONS = [
     "Sample cost per style, lead time, and how many fit rounds are included.",
-    "Can you supply the printable panels cut but unsewn, then sew them after we return them printed? Cost and turnaround?",
+    "Do you screen print in house? If not, who prints, and is printing cut panels before sewing standard for you?",
+    "Screen set-up cost per screen and print cost per location. Drop 01 uses three screens (ART-01, -02, -03), shared across styles.",
+    "Ink you recommend on this fleece (discharge or plastisol), and the cost of a strike-off on our fabric.",
     "Production minimum order per style and colour, and how it can be split across sizes.",
     "Fleece options at 450–500 gsm, 100% cotton: shrinkage figures and colourfastness.",
     "Zip options for the sample (brand, finish), and for production: cost and minimum for a custom puller, including mould fee.",
-    "Can you grade the pattern XS–XXL and share the pattern pieces (PDF or DXF) so we can make print placement guides?",
+    "Can you grade the pattern XS–XXL? Who owns the pattern, and can we have a copy (PDF or DXF)?",
     "Can you source the woven main and size labels, and the care labels?",
     "Shipping method, cost and duties to the UK.",
 ]

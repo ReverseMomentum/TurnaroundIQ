@@ -191,7 +191,7 @@ def build(style):
     rows = [("Style code", style["code"]), ("Style name", style["name"]), ("Collection", "Drop 01"),
             ("Colour", style["colour"]), ("Sample type", "First (proto / fit) sample"),
             ("Sample size", spec.SAMPLE_SIZE), ("Size range", " · ".join(spec.SIZES)),
-            ("Quantity", "1 sample, plus 1 spare set of the printable panels for test prints"),
+            ("Quantity", "1 sample, plus a print strike-off on the sample fabric"),
             ("Brand contact", spec.BRAND["contact"] or "—"), ("Version / date", f"{spec.VERSION} · {spec.DATE}")]
     kv = "".join(f"<tr><td>{esc(k)}</td><td>{esc(v)}</td></tr>" for k, v in rows)
     feats = "".join(f"<li>{esc(f)}</li>" for f in features)
@@ -200,9 +200,9 @@ def build(style):
 <p class="note" style="font-size:8.4pt;color:#111">{esc(style['summary'])}</p>
 <h3>Key features</h3><ul>{feats}</ul></div>
 <div><table class="kv">{kv}</table>
-<h3>Important: printed in house</h3>
-<p class="note" style="color:#111;font-size:8.2pt">FTD screen prints this style itself. Please supply the panels listed on the
-"Cut panels" page <b>cut but not sewn</b>, send them to FTD for printing, then sew the sample when they return.
+<h3>Important: print before sewing</h3>
+<p class="note" style="color:#111;font-size:8.2pt">Please screen print the panels listed on the "Cut panels" page while they are
+<b>cut but not yet sewn</b>, then sew the sample. Please send a photo of the strike-off for approval before printing the panels.
 {esc(shared)}</p>
 <div class="legend">Value status: {tag('CONFIRMED')} decided {tag('PROPOSED')} starting point, please advise {tag('TBC')} answer needed</div>
 </div></div>"""))
@@ -280,17 +280,16 @@ Drop 01 uses three screens in total: ART-01 and ART-03 are shared between styles
     pp = "".join(f"<li>{esc(p)}</li>" for p in style["printed_panels"])
     fp = "".join(f"<li>{esc(p)}</li>" for p in style["factory_panels"])
     pages.append(("Cut panels: print before sewing", f"""<div class="cols"><div>
-<h2>Why</h2><p style="line-height:1.55">{esc(style['why'])} FTD prints the flat panels, then the manufacturer sews the garment.</p>
-<h3>Panels to send to FTD, cut and unsewn</h3><ul>{pp}</ul>
-<h3>Panels the factory keeps</h3><ul>{fp}</ul></div>
+<h2>Why</h2><p style="line-height:1.55">{esc(style['why'])} The panels are printed flat, then the garment is sewn.</p>
+<h3>Panels printed before sewing</h3><ul>{pp}</ul>
+<h3>Panels not printed</h3><ul>{fp}</ul></div>
 <div><h2>Steps</h2><ol class="steps" style="padding-left:5mm">
-<li>Manufacturer shares the pattern (PDF or DXF) for the sample size. FTD makes placement guides.</li>
-<li>Manufacturer cuts the sample and sends the printable panels to FTD, plus <b>1 spare set</b> for test prints.</li>
-<li>Each panel marked on the reverse with style code, size and panel name; all notches cut.</li>
-<li>FTD prints and cures the panels, then returns them with the spare set marked as used.</li>
-<li>Manufacturer sews the sample to this pack and sends it to FTD for fit approval.</li></ol>
-<p class="note">Allow for print shrinkage: panels should be cut from pre-shrunk fabric. If the manufacturer can't supply
-unsewn panels, please tell us before quoting.</p></div></div>"""))
+<li>Make the sample pattern and mark the print positions on the pattern pieces from the artwork page.</li>
+<li>Print a <b>strike-off</b> of each artwork on the sample fabric; send photos (and the swatch with the sample) for approval.</li>
+<li>Once approved, cut the sample from pre-shrunk fabric and print the panels flat, matching prints across seams and the zip.</li>
+<li>Cure and wash-test one printed offcut: no cracking or fading after 3 washes at 30°C.</li>
+<li>Sew the sample to this pack and send it to FTD for fit and print approval.</li></ol>
+<p class="note">If printing before sewing isn't possible for any panel, please tell us before quoting.</p></div></div>"""))
 
     # 9 labels, questions, approvals
     q = "".join(f"<li>{esc(x)}</li>" for x in spec.QUESTIONS)

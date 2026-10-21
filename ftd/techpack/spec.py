@@ -137,6 +137,20 @@ PANTS_CONSTRUCTION = [
 PRINT_METHOD = ("Screen print by FTD in house. Ink: white plastisol or water-based discharge (TBC after test "
                 "prints on the sample fabric). No printing by the manufacturer.")
 
+# Print artwork: three one-colour pieces cover all of Drop 01. Files in techpack/artwork/
+# are built by scripts/build_print_files.py (vector SVG + 300 dpi film positive, black = ink).
+# The same cross artwork is used at one size everywhere, so one screen serves both garments.
+ARTWORK = {
+    "ART-01": dict(name="FTD wordmark", file="FTD-ART-01_FTD-wordmark", size="45 × 22.3",
+                   used="HD01 chest, HD02 chest", status="PROPOSED"),
+    "ART-02": dict(name="NEVER ENOUGH logo", file="FTD-ART-02_Never-Enough", size="50 × 45.9",
+                   used="HD02 back", status="PROPOSED",
+                   note="At the limit of a standard screen; confirm the printer's maximum print area."),
+    "ART-03": dict(name="Crossbone cross", file="FTD-ART-03_Crossbone-cross", size="30 × 37.3",
+                   used="HD01 back ×2, sleeves ×2; PT01 legs ×4", status="PROPOSED",
+                   note="One screen, rotated per placement. Where a cross runs off a panel edge it is printed full size and cut by the seam."),
+}
+
 STYLES = [
     {
         "code": "FTD-D01-HD01",
@@ -148,10 +162,11 @@ STYLES = [
         "summary": "Cropped boxy zip hoodie with balloon sleeves. FTD wordmark on the chest, crossbone crosses down both sleeves and across the back shoulders.",
         "prints": [
             # name, approx size w x h (cm), placement, panels printed
-            ("P1  FTD wordmark", "44.7 × 23.3", "Centred on CF, across the zip. Top edge approx. 8 cm below HPS. Matched across the zip within 3 mm.", "Front L, Front R"),
-            ("P2  Back crosses (×2)", "30.4 × 37.6 and 28.2 × 26.7", "Diagonal across upper back. Both run over the shoulder seams onto the sleeves; match at the seams within 5 mm.", "Back, Sleeve L, Sleeve R"),
-            ("P3  Sleeve crosses", "approx. 27 × 52 each (wraps sleeve)", "Full length of each sleeve, wrapping from front to back. Printed on the flat sleeve panel.", "Sleeve L, Sleeve R"),
+            ("P1  FTD wordmark (ART-01)", "45 × 22.3", "Centred on CF, across the zip. Top edge approx. 8 cm below HPS. Matched across the zip within 3 mm.", "Front L, Front R"),
+            ("P2  Back crosses ×2 (ART-03)", "30 × 37.3 each", "Diagonal across upper back, rotated as drawn. Both run over the shoulder seams onto the sleeves; match at the seams within 5 mm.", "Back, Sleeve L, Sleeve R"),
+            ("P3  Sleeve crosses ×2 (ART-03)", "30 × 37.3 each", "One per sleeve, rotated as drawn, wrapping from front to back. Printed on the flat sleeve panel.", "Sleeve L, Sleeve R"),
         ],
+        "artwork": ["ART-01", "ART-03"],
         "printed_panels": ["Front L", "Front R", "Back", "Sleeve L", "Sleeve R"],
         "factory_panels": ["Hood (×2 outer, ×2 lining)", "Pouch pocket pieces", "Cuff rib (×2)", "Hem rib"],
     },
@@ -164,9 +179,10 @@ STYLES = [
         "colour": "Black",
         "summary": "Same body as HD01. FTD wordmark on the chest, NEVER ENOUGH death-metal logo across the back. Plain sleeves.",
         "prints": [
-            ("P1  FTD wordmark", "44.7 × 23.3", "Centred on CF, across the zip. Top edge approx. 8 cm below HPS. Matched across the zip within 3 mm.", "Front L, Front R"),
-            ("P2  NEVER ENOUGH logo", "50.5 × 43.3", "Centred on CB. Top edge approx. 2 cm below the hood seam.", "Back"),
+            ("P1  FTD wordmark (ART-01)", "45 × 22.3", "Centred on CF, across the zip. Top edge approx. 8 cm below HPS. Matched across the zip within 3 mm.", "Front L, Front R"),
+            ("P2  NEVER ENOUGH logo (ART-02)", "50 × 45.9", "Centred on CB. Top edge approx. 2 cm below the hood seam.", "Back"),
         ],
+        "artwork": ["ART-01", "ART-02"],
         "printed_panels": ["Front L", "Front R", "Back"],
         "factory_panels": ["Sleeves (×2)", "Hood (×2 outer, ×2 lining)", "Pouch pocket pieces", "Cuff rib (×2)", "Hem rib"],
     },
@@ -179,10 +195,11 @@ STYLES = [
         "colour": "Black",
         "summary": "Barrel-leg fleece pants with a stacked drawcord waistband. Crossbone crosses across both legs, front and back.",
         "prints": [
-            ("P1  Front cross, left leg", "32.7 × 41.8", "Upper left leg, running off the outseam. Cut by the side seam as drawn.", "Front L"),
-            ("P2  Front cross, right leg", "27.1 × 44.5", "Lower right leg, running off the outseam.", "Front R"),
-            ("P3  Back crosses", "approx. 31 × 48 (upper) plus fragments", "Upper back crossing the CB seam and the right welt pocket; second cross lower on the left leg. Match across CB seam within 5 mm.", "Back L, Back R"),
+            ("P1  Front cross, left leg (ART-03)", "30 × 37.3", "Upper left leg, rotated as drawn, running off the outseam and cut by the side seam.", "Front L"),
+            ("P2  Front cross, right leg (ART-03)", "30 × 37.3", "Lower right leg, rotated as drawn, running off the outseam.", "Front R"),
+            ("P3  Back crosses ×2 (ART-03)", "30 × 37.3 each", "Upper back crossing the CB seam and the right welt pocket; second cross lower on the left leg. Match across CB seam within 5 mm.", "Back L, Back R"),
         ],
+        "artwork": ["ART-03"],
         "printed_panels": ["Front L", "Front R", "Back L", "Back R"],
         "factory_panels": ["Waistband bands", "Pocket bags and facings", "Welt pieces"],
     },

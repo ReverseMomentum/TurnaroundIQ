@@ -259,6 +259,23 @@ for the same look, please suggest it.</p>"""))
 <p class="note">Sizes are taken from the flats and are approximate for the first sample. FTD will make 1:1 placement guides on the
 pattern pieces once the pattern is shared, so prints that cross seams line up.</p>"""))
 
+    # 7b artwork files
+    cards = []
+    for code in style["artwork"]:
+        art = spec.ARTWORK[code]
+        img = OUT / "artwork" / f"{art['file']}_{art['size'].split(' ')[0]}cm_300dpi.png"
+        note = f"<p class='note'>{esc(art['note'])}</p>" if art.get("note") else ""
+        cards.append(f"""<div style="flex:1;border:.25mm solid #999;padding:4mm;display:flex;flex-direction:column;gap:2mm">
+<div style="height:78mm;display:grid;place-items:center;background:#f4f4f4"><img src="file://{img}" style="max-width:100%;max-height:74mm"></div>
+<h3 style="margin:1mm 0 0">{code} · {esc(art['name'])} {tag(art['status'])}</h3>
+<table class="kv"><tr><td>Print size (w × h)</td><td>{esc(art['size'])} cm</td></tr>
+<tr><td>Used on</td><td>{esc(art['used'])}</td></tr>
+<tr><td>Files</td><td>{esc(art['file'])}.svg (vector)<br>{esc(img.name)}</td></tr></table>{note}</div>""")
+    pages.append(("Artwork files", f"""<div style="display:flex;gap:6mm">{''.join(cards)}</div>
+<p class="note">One colour: white ink on black. Files are supplied as vector SVG plus a 300 dpi PNG film positive at print size
+(black = ink). Fine distressed detail in ART-03 is part of the design; please flag any lines too fine to hold on your mesh.
+Drop 01 uses three screens in total: ART-01 and ART-03 are shared between styles.</p>"""))
+
     # 8 cut panels workflow
     pp = "".join(f"<li>{esc(p)}</li>" for p in style["printed_panels"])
     fp = "".join(f"<li>{esc(p)}</li>" for p in style["factory_panels"])

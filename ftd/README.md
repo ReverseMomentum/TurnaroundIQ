@@ -141,6 +141,9 @@ CONFIRMED, PROPOSED or TBC. Edit it and rebuild:
 python3 scripts/build_techpack.py
 ```
 
+Print artwork: your three source files are in `art/print/`. `python3 scripts/build_print_files.py` traces them to vector
+SVG and renders 300 dpi film positives at print size into `techpack/artwork/` (run it before the tech pack build).
+
 Flats come from `art/flats/<slug>-black.png`. Callout and measurement-line positions are in `CALLOUTS` and
 `POM_LINES` in `scripts/build_techpack.py`, in flat-sheet pixels. Print sizes are scaled from the flats using the
 proposed chest (hoodie) and hip (pants) widths.

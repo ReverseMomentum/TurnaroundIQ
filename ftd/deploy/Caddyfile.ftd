@@ -1,0 +1,27 @@
+# FTD site + waitlist API. Replace the hostname, then either append this block to
+# /etc/caddy/Caddyfile or `import` it from there. deploy/deploy.sh does neither
+# automatically, so it can never clobber the TurnaroundIQ Caddyfile.
+
+ftd.example.com {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	handle {
+		root * /var/www/ftd
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+		header /art/* Cache-Control "public, max-age=604800"
+		@html path / /index.html
+		header @html Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+}

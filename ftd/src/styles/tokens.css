@@ -1,0 +1,54 @@
+:root {
+  /* palette */
+  --ink: #0a0807;
+  --char: #15110e;
+  --char-2: #1c1713;
+  /* rust red, one tone for art and text alike (a brand choice: 2.9:1 on --ink, below
+     the 4.5:1 guideline for small text). For a more legible text tone, set
+     --rust-text to #c8583c (4.7:1). Bone on a --rust fill reads at 5.1:1. */
+  --rust: #9c3a22;
+  --rust-text: var(--rust);
+  --rust-deep: #7a2c19;
+  --bone: #e6dcc9;
+  --grey: #82796f;
+  --grey-2: #9a9085; /* small supporting text on --ink */
+  --error: #eaa98c; /* paler than --rust-text so errors never read as normal copy */
+
+  --line: rgb(156 58 34 / 0.75);
+  --line-soft: rgb(156 58 34 / 0.38);
+  --line-bone: rgb(230 220 201 / 0.14);
+
+  /* type */
+  --f-display: "Grenze Gotisch", "Barlow Condensed", serif; /* blackletter display, set in caps */
+  --f-serif: "Grenze", Georgia, serif; /* flared serif from the concept: statements, descriptor */
+  --f-ed: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --t-micro: 0.6875rem; /* 11px */
+  --t-small: 0.8125rem; /* 13px */
+  --t-body: 0.9375rem; /* 15px */
+  --t-label: clamp(0.8125rem, 0.75rem + 0.2vw, 0.9375rem);
+  --t-statement: clamp(1.05rem, 0.85rem + 0.7vw, 1.5rem);
+  --t-h2: clamp(2.2rem, 1.6rem + 2.2vw, 3.6rem);
+  --t-h1: clamp(2.8rem, 2rem + 3vw, 4.8rem);
+
+  --track-wide: 0.32em;
+  --track: 0.14em;
+
+  /* space */
+  --gutter: clamp(16px, 4vw, 48px);
+  --s-1: 0.5rem;
+  --s-2: 1rem;
+  --s-3: 1.5rem;
+  --s-4: 2.5rem;
+  --s-5: 4rem;
+  --s-6: clamp(4rem, 8vw, 8rem);
+  --max: 1440px;
+
+  /* lines and effects */
+  --hair: 1px solid var(--line);
+  --hair-soft: 1px solid var(--line-soft);
+  --ease: cubic-bezier(0.2, 0.7, 0.1, 1);
+  --dur: 220ms;
+  --focus: 0 0 0 2px var(--ink), 0 0 0 4px var(--bone);
+}
